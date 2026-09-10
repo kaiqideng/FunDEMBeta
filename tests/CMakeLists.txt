@@ -42,10 +42,18 @@ fundem_add_cpp_test(
     SPHCPUStateTest.cpp
 )
 
+fundem_add_cpp_test(fundem_sph_robustness_test FunDEM.SPHRobustness SPHRobustnessTest.cpp)
+
 fundem_add_cpp_test(
     fundem_sph_jet_test
     FunDEM.SPHJet
     SPHJetTest.cpp
+)
+
+fundem_add_cpp_test(
+    fundem_sph_coupling_test
+    FunDEM.SPHCoupling
+    SPHCouplingTest.cpp
 )
 
 fundem_add_cpp_test(
@@ -112,6 +120,11 @@ if(FUNDEM_HAS_CUDA)
         fundem_sph_state_test
         FunDEM.SPHState
         SPHStateTest.cu
+    )
+    fundem_add_cuda_test(
+        fundem_sph_robustness_gpu_test
+        FunDEM.SPHRobustness.GPU
+        SPHRobustnessTest.cu
     )
 else()
     message(STATUS "CUDA tests are skipped because CUDA is unavailable.")

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -380,6 +381,7 @@ void SPHDEM::setSPHSoundSpeed(Real value)
 
 void SPHDEM::invalidateDeferredState() noexcept
 {
+    invalidateSPHNeighborhood();
     SPHStepState_.resume_ = false;
     outputSnapshot_ = {};
     SPHInitializationState_.fluidParticleCount_ = -1;
@@ -444,6 +446,7 @@ void SPHDEM::initialize(cpu::mode)
 {
     initializeSPH(cpu::mode{});
     assembleForceAndTorque(0.0, cpu::mode{});
+    virtualParticleCoupling_.resetKinematicsReference(virtualParticles_, LSParticles());
 }
 
 void SPHDEM::initialize(gpu::mode, cudaStream_t stream)
@@ -451,21 +454,34 @@ void SPHDEM::initialize(gpu::mode, cudaStream_t stream)
     initializeLSParticleDevice(stream);
     initializeSPH(gpu::mode{}, stream);
     assembleForceAndTorque(0.0, gpu::mode{}, stream);
+#if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
+    cuda::launchResetVirtualParticleKinematicsReference(virtualParticles_, LSParticles(), stream);
+#endif
 }
 
 void SPHDEM::initialize(hybrid::mode, cudaStream_t stream)
 {
     initializeSPH(hybrid::mode{}, stream);
     assembleForceAndTorque(0.0, hybrid::mode{}, stream);
+    virtualParticleCoupling_.resetKinematicsReference(virtualParticles_, LSParticles());
 }
 
 void SPHDEM::advanceCPU(Real timeStep)
 {
+    // Sample the complete previous endpoint loads, before either half kick or
+    // force clearing. This includes retained fluid and external-module loads.
+    if (!SPHInitializationState_.boundaryStatic_)
+        virtualParticleCoupling_.accumulateKinematics(virtualParticles_, LSParticles(), gravity(), timeStep);
     const Real halfTimeStep = 0.5 * timeStep;
     cpu::integrateVelocity(mutableLSParticles(), gravity(), halfTimeStep);
     cpu::integratePosition(mutableLSParticles(), timeStep);
     assembleForceAndTorque(timeStep, cpu::mode{});
     cpu::integrateVelocity(mutableLSParticles(), gravity(), halfTimeStep);
+    if (SPHStepState_.couplingImpulseTime_ > 0.0)
+    {
+        virtualParticleCoupling_.applyImpulseCorrection(mutableLSParticles(), SPHStepState_.couplingImpulseTime_);
+        SPHStepState_.couplingImpulseTime_ = 0.0;
+    }
 }
 
 void SPHDEM::advanceGPU(Real timeStep)
@@ -473,10 +489,17 @@ void SPHDEM::advanceGPU(Real timeStep)
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
     const cudaStream_t stream = gpuStream();
     const Real halfTimeStep = 0.5 * timeStep;
+    if (!SPHInitializationState_.boundaryStatic_)
+        cuda::launchAccumulateVirtualParticleKinematics(virtualParticles_, LSParticles(), gravity(), timeStep, stream);
     cuda::launchVelocityAndAngularVelocityIntegration(mutableLSParticles(), gravity(), halfTimeStep, stream);
     cuda::launchPositionAndOrientationIntegration(mutableLSParticles(), timeStep, stream);
     assembleForceAndTorque(timeStep, gpu::mode{}, stream);
     cuda::launchVelocityAndAngularVelocityIntegration(mutableLSParticles(), gravity(), halfTimeStep, stream);
+    if (SPHStepState_.couplingImpulseTime_ > 0.0)
+    {
+        cuda::launchApplyVirtualParticleImpulseCorrection(mutableLSParticles(), virtualParticles_, SPHStepState_.couplingImpulseTime_, stream);
+        SPHStepState_.couplingImpulseTime_ = 0.0;
+    }
 #else
     (void)timeStep;
 #endif
@@ -487,10 +510,17 @@ void SPHDEM::advanceHybrid(Real timeStep)
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
     const cudaStream_t stream = gpuStream();
     const Real halfTimeStep = 0.5 * timeStep;
+    if (!SPHInitializationState_.boundaryStatic_)
+        virtualParticleCoupling_.accumulateKinematics(virtualParticles_, LSParticles(), gravity(), timeStep);
     cpu::integrateVelocity(mutableLSParticles(), gravity(), halfTimeStep);
     cpu::integratePosition(mutableLSParticles(), timeStep);
     assembleForceAndTorque(timeStep, hybrid::mode{}, stream);
     cpu::integrateVelocity(mutableLSParticles(), gravity(), halfTimeStep);
+    if (SPHStepState_.couplingImpulseTime_ > 0.0)
+    {
+        virtualParticleCoupling_.applyImpulseCorrection(mutableLSParticles(), SPHStepState_.couplingImpulseTime_);
+        SPHStepState_.couplingImpulseTime_ = 0.0;
+    }
 #else
     (void)timeStep;
 #endif
@@ -544,6 +574,7 @@ void SPHDEM::initializeSPHState()
     virtualParticles_.resetDevice();
     virtualParticles_.host().clear();
     SPHStepState_.pendingDEMSteps_ = 0;
+    SPHStepState_.couplingImpulseTime_ = 0.0;
     SPHStepState_.acousticTimeStepLimit_ = 0.0;
     SPHStepState_.acousticTimeStep_ = 0.0;
     SPHStepState_.advectionTimeStepLimit_ = 0.0;
@@ -650,7 +681,7 @@ void SPHDEM::initializeSPH(hybrid::mode, cudaStream_t stream)
     initializeSPHDevice(stream);
 }
 
-void SPHDEM::flushSPHToCurrentTime(cudaStream_t stream)
+void SPHDEM::flushSPHToCurrentTime(cudaStream_t stream, bool commitCouplingImpulse)
 {
     if (SPHStepState_.pendingDEMSteps_ == 0)
     {
@@ -671,23 +702,32 @@ void SPHDEM::flushSPHToCurrentTime(cudaStream_t stream)
         break;
     }
     SPHStepState_.pendingDEMSteps_ = 0;
+    // During this acoustic interval the solid used the old load for all but
+    // the final DEM half kick. Match that impulse only after the kick finishes.
+    // Output/completion projections must never modify the rigid-body state.
+    if (commitCouplingImpulse)
+        SPHStepState_.couplingImpulseTime_ = representedTime - 0.5 * timeStep();
 }
 
 void SPHDEM::beginOutputSnapshot()
 {
-    if (SPHStepState_.pendingDEMSteps_ == 0 || SPHStepState_.resume_)
+    if (SPHStepState_.pendingDEMSteps_ == 0 || (SPHStepState_.resume_ && mode() == executionMode::CPU))
     {
         return;
     }
     const cudaStream_t stream = gpuStream();
-    captureSPHState(false, stream);
+    // After a device solve(), host results are current but device state is
+    // deferred. Preserve those current host results when restoring the device.
+    captureSPHState(SPHStepState_.resume_, stream);
+    outputObservationSnapshot_ = true;
     flushSPHToCurrentTime(stream);
 }
 
 void SPHDEM::endOutputSnapshot()
 {
-    if (!SPHStepState_.resume_)
+    if (outputObservationSnapshot_)
     {
+        outputObservationSnapshot_ = false;
         restoreSPHState(gpuStream());
     }
 }
@@ -755,6 +795,10 @@ void SPHDEM::restoreSPHState(cudaStream_t stream)
     virtualParticles_.host() = std::move(outputSnapshot_.virtualParticles_);
     SPHStepState_ = outputSnapshot_.stepState_;
     virtualParticleCoupling_.restoreState(std::move(outputSnapshot_.couplingState_));
+    // A projected observation may have rebuilt neighbor lists or device grids.
+    // Rebuild search structures against restored integration state on demand,
+    // without resetting density, forces, or the saved advection phase.
+    invalidateSPHNeighborhood();
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
     if (mode() != executionMode::CPU)
     {
@@ -790,7 +834,7 @@ void SPHDEM::writeSPHVTU(int frameIndex)
 
 double SPHDEM::SPHDeviceMemoryGB() const noexcept
 {
-    return SPHParticles_.deviceMemoryGB() + virtualParticles_.deviceMemoryGB() + SPHSpatialGrid_.deviceMemoryGB() + virtualParticleSpatialGrid_.deviceMemoryGB();
+    return SPHParticles_.deviceMemoryGB() + virtualParticles_.deviceMemoryGB() + SPHSpatialGrid_.deviceMemoryGB() + virtualParticleSpatialGrid_.deviceMemoryGB() + SPHNeighborhood_.deviceMemoryGB();
 }
 
 double SPHDEM::systemDeviceMemoryGB() const noexcept { return LSDEM::systemDeviceMemoryGB() + SPHDeviceMemoryGB(); }
@@ -799,14 +843,10 @@ void SPHDEM::calculateSPHForceAndTorque(Real DEMTimeStep, cpu::mode)
 {
     if (DEMTimeStep > 0.0)
     {
-        if (!SPHInitializationState_.boundaryStatic_)
-        {
-            virtualParticleCoupling_.accumulateKinematics(virtualParticles_, LSParticles(), gravity());
-        }
         ++SPHStepState_.pendingDEMSteps_;
         if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acousticStepInterval_)
         {
-            flushSPHToCurrentTime(nullptr);
+            flushSPHToCurrentTime(nullptr, true);
         }
     }
     virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
@@ -829,8 +869,6 @@ void SPHDEM::prepareSPHAdvectionStep(cpu::mode)
     const Real searchBuffer = fluidSearchBuffer > boundarySearchBuffer ? fluidSearchBuffer : boundarySearchBuffer;
     SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_ + searchBuffer;
 
-    const Real supportRadius = 2.0 * SPHProperties_.smoothingLength_;
-    const Vec3 boundaryPadding{supportRadius, supportRadius, supportRadius};
     const cpu::SPHInteractionParameters parameters{SPHProperties_.smoothingLength_,
                                                    particleMass,
                                                    SPHProperties_.referenceDensity_,
@@ -838,7 +876,8 @@ void SPHDEM::prepareSPHAdvectionStep(cpu::mode)
                                                    SPHProperties_.soundSpeed_,
                                                    SPHProperties_.dynamicViscosity_,
                                                    gravity()};
-    SPHInteractions_->buildNeighborhood(SPHParticles_, virtualParticles_, minimumBoundary() - boundaryPadding, maximumBoundary() + boundaryPadding, supportRadius, SPHStepState_.neighborSearchRadius_);
+    invalidateSPHNeighborhood();
+    ensureSPHNeighborhood(cpu::mode{});
     SPHInteractions_->updateFreeSurface(SPHParticles_, virtualParticles_, parameters);
     SPHInteractions_->reinitializeDensity(SPHParticles_, virtualParticles_, parameters);
     SPHInteractions_->updatePriorForceAndBoundaryForce(SPHParticles_, virtualParticles_, parameters);
@@ -881,6 +920,17 @@ void SPHDEM::updateSPHJetCompletion() noexcept
     }
 }
 
+void SPHDEM::ensureSPHNeighborhood(cpu::mode)
+{
+    const Real supportRadius = 2.0 * SPHProperties_.smoothingLength_;
+    const Real skin = std::max(Real{0.0}, SPHStepState_.neighborSearchRadius_ - supportRadius);
+    if (!SPHNeighborhood_.needsRebuild(SPHParticles_, virtualParticles_, skin))
+        return;
+    const Vec3 padding{supportRadius, supportRadius, supportRadius};
+    SPHInteractions_->buildNeighborhood(SPHParticles_, virtualParticles_, minimumBoundary() - padding, maximumBoundary() + padding, supportRadius, SPHStepState_.neighborSearchRadius_);
+    SPHNeighborhood_.captureHost(SPHParticles_, virtualParticles_);
+}
+
 void SPHDEM::advanceSPH(Real timeStep, cpu::mode)
 {
     const Real jetConstraintTime = SPHStepState_.representedTime_;
@@ -899,14 +949,17 @@ void SPHDEM::advanceSPH(Real timeStep, cpu::mode)
                                                    SPHProperties_.soundSpeed_,
                                                    SPHProperties_.dynamicViscosity_,
                                                    gravity()};
+    ensureSPHNeighborhood(cpu::mode{});
     SPHInteractions_->updateDensity(SPHParticles_, virtualParticles_, parameters, halfTimeStep);
     SPHInteractions_->integratePosition(SPHParticles_, halfTimeStep);
+    ensureSPHNeighborhood(cpu::mode{});
     SPHInteractions_->updatePressureForceAndBoundaryForce(SPHParticles_, virtualParticles_, parameters);
     SPHInteractions_->integrateVelocity(SPHParticles_, gravity(), timeStep);
     // A jet active at the substep start remains active for the full substep, so
     // its end time is quantized upward by at most one acoustic substep.
     applySPHJetVelocity(jetConstraintTime, cpu::mode{});
     SPHInteractions_->integratePosition(SPHParticles_, halfTimeStep);
+    ensureSPHNeighborhood(cpu::mode{});
     SPHInteractions_->updateDensity(SPHParticles_, virtualParticles_, parameters, halfTimeStep);
 
     SPHStepState_.representedTime_ += timeStep;
@@ -1004,19 +1057,20 @@ void SPHDEM::updateSPHAdvectionTimeStep()
     const Real maximumSPHTimeStep = SPHStepState_.advectionTimeStepLimit_ < SPHStepState_.acousticTimeStepLimit_ ? SPHStepState_.advectionTimeStepLimit_ : SPHStepState_.acousticTimeStepLimit_;
     setSPHAcousticTimeStepFromLimit(maximumSPHTimeStep);
     const Real maximumAdvectionStepInterval = std::floor(SPHStepState_.advectionTimeStepLimit_ / SPHStepState_.acousticTimeStep_ + math::defaultTolerance);
-    SPHStepState_.advectionStepInterval_ = maximumAdvectionStepInterval >= 1.0 ? static_cast<int>(maximumAdvectionStepInterval) : 1;
+    SPHStepState_.advectionStepInterval_ = static_cast<int>(std::clamp(maximumAdvectionStepInterval, Real{1.0}, Real{std::numeric_limits<int>::max()}));
     SPHStepState_.advectionTimeStep_ = SPHStepState_.advectionStepInterval_ * SPHStepState_.acousticTimeStep_;
 }
 
 void SPHDEM::setSPHAcousticTimeStepFromLimit(Real maximumTimeStep)
 {
     const Real DEMTimeStep = timeStep();
-    if (DEMTimeStep > maximumTimeStep && !math::nearlyEqual(DEMTimeStep, maximumTimeStep))
+    // Use relative slack: an absolute tolerance in seconds can exceed a small stability limit.
+    if (DEMTimeStep > maximumTimeStep && DEMTimeStep - maximumTimeStep > math::defaultTolerance * maximumTimeStep)
     {
         throw std::runtime_error("The DEM time step exceeds the SPH acoustic or advection stability limit. Reduce the DEM time step.");
     }
     const Real maximumStepInterval = std::floor(maximumTimeStep / DEMTimeStep + math::defaultTolerance);
-    SPHStepState_.acousticStepInterval_ = maximumStepInterval >= 1.0 ? static_cast<int>(maximumStepInterval) : 1;
+    SPHStepState_.acousticStepInterval_ = static_cast<int>(std::clamp(maximumStepInterval, Real{1.0}, Real{std::numeric_limits<int>::max()}));
     SPHStepState_.acousticTimeStep_ = SPHStepState_.acousticStepInterval_ * DEMTimeStep;
 }
 
@@ -1091,7 +1145,11 @@ void SPHDEM::initializeSPHDevice(cudaStream_t stream)
     cuda::launchClearVirtualParticleKinematics(virtualParticles_, stream);
     updateSPHAcousticTimeStep(gpu::mode{}, stream);
     updateSPHAdvectionTimeStep();
-    if (!LSParticles().usesDevice())
+    if (LSParticles().usesDevice())
+    {
+        cuda::launchRefreshVirtualParticleCouplingLoads(virtualParticles_, LSParticles(), stream);
+    }
+    else
     {
         virtualParticleCoupling_.copyForceAndTorqueFromDevice(virtualParticles_, LSParticles(), stream);
     }
@@ -1101,14 +1159,10 @@ void SPHDEM::calculateSPHForceAndTorque(Real DEMTimeStep, gpu::mode, cudaStream_
 {
     if (DEMTimeStep > 0.0)
     {
-        if (!SPHInitializationState_.boundaryStatic_)
-        {
-            cuda::launchAccumulateVirtualParticleKinematics(virtualParticles_, LSParticles(), gravity(), stream);
-        }
         ++SPHStepState_.pendingDEMSteps_;
         if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acousticStepInterval_)
         {
-            flushSPHToCurrentTime(stream);
+            flushSPHToCurrentTime(stream, true);
         }
     }
     cuda::launchAddVirtualParticleForceAndTorque(mutableLSParticles(), virtualParticles_, stream);
@@ -1118,14 +1172,10 @@ void SPHDEM::calculateSPHForceAndTorque(Real DEMTimeStep, hybrid::mode, cudaStre
 {
     if (DEMTimeStep > 0.0)
     {
-        if (!SPHInitializationState_.boundaryStatic_)
-        {
-            virtualParticleCoupling_.accumulateKinematics(virtualParticles_, LSParticles(), gravity());
-        }
         ++SPHStepState_.pendingDEMSteps_;
         if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acousticStepInterval_)
         {
-            flushSPHToCurrentTime(stream);
+            flushSPHToCurrentTime(stream, true);
         }
     }
     virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
@@ -1148,8 +1198,8 @@ void SPHDEM::prepareSPHAdvectionStep(gpu::mode, cudaStream_t stream)
     const Real searchBuffer = fluidSearchBuffer > boundarySearchBuffer ? fluidSearchBuffer : boundarySearchBuffer;
     SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_ + searchBuffer;
 
-    cuda::launchBuildSPHSpatialGrid(SPHSpatialGrid_, SPHParticles_, stream);
-    cuda::launchBuildVirtualParticleSpatialGrid(virtualParticleSpatialGrid_, virtualParticles_, stream);
+    invalidateSPHNeighborhood();
+    ensureSPHNeighborhood(gpu::mode{}, stream);
     cuda::launchUpdateSPHFreeSurface(SPHParticles_,
                                      virtualParticles_,
                                      SPHSpatialGrid_.device(),
@@ -1180,6 +1230,22 @@ void SPHDEM::prepareSPHAdvectionStep(gpu::mode, cudaStream_t stream)
                                                     stream);
 }
 
+void SPHDEM::ensureSPHNeighborhood(gpu::mode, cudaStream_t stream)
+{
+    const Real skin = std::max(Real{0.0}, SPHStepState_.neighborSearchRadius_ - 2.0 * SPHProperties_.smoothingLength_);
+    if (SPHNeighborhood_.valid())
+    {
+        const Real displacement = cuda::maximumSPHNeighborDisplacementSquared(SPHParticles_, virtualParticles_, SPHNeighborhood_.positions(), stream);
+        if (!math::isFinite(displacement))
+            throw std::runtime_error("Non-finite SPH position while checking the neighborhood displacement.");
+        if (!SPHNeighborhood_.exceedsSkin(displacement, skin))
+            return;
+    }
+    cuda::launchBuildSPHSpatialGrid(SPHSpatialGrid_, SPHParticles_, stream);
+    cuda::launchBuildVirtualParticleSpatialGrid(virtualParticleSpatialGrid_, virtualParticles_, stream);
+    SPHNeighborhood_.captureDevice(SPHParticles_, virtualParticles_, stream);
+}
+
 void SPHDEM::advanceSPH(Real timeStep, gpu::mode, cudaStream_t stream)
 {
     const Real jetConstraintTime = SPHStepState_.representedTime_;
@@ -1191,6 +1257,7 @@ void SPHDEM::advanceSPH(Real timeStep, gpu::mode, cudaStream_t stream)
 
     const Real halfTimeStep = 0.5 * timeStep;
     const Real particleMass = SPHProperties_.particleMass();
+    ensureSPHNeighborhood(gpu::mode{}, stream);
     cuda::launchUpdateSPHDensity(SPHParticles_,
                                  virtualParticles_,
                                  SPHSpatialGrid_.device(),
@@ -1204,6 +1271,7 @@ void SPHDEM::advanceSPH(Real timeStep, gpu::mode, cudaStream_t stream)
                                  gravity(),
                                  stream);
     cuda::launchIntegrateSPHPosition(SPHParticles_, halfTimeStep, stream);
+    ensureSPHNeighborhood(gpu::mode{}, stream);
     cuda::launchUpdateSPHPressureForceAndBoundaryForce(SPHParticles_,
                                                        virtualParticles_,
                                                        SPHSpatialGrid_.device(),
@@ -1219,6 +1287,7 @@ void SPHDEM::advanceSPH(Real timeStep, gpu::mode, cudaStream_t stream)
     // Keep the boundary condition fixed through this complete acoustic substep.
     applySPHJetVelocity(jetConstraintTime, gpu::mode{}, stream);
     cuda::launchIntegrateSPHPosition(SPHParticles_, halfTimeStep, stream);
+    ensureSPHNeighborhood(gpu::mode{}, stream);
     cuda::launchUpdateSPHDensity(SPHParticles_,
                                  virtualParticles_,
                                  SPHSpatialGrid_.device(),
@@ -1253,11 +1322,13 @@ void SPHDEM::advanceSPH(Real timeStep, gpu::mode, cudaStream_t stream)
 
 void SPHDEM::flushSPH(Real representedTime, gpu::mode, cudaStream_t stream)
 {
+    cuda::launchCacheVirtualParticleCouplingForce(virtualParticles_, stream);
     if (!SPHInitializationState_.boundaryStatic_)
     {
         cuda::launchAverageVirtualParticleKinematics(virtualParticles_, LSParticles(), 1.0 / Real(SPHStepState_.pendingDEMSteps_), stream);
     }
     advanceSPH(representedTime, gpu::mode{}, stream);
+    cuda::launchRefreshVirtualParticleCouplingLoads(virtualParticles_, LSParticles(), stream);
     if (!SPHInitializationState_.boundaryStatic_)
     {
         cuda::launchClearVirtualParticleKinematics(virtualParticles_, stream);

@@ -13,6 +13,7 @@ target_sources(
             contactFunctions.h
             bondFunctions.h
             sphFunctions.h
+            sphCouplingFunctions.h
             sphJetFunctions.h
             sphSourceDiscretization.h
 )

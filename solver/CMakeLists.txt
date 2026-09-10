@@ -1,10 +1,11 @@
-set(FUNDEM_SOLVER_HEADERS solver.h LSDEM.h SphereDEM.h SPHDEM.h SPHJet.h solvers.h virtualParticleCoupling.h "${FUNDEM_ROOT}/data/vtuOutput.h" "${FUNDEM_ROOT}/data/energyOutput.h")
+set(FUNDEM_SOLVER_HEADERS solver.h LSDEM.h SphereDEM.h SPHDEM.h SPHJet.h SPHNeighborhood.h solvers.h virtualParticleCoupling.h "${FUNDEM_ROOT}/data/vtuOutput.h" "${FUNDEM_ROOT}/data/energyOutput.h")
 set(
     FUNDEM_SOLVER_SOURCES
     solver.cpp
     LSDEM.cpp
     SphereDEM.cpp
     SPHDEM.cpp
+    SPHNeighborhood.cpp
     sphInteraction.cpp
     virtualParticleCoupling.cpp
     "${FUNDEM_ROOT}/data/vtuOutput.cpp"

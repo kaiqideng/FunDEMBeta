@@ -8,11 +8,18 @@
 #include "particle/SPHParticle.h"
 #include "particle/spatialGrid.h"
 #include "particle/virtualParticle.h"
+#include "solver/SPHNeighborhood.h"
 
 #include <cuda_runtime_api.h>
 
 namespace fundem::cuda
 {
+
+/** Reduces actual fluid and boundary displacement from the cached grid reference. */
+math::Real maximumSPHNeighborDisplacementSquared(const SPHParticleContainer& particles,
+                                                 const virtualParticleContainer& boundaries,
+                                                 const SPHNeighborPositionContainer& reference,
+                                                 cudaStream_t stream);
 
 /** Device-reduced fluid extrema and invalid-state count. */
 struct SPHStateStatistics {
@@ -37,11 +44,24 @@ void launchUpdateVirtualParticlePositionAndNormal(virtualParticleContainer& virt
 /** Clears sampled velocity, acceleration, force, and normal accumulators. */
 void launchClearVirtualParticleKinematics(virtualParticleContainer& virtualParticles, cudaStream_t stream = nullptr);
 /** Accumulates owner-body kinematics at every virtual boundary sample. */
-void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, cudaStream_t stream = nullptr);
+void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, math::Real timeStep, cudaStream_t stream = nullptr);
+/** Compatibility overload for instantaneous initialization without a difference interval. */
+inline void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, cudaStream_t stream = nullptr)
+{
+    launchAccumulateVirtualParticleKinematics(virtualParticles, LSParticles, gravity, math::Real{0.0}, stream);
+}
+/** Resets the prescribed-motion difference after initial external motion hooks have run. */
+void launchResetVirtualParticleKinematicsReference(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, cudaStream_t stream = nullptr);
 /** Converts accumulated boundary kinematics to the interval average. */
 void launchAverageVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, math::Real inverseSampleCount, cudaStream_t stream = nullptr);
 /** Atomically scatters sampled fluid loads to their owning LS bodies. */
 void launchAddVirtualParticleForceAndTorque(LSParticleContainer& LSParticles, const virtualParticleContainer& virtualParticles, cudaStream_t stream = nullptr);
+/** Retains the current world force before a fluid update for impulse matching. */
+void launchCacheVirtualParticleCouplingForce(virtualParticleContainer& virtualParticles, cudaStream_t stream = nullptr);
+/** Refreshes held world torques at the fluid evaluation pose and records load increments. */
+void launchRefreshVirtualParticleCouplingLoads(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, cudaStream_t stream = nullptr);
+/** Applies endpoint load-impulse corrections after the final DEM velocity half kick. */
+void launchApplyVirtualParticleImpulseCorrection(LSParticleContainer& LSParticles, const virtualParticleContainer& virtualParticles, math::Real correctionTime, cudaStream_t stream = nullptr);
 
 /** Detects free-surface SPH particles using fluid and boundary neighborhoods. */
 void launchUpdateSPHFreeSurface(SPHParticleContainer& particles,

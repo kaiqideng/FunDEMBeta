@@ -24,16 +24,21 @@ public:
     struct state {
         std::vector<Vec3> velocitySums_;     ///< Accumulated owner-sample velocities.
         std::vector<Vec3> accelerationSums_; ///< Accumulated owner-sample accelerations.
+        std::vector<Vec3> previousVelocities_; ///< Previous world sample velocities for prescribed acceleration.
         std::vector<Vec3> forcesByOwner_;    ///< Fluid reaction force per LS owner.
         std::vector<Vec3> torquesByOwner_;   ///< Fluid reaction torque per LS owner.
+        std::vector<Vec3> forceIncrementsByOwner_; ///< New minus held world force.
+        std::vector<Vec3> torqueIncrementsByOwner_; ///< New minus held world torque.
     };
 
     /** Releases owner mappings and all accumulator state. */
     void reset() noexcept;
     /** Generates virtual particles and stable owner-to-sample ranges. */
     void initialize(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity);
-    /** Samples current LS kinematics into host accumulators. */
-    void accumulateKinematics(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity);
+    /** Samples complete left-endpoint LS kinematics, before force assembly clears the loads. */
+    void accumulateKinematics(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity, math::Real timeStep = 0.0);
+    /** Starts the prescribed-motion difference at the complete initialized endpoint. */
+    void resetKinematicsReference(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles);
     /** Writes accumulated average kinematics to virtual particles. */
     void averageKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, int sampleCount);
     /** Reduces virtual-particle reaction forces and torques by LS owner. */
@@ -44,6 +49,8 @@ public:
     void copyForceAndTorqueFromDevice(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, cudaStream_t stream);
     /** Adds reduced fluid reaction loads to LS rigid bodies. */
     void applyForceAndTorque(LSParticleContainer& LSParticles) const;
+    /** Matches the refreshed wall-load impulse after the final DEM half kick; never used by observation-only flushes. */
+    void applyImpulseCorrection(LSParticleContainer& LSParticles, math::Real correctionTime) const;
     /** Clears sampled kinematics while retaining the owner mapping. */
     void clearKinematics() noexcept;
 

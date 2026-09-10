@@ -1069,9 +1069,11 @@ The DEM time step is the minimum scheduling unit in `SPHDEM`:
 - The SPH advection step is an integer multiple of the SPH acoustic step and does not exceed its advection/viscous limit.
 - Minimum smoothing length and the shared viscous time scale are stored once; the solver does not loop over all particles merely to recover uniform parameters.
 
-If one DEM step is already larger than either SPH limit, initialization throws instead of silently violating the limit. The smoothing length must remain between one and two particle spacings, the configured sound speed must be at least ten times the configured velocity scale, and a level-set boundary grid must not be coarser than the SPH smoothing length. One background-grid or compact-neighbor rebuild is retained per SPH advection step; neighbor queries include a conservative displacement buffer while the physical kernel remains truncated at `2 * smoothingLength`.
+If one DEM step is already larger than either SPH limit, initialization throws instead of silently violating the limit. The smoothing length must remain between one and two particle spacings, the configured sound speed must be at least ten times the configured velocity scale, and a level-set boundary grid must not be coarser than the SPH smoothing length. Background grids or compact neighbors normally rebuild once per SPH advection step. Actual fluid and wall displacement is checked against the search buffer; exhausting that buffer triggers an earlier search-only rebuild without resetting density or the advection phase. The physical kernel remains truncated at `2 * smoothingLength`.
 
 Current values are available through `SPHTimeStep()`, `SPHTimeStepLimit()`, `SPHAdvectionTimeStep()`, and their interval getters.
+
+For current-time host observations between acoustic updates, use `observeCurrentState(callback)` rather than reading deferred particle containers directly. See [SPH state and coupling corrections](SPH_CORRECTIONS.md) for the observation contract, held-load convention, impulse correction, and focused regression coverage.
 
 ## 15. Performance and scaling
 
@@ -1099,7 +1101,7 @@ Rigid-particle broad-phase cost depends on populated grid cells and candidate co
 
 Level-set resolution controls both memory and narrow-phase work. Refine the signed-distance grid and surface only as far as contact accuracy requires. Reuse one geometry descriptor for particles with the same shape; host LS particles intentionally retain contiguous geometry data for fast CPU access, while GPU kernels use the centralized geometry container.
 
-SPH neighbor construction should occur once per advection interval. Acoustic substeps reuse the current neighborhood. A very small smoothing length increases particle count; an unnecessarily large smoothing length increases neighbors per particle. Both can dominate runtime.
+SPH neighbor construction normally occurs once per advection interval. Acoustic substeps reuse the current neighborhood while its actual-displacement bound is valid; unusually rapid motion can require an earlier rebuild. A very small smoothing length increases particle count; an unnecessarily large smoothing length increases neighbors per particle. Both can dominate runtime.
 
 ### 15.4 Output and synchronization
 

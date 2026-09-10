@@ -57,6 +57,113 @@ void requireEqual(const SPHDEM& first, const SPHDEM& second, const char* message
     }
 }
 
+class observedOutputSPH final : public SPHDEM
+{
+public:
+    math::Real outputPosition_{0.0};
+
+protected:
+    void writeSystemVTU(int frameIndex) override
+    {
+        outputPosition_ = SPHParticles().host()[0].position().x;
+        SPHDEM::writeSystemVTU(frameIndex);
+    }
+};
+
+void verifyCurrentStateObservation(const std::filesystem::path& outputDirectory)
+{
+    observedOutputSPH observed;
+    SPHDEM reference;
+    configureSingleParticle(observed, SPHParticle{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, 1.0e-5, math::Vec3::zero(), 1.0, 10.0);
+    configureSingleParticle(reference, SPHParticle{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, 1.0e-5, math::Vec3::zero(), 1.0, 10.0);
+    observed.setOutputDirectory((outputDirectory / "observation").string());
+    observed.solve(0);
+    observed.initialize();
+    reference.initialize();
+    const int initialInterval = observed.SPHStepInterval();
+    if (initialInterval <= 1)
+        throw std::runtime_error("The observation regression requires a deferred acoustic step.");
+
+    for (int step = 1; step <= 2 * observed.SPHAdvectionStepInterval() + initialInterval; ++step)
+    {
+        observed.step();
+        reference.step();
+        const int intervalBefore = observed.SPHStepInterval();
+        observed.observeCurrentState([&](const solver& state)
+        {
+            const auto& particles = static_cast<const SPHDEM&>(state).SPHParticles().host();
+            if (state.stepCount() != step || !nearlyEqual(particles[0].position().x, state.time()))
+                throw std::runtime_error("A current-time SPH observation exposed deferred particle positions.");
+            observed.observeCurrentState([&](const solver& nested)
+            {
+                if (&state != &nested || !nearlyEqual(observed.SPHParticles().host()[0].position().x, nested.time()))
+                    throw std::runtime_error("A nested SPH observation lost the outer snapshot.");
+            });
+            if (step == 1)
+            {
+                int rejectedLifecycleChanges = 0;
+                for (const auto& mutation : {std::function<void()>{[&] { observed.initialize(); }},
+                                             std::function<void()>{[&] { observed.step(); }},
+                                             std::function<void()>{[&] { observed.solve(0); }}})
+                {
+                    try
+                    {
+                        mutation();
+                    }
+                    catch (const std::logic_error&)
+                    {
+                        ++rejectedLifecycleChanges;
+                    }
+                }
+                if (rejectedLifecycleChanges != 3)
+                    throw std::runtime_error("An SPH observer was allowed to change the integration lifecycle.");
+                observed.writeOutput();
+                if (!nearlyEqual(observed.outputPosition_, state.time()) || !nearlyEqual(particles[0].position().x, state.time()))
+                    throw std::runtime_error("VTU and nested host observation did not share the current SPH state.");
+            }
+        });
+        if (observed.SPHStepInterval() != intervalBefore)
+            throw std::runtime_error("Observing SPH changed the deferred acoustic schedule.");
+        requireEqual(reference, observed, "Observing SPH changed its deferred continuation state.");
+
+        bool caught = false;
+        try
+        {
+            observed.observeCurrentState([](const solver&) { throw std::runtime_error("observer failure"); });
+        }
+        catch (const std::runtime_error& error)
+        {
+            caught = std::string(error.what()) == "observer failure";
+        }
+        if (!caught)
+            throw std::runtime_error("An SPH observation did not propagate its callback exception.");
+        requireEqual(reference, observed, "A throwing SPH observation did not restore continuation state.");
+    }
+
+    reference.solve(7);
+    observed.solve(7);
+    observed.observeCurrentState([&](const solver&) { requireEqual(reference, observed, "Observing completed solve() changed its current host state."); });
+    requireEqual(reference, observed, "Observing completed solve() discarded its current host state.");
+    reference.solve(11);
+    observed.solve(11);
+    requireEqual(reference, observed, "Observation after solve() changed subsequent continuation.");
+
+    SPHDEM interactingReference;
+    SPHDEM interactingObserved;
+    configure(interactingReference);
+    configure(interactingObserved);
+    for (int step = 0; step < 125; ++step)
+    {
+        interactingReference.step();
+        interactingObserved.step();
+        interactingObserved.observeCurrentState([](const solver&) {});
+        requireEqual(interactingReference, interactingObserved, "SPH observation changed interacting-particle continuation across an advection boundary.");
+    }
+    interactingReference.solve(0);
+    interactingObserved.solve(0);
+    requireEqual(interactingReference, interactingObserved, "Observed interacting SPH particles ended at a different current state.");
+}
+
 } // namespace
 
 int main()
@@ -78,6 +185,8 @@ int main()
         withOutput.setOutputDirectory(outputDirectory.string());
         withOutput.setOutputStepInterval(3);
         manualOutput.setOutputDirectory((outputDirectory / "manual").string());
+
+        verifyCurrentStateObservation(outputDirectory);
 
         uninterrupted.solve(25);
         withOutput.solve(25);

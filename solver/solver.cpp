@@ -227,26 +227,46 @@ void solver::writeOutput()
     {
         throw std::logic_error("Output has not been configured.");
     }
-    activateGPUDevice();
     ensureOutputDirectory();
-    try
+    observeCurrentState([this](const solver&)
     {
-        beginOutputSnapshot();
-        synchronizeHostState();
         const int frameIndex = outputFrameCount_;
         writeSystemVTU(frameIndex);
         appendEnergyDAT((std::filesystem::path(outputDirectory_) / "energy.dat").string(), time_, systemEnergy(), frameIndex > 0);
         std::cout << "[Solver] Calculated steps: " << stepCount_ << ", current time: " << time_ << ", current frame: " << frameIndex << ", device memory: " << std::fixed << std::setprecision(6)
                   << deviceMemoryGB() << " GB" << std::defaultfloat << std::endl;
+    });
+    ++outputFrameCount_;
+    nextOutputStep_ = stepCount_ + outputStepInterval_;
+}
+
+void solver::observeCurrentState(const std::function<void(const solver&)>& observer)
+{
+    if (!observer)
+    {
+        throw std::invalid_argument("A current-state observer is required.");
+    }
+    if (observingCurrentState_)
+    {
+        observer(*this);
+        return;
+    }
+    activateGPUDevice();
+    observingCurrentState_ = true;
+    try
+    {
+        beginOutputSnapshot();
+        synchronizeHostState();
+        observer(*this);
     }
     catch (...)
     {
+        observingCurrentState_ = false;
         endOutputSnapshot();
         throw;
     }
+    observingCurrentState_ = false;
     endOutputSnapshot();
-    ++outputFrameCount_;
-    nextOutputStep_ = stepCount_ + outputStepInterval_;
 }
 
 void solver::writeOutputIfDue()
@@ -257,8 +277,15 @@ void solver::writeOutputIfDue()
     }
 }
 
+void solver::requireNoCurrentStateObservation() const
+{
+    if (observingCurrentState_)
+        throw std::logic_error("The solver cannot initialize or advance during a current-state observation.");
+}
+
 void solver::solve(int numberOfSteps)
 {
+    requireNoCurrentStateObservation();
     if (numberOfSteps < 0)
     {
         throw std::invalid_argument("The number of steps cannot be negative.");
@@ -299,6 +326,7 @@ void solver::solve(int numberOfSteps)
 
 void solver::initialize()
 {
+    requireNoCurrentStateObservation();
     if (initialized_)
     {
         return;
@@ -353,6 +381,7 @@ void solver::clearOutputFiles()
 
 void solver::step()
 {
+    requireNoCurrentStateObservation();
     if (!initialized_)
     {
         initialize();
@@ -450,14 +479,14 @@ void solver::copyDeviceToHost()
 
 void solver::synchronizeHostState()
 {
-    if (usesDevice())
+    if (usesDevice() && (initialized_ || continuationValid_))
     {
-        copyDeviceToHost();
+        // solve() leaves a resumable solver uninitialized. Its observation
+        // projection still owns valid device state that must reach the host;
+        // public copyDeviceToHost() intentionally skips uninitialized models.
+        copySystemDeviceToHost(gpuStream());
     }
-    else
-    {
-        synchronize();
-    }
+    synchronize();
 }
 
 double solver::deviceMemoryGB() const noexcept { return systemDeviceMemoryGB(); }

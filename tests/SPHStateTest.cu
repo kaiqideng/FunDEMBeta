@@ -57,6 +57,57 @@ void requireEqual(const SPHDEM& first, const SPHDEM& second, const char* message
     }
 }
 
+void verifyCurrentStateObservation(executionMode mode, const std::filesystem::path& outputDirectory)
+{
+    SPHDEM observed{mode};
+    SPHDEM reference{mode};
+    configureSingleParticle(observed, SPHParticle{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, 1.0e-5, math::Vec3::zero(), 1.0, 10.0);
+    configureSingleParticle(reference, SPHParticle{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, 1.0e-5, math::Vec3::zero(), 1.0, 10.0);
+    observed.setOutputDirectory(outputDirectory.string());
+    observed.solve(1);
+    reference.solve(1);
+    observed.observeCurrentState([&](const solver& state)
+    {
+        if (!nearlyEqual(observed.SPHParticles().host()[0].position().x, state.time()))
+        {
+            std::cerr << "Observation mode " << static_cast<int>(mode) << ": x=" << observed.SPHParticles().host()[0].position().x
+                      << ", vx=" << observed.SPHParticles().host()[0].velocity().x << ", time=" << state.time()
+                      << ", reference x=" << reference.SPHParticles().host()[0].position().x << '\n';
+            throw std::runtime_error("Observing a completed device SPH solve exposed deferred device positions.");
+        }
+        observed.writeOutput();
+        observed.observeCurrentState([&](const solver&) { requireEqual(reference, observed, "Nested device SPH observations did not share current host state."); });
+    });
+    requireEqual(reference, observed, "A device SPH observation discarded completed solve() host state.");
+    bool caught = false;
+    try
+    {
+        observed.observeCurrentState([](const solver&) { throw std::runtime_error("observer failure"); });
+    }
+    catch (const std::runtime_error& error)
+    {
+        caught = std::string(error.what()) == "observer failure";
+    }
+    if (!caught)
+        throw std::runtime_error("A device SPH observation did not propagate its callback exception.");
+    requireEqual(reference, observed, "A throwing device SPH observation discarded current host state.");
+    observed.initialize();
+    reference.initialize();
+    for (int step = 0; step < 350; ++step)
+    {
+        observed.step();
+        reference.step();
+        observed.observeCurrentState([&](const solver& state)
+        {
+            if (!nearlyEqual(observed.SPHParticles().host()[0].position().x, state.time()))
+                throw std::runtime_error("A device SPH step observation exposed deferred particle positions.");
+        });
+    }
+    observed.solve(0);
+    reference.solve(0);
+    requireEqual(reference, observed, "Current-time device SPH observations changed continued integration.");
+}
+
 } // namespace
 
 int main()
@@ -77,6 +128,9 @@ int main()
         const fs::path outputDirectory = fs::temp_directory_path() / ("fundem-sph-state-" + std::to_string(stamp));
         withOutput.setOutputDirectory(outputDirectory.string());
         withOutput.setOutputStepInterval(3);
+
+        verifyCurrentStateObservation(executionMode::GPU, outputDirectory / "GPU-observation");
+        verifyCurrentStateObservation(executionMode::Hybrid, outputDirectory / "Hybrid-observation");
 
         uninterrupted.solve(25);
         CPUReference.solve(25);

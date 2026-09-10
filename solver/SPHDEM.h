@@ -8,6 +8,7 @@
 #include "particle/virtualParticle.h"
 #include "solver/LSDEM.h"
 #include "solver/SPHJet.h"
+#include "solver/SPHNeighborhood.h"
 #include "solver/virtualParticleCoupling.h"
 
 #include <memory>
@@ -149,6 +150,7 @@ private:
         int acousticStepInterval_{1};           ///< DEM steps per acoustic update.
         int advectionStepInterval_{1};          ///< Acoustic steps per advection update.
         int pendingDEMSteps_{0};                ///< Deferred DEM steps not yet flushed to SPH.
+        Real couplingImpulseTime_{0.0};        ///< Endpoint matching interval; zero for observation-only flushes.
         bool jetsCompleted_{true};              ///< Whether all finite-duration inlet constraints have ended.
         bool resume_{false};                    ///< Resume rather than reinitialize deferred state.
     };
@@ -178,6 +180,7 @@ private:
         bool active_{false};                                             ///< Whether a snapshot is currently held.
         bool preserveCurrentHost_{false};                                ///< Whether snapshot capture retained host results.
     };
+    bool outputObservationSnapshot_{false}; ///< Whether the observation scope owns the active snapshot.
 
     /** Initializes persistent SPH state and selects the mode-specific interaction engine. */
     void initializeSPHState();
@@ -198,7 +201,7 @@ private:
     /** Restores the latest captured multirate state. */
     void restoreSPHState(cudaStream_t stream);
     /** Flushes deferred SPH work to the solver's represented current time. */
-    void flushSPHToCurrentTime(cudaStream_t stream);
+    void flushSPHToCurrentTime(cudaStream_t stream, bool commitCouplingImpulse = false);
     /** Allocates and uploads device fluid and boundary dependencies. */
     void initializeSPHDevice(cudaStream_t stream);
     /** Evaluates one accumulated SPH force interval on the host. */
@@ -211,6 +214,12 @@ private:
     void prepareSPHAdvectionStep(cpu::mode);
     /** Starts a device advection interval by rebuilding grids and density. */
     void prepareSPHAdvectionStep(gpu::mode, cudaStream_t stream);
+    /** Invalidates only search caches, without changing fluid phase or forces. */
+    void invalidateSPHNeighborhood() noexcept { SPHNeighborhood_.invalidate(); }
+    /** Rebuilds host neighbors only when motion has exhausted the search skin. */
+    void ensureSPHNeighborhood(cpu::mode);
+    /** Rebuilds device grids only when motion has exhausted the search skin. */
+    void ensureSPHNeighborhood(gpu::mode, cudaStream_t stream);
     /** Advances one host acoustic substep without rebuilding the grid. */
     void advanceSPH(Real timeStep, cpu::mode);
     /** Advances one device acoustic substep without rebuilding the grid. */
@@ -245,6 +254,7 @@ private:
     SPHParticleContainer SPHParticles_;                     ///< Fluid particles.
     virtualParticleContainer virtualParticles_;             ///< Generated LS boundary samples.
     spatialGridContainer SPHSpatialGrid_;                   ///< Fluid background grid.
+    SPHNeighborhood SPHNeighborhood_;                     ///< Actual-displacement validity of reused searches.
     spatialGridContainer virtualParticleSpatialGrid_;       ///< Boundary-sample background grid.
     std::vector<SPHParticleVTUField> SPHParticleVTUFields_; ///< Optional SPH output fields.
     virtualParticleCoupling virtualParticleCoupling_;       ///< Host aggregation by LS owner.

@@ -4,6 +4,7 @@
 #include "data/HostAoSDeviceSoA.h"
 #include "execution/motionIntegration.h"
 #include "execution/sphFunctions.h"
+#include "execution/sphCouplingFunctions.h"
 
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -18,12 +19,34 @@ namespace
 {
 
 constexpr int blockSize = 256;
+constexpr math::Real invalidNeighborDisplacement = std::numeric_limits<math::Real>::infinity();
+
+struct maximumNeighborDisplacement {
+    __host__ __device__ math::Real operator()(math::Real first, math::Real second) const noexcept { return first > second ? first : second; }
+};
+
+struct readNeighborDisplacement {
+    const math::Vec3* fluid_;
+    const math::Vec3* boundary_;
+    const math::Vec3* reference_;
+    int fluidCount_;
+    __host__ __device__ math::Real operator()(int index) const noexcept
+    {
+        const math::Vec3 position = index < fluidCount_ ? fluid_[index] : boundary_[index - fluidCount_];
+        const math::Vec3 displacement = position - reference_[index];
+        const math::Real squared = math::dot(displacement, displacement);
+        return math::isFinite(squared) ? squared : invalidNeighborDisplacement;
+    }
+};
 
 struct readSPHState {
     const math::Vec3* velocity_{nullptr};
     const math::Vec3* force_{nullptr};
     const math::Real* inverseMass_{nullptr};
     const math::Real* density_{nullptr};
+    const math::Real* pressure_{nullptr};
+    const math::Real* densityRate_{nullptr};
+    const math::Vec3* position_{nullptr};
     math::Vec3 gravity_{math::Vec3::zero()};
 
     __host__ __device__ SPHStateStatistics operator()(int index) const noexcept
@@ -38,7 +61,7 @@ struct readSPHState {
                 validAcceleration ? math::norm(acceleration) : 0.0,
                 validDensity ? density : 0.0,
                 validDensity ? density : 0.0,
-                validVelocity && validAcceleration && validDensity ? 0 : 1};
+                validVelocity && validAcceleration && validDensity && math::isFinite(pressure_[index]) && math::isFinite(densityRate_[index]) && math::isFinite(position_[index]) ? 0 : 1};
     }
 };
 
@@ -100,6 +123,10 @@ struct VirtualParticleDeviceView {
     math::Vec3* acceleration_{nullptr};
     math::Vec3* force_{nullptr};
     math::Vec3* priorForce_{nullptr};
+    math::Vec3* couplingTorque_{nullptr};
+    math::Vec3* couplingForceIncrement_{nullptr};
+    math::Vec3* couplingTorqueIncrement_{nullptr};
+    math::Vec3* previousKinematicsVelocity_{nullptr};
 };
 
 struct ConstVirtualParticleDeviceView {
@@ -113,13 +140,17 @@ struct ConstVirtualParticleDeviceView {
     const math::Vec3* acceleration_{nullptr};
     const math::Vec3* force_{nullptr};
     const math::Vec3* priorForce_{nullptr};
+    const math::Vec3* couplingTorque_{nullptr};
+    const math::Vec3* couplingForceIncrement_{nullptr};
+    const math::Vec3* couplingTorqueIncrement_{nullptr};
+    const math::Vec3* previousKinematicsVelocity_{nullptr};
 };
 
 struct LSParticleDeviceView {
     const math::Vec3* position_{nullptr};
     const math::Quaternion* orientation_{nullptr};
-    const math::Vec3* velocity_{nullptr};
-    const math::Vec3* angularVelocity_{nullptr};
+    math::Vec3* velocity_{nullptr};
+    math::Vec3* angularVelocity_{nullptr};
     math::Vec3* force_{nullptr};
     math::Vec3* torque_{nullptr};
     const math::Real* inverseMass_{nullptr};
@@ -164,7 +195,11 @@ VirtualParticleDeviceView makeVirtualParticleDeviceView(virtualParticleContainer
             particles.device<pointMass::velocityField>(),
             particles.device<virtualParticle::accelerationField>(),
             particles.device<pointMass::forceField>(),
-            particles.device<virtualParticle::priorForceField>()};
+            particles.device<virtualParticle::priorForceField>(),
+            particles.device<virtualParticle::couplingTorqueField>(),
+            particles.device<virtualParticle::couplingForceIncrementField>(),
+            particles.device<virtualParticle::couplingTorqueIncrementField>(),
+            particles.device<virtualParticle::previousKinematicsVelocityField>()};
 }
 
 ConstVirtualParticleDeviceView makeVirtualParticleDeviceView(const virtualParticleContainer& particles) noexcept
@@ -178,7 +213,11 @@ ConstVirtualParticleDeviceView makeVirtualParticleDeviceView(const virtualPartic
             particles.device<pointMass::velocityField>(),
             particles.device<virtualParticle::accelerationField>(),
             particles.device<pointMass::forceField>(),
-            particles.device<virtualParticle::priorForceField>()};
+            particles.device<virtualParticle::priorForceField>(),
+            particles.device<virtualParticle::couplingTorqueField>(),
+            particles.device<virtualParticle::couplingForceIncrementField>(),
+            particles.device<virtualParticle::couplingTorqueIncrementField>(),
+            particles.device<virtualParticle::previousKinematicsVelocityField>()};
 }
 
 LSParticleDeviceView makeLSParticleDeviceView(LSParticleContainer& particles) noexcept
@@ -329,7 +368,7 @@ __global__ void updateVirtualParticlePositionAndNormalKernel(VirtualParticleDevi
                                                          LSParticles.orientation_[ownerIndex]);
 }
 
-__global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Vec3 gravity, int virtualParticleCount)
+__global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Vec3 gravity, math::Real timeStep, int virtualParticleCount)
 {
     const int virtualParticleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
     if (virtualParticleIndex >= virtualParticleCount)
@@ -337,6 +376,13 @@ __global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceV
         return;
     }
     const int ownerIndex = virtualParticles.ownerLSParticleIndex_[virtualParticleIndex];
+    if (LSParticles.inverseMass_[ownerIndex] <= 0.0 && timeStep > 0.0)
+    {
+        const math::Vec3 velocity = LSParticles.velocity_[ownerIndex] + math::cross(LSParticles.angularVelocity_[ownerIndex], math::rotateUnit(LSParticles.orientation_[ownerIndex], virtualParticles.localPosition_[virtualParticleIndex]));
+        execution::accumulatePrescribedSPHKinematics(virtualParticles.velocity_[virtualParticleIndex], virtualParticles.acceleration_[virtualParticleIndex],
+                                                    virtualParticles.previousKinematicsVelocity_[virtualParticleIndex], velocity, timeStep);
+        return;
+    }
     execution::accumulateVirtualParticleVelocityAndAcceleration(virtualParticles.velocity_[virtualParticleIndex],
                                                                 virtualParticles.acceleration_[virtualParticleIndex],
                                                                 virtualParticles.localPosition_[virtualParticleIndex],
@@ -349,6 +395,15 @@ __global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceV
                                                                 LSParticles.inertiaTensor_[ownerIndex],
                                                                 LSParticles.inverseInertiaTensor_[ownerIndex],
                                                                 gravity);
+}
+
+__global__ void resetVirtualParticleKinematicsReferenceKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, int virtualParticleCount)
+{
+    const int index = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+    if (index >= virtualParticleCount)
+        return;
+    const int owner = virtualParticles.ownerLSParticleIndex_[index];
+    virtualParticles.previousKinematicsVelocity_[index] = LSParticles.velocity_[owner] + math::cross(LSParticles.angularVelocity_[owner], math::rotateUnit(LSParticles.orientation_[owner], virtualParticles.localPosition_[index]));
 }
 
 __global__ void averageVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Real inverseSampleCount, int virtualParticleCount)
@@ -377,15 +432,36 @@ __global__ void addVirtualParticleForceAndTorqueKernel(LSParticleDeviceView LSPa
         return;
     }
     const int ownerIndex = virtualParticles.ownerLSParticleIndex_[virtualParticleIndex];
-    math::Vec3 force;
-    math::Vec3 torque;
-    execution::calculateVirtualParticleForceAndTorque(force,
-                                                      torque,
-                                                      virtualParticles.localPosition_[virtualParticleIndex],
-                                                      LSParticles.orientation_[ownerIndex],
-                                                      virtualParticles.force_[virtualParticleIndex]);
-    detail::atomicAddVec3(LSParticles.force_, ownerIndex, force);
-    detail::atomicAddVec3(LSParticles.torque_, ownerIndex, torque);
+    // Both backends hold world force AND world torque between fluid updates.
+    detail::atomicAddVec3(LSParticles.force_, ownerIndex, virtualParticles.force_[virtualParticleIndex]);
+    detail::atomicAddVec3(LSParticles.torque_, ownerIndex, virtualParticles.couplingTorque_[virtualParticleIndex]);
+}
+
+__global__ void refreshVirtualParticleCouplingLoadsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, int virtualParticleCount)
+{
+    const int index = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+    if (index >= virtualParticleCount)
+        return;
+    const int owner = virtualParticles.ownerLSParticleIndex_[index];
+    const math::Vec3 torque = math::cross(math::rotateUnit(LSParticles.orientation_[owner], virtualParticles.localPosition_[index]), virtualParticles.force_[index]);
+    virtualParticles.couplingForceIncrement_[index] = virtualParticles.force_[index] - virtualParticles.couplingForceIncrement_[index];
+    virtualParticles.couplingTorqueIncrement_[index] = torque - virtualParticles.couplingTorque_[index];
+    virtualParticles.couplingTorque_[index] = torque;
+}
+
+__global__ void applyVirtualParticleImpulseCorrectionKernel(LSParticleDeviceView LSParticles, ConstVirtualParticleDeviceView virtualParticles, math::Real correctionTime, int virtualParticleCount)
+{
+    const int index = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+    if (index >= virtualParticleCount)
+        return;
+    const int owner = virtualParticles.ownerLSParticleIndex_[index];
+    math::Vec3 velocityCorrection;
+    math::Vec3 angularVelocityCorrection;
+    execution::calculateSPHCouplingVelocityCorrection(velocityCorrection, angularVelocityCorrection,
+                                                     virtualParticles.couplingForceIncrement_[index], virtualParticles.couplingTorqueIncrement_[index],
+                                                     LSParticles.orientation_[owner], LSParticles.inverseMass_[owner], LSParticles.inverseInertiaTensor_[owner], correctionTime);
+    detail::atomicAddVec3(LSParticles.velocity_, owner, velocityCorrection);
+    detail::atomicAddVec3(LSParticles.angularVelocity_, owner, angularVelocityCorrection);
 }
 
 __global__ void updateSPHFreeSurfaceKernel(SPHParticleDeviceView particles,
@@ -496,7 +572,8 @@ __global__ void computeSPHDensityRateKernel(SPHParticleDeviceView particles,
     }
     if (particles.constrained_[particleIndex] != 0)
     {
-        particles.densityRate_[particleIndex] = 0.0;
+        if (math::isFinite(particles.densityRate_[particleIndex]))
+            particles.densityRate_[particleIndex] = 0.0;
         return;
     }
 
@@ -545,7 +622,9 @@ __global__ void computeSPHDensityRateKernel(SPHParticleDeviceView particles,
                                                            soundSpeed,
                                                            gravity);
     }
-    particles.densityRate_[particleIndex] = densityRate;
+    // Retain a failure across both split stages until the common state diagnostic observes it.
+    if (math::isFinite(particles.densityRate_[particleIndex]))
+        particles.densityRate_[particleIndex] = densityRate;
 }
 
 __global__ void integrateSPHDensityKernel(SPHParticleDeviceView particles, math::Real referenceDensity, math::Real soundSpeed, math::Real timeStep, int particleCount)
@@ -742,15 +821,24 @@ void launchClearVirtualParticleKinematics(virtualParticleContainer& virtualParti
     host_device_detail::checkCuda(cudaMemsetAsync(virtualParticles.device<virtualParticle::accelerationField>(), 0, byteCount, stream), "cudaMemsetAsync virtual-particle acceleration");
 }
 
-void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, cudaStream_t stream)
+void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, math::Real timeStep, cudaStream_t stream)
 {
     const int count = static_cast<int>(virtualParticles.deviceSize());
     if (count <= 0)
     {
         return;
     }
-    accumulateVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), gravity, count);
+    accumulateVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), gravity, timeStep, count);
     host_device_detail::checkCuda(cudaGetLastError(), "accumulateVirtualParticleKinematicsKernel launch");
+}
+
+void launchResetVirtualParticleKinematicsReference(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, cudaStream_t stream)
+{
+    const int count = static_cast<int>(virtualParticles.deviceSize());
+    if (count <= 0)
+        return;
+    resetVirtualParticleKinematicsReferenceKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), count);
+    host_device_detail::checkCuda(cudaGetLastError(), "resetVirtualParticleKinematicsReferenceKernel launch");
 }
 
 void launchAverageVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, math::Real inverseSampleCount, cudaStream_t stream)
@@ -776,6 +864,33 @@ void launchAddVirtualParticleForceAndTorque(LSParticleContainer& LSParticles, co
     }
     addVirtualParticleForceAndTorqueKernel<<<blockCount(count), blockSize, 0, stream>>>(makeLSParticleDeviceView(LSParticles), makeVirtualParticleDeviceView(virtualParticles), count);
     host_device_detail::checkCuda(cudaGetLastError(), "addVirtualParticleForceAndTorqueKernel launch");
+}
+
+void launchCacheVirtualParticleCouplingForce(virtualParticleContainer& virtualParticles, cudaStream_t stream)
+{
+    const auto count = virtualParticles.deviceSize();
+    if (count == 0)
+        return;
+    host_device_detail::checkCuda(cudaMemcpyAsync(virtualParticles.device<virtualParticle::couplingForceIncrementField>(), virtualParticles.device<pointMass::forceField>(),
+                                                count * sizeof(math::Vec3), cudaMemcpyDeviceToDevice, stream), "cache virtual-particle coupling force");
+}
+
+void launchRefreshVirtualParticleCouplingLoads(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, cudaStream_t stream)
+{
+    const int count = static_cast<int>(virtualParticles.deviceSize());
+    if (count <= 0)
+        return;
+    refreshVirtualParticleCouplingLoadsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), count);
+    host_device_detail::checkCuda(cudaGetLastError(), "refreshVirtualParticleCouplingLoadsKernel launch");
+}
+
+void launchApplyVirtualParticleImpulseCorrection(LSParticleContainer& LSParticles, const virtualParticleContainer& virtualParticles, math::Real correctionTime, cudaStream_t stream)
+{
+    const int count = static_cast<int>(virtualParticles.deviceSize());
+    if (count <= 0 || correctionTime <= 0.0)
+        return;
+    applyVirtualParticleImpulseCorrectionKernel<<<blockCount(count), blockSize, 0, stream>>>(makeLSParticleDeviceView(LSParticles), makeVirtualParticleDeviceView(virtualParticles), correctionTime, count);
+    host_device_detail::checkCuda(cudaGetLastError(), "applyVirtualParticleImpulseCorrectionKernel launch");
 }
 
 void launchUpdateSPHFreeSurface(SPHParticleContainer& particles,
@@ -960,6 +1075,22 @@ void launchIntegrateSPHPosition(SPHParticleContainer& particles, math::Real time
     host_device_detail::checkCuda(cudaGetLastError(), "integrateSPHPositionKernel launch");
 }
 
+math::Real maximumSPHNeighborDisplacementSquared(const SPHParticleContainer& particles,
+                                                 const virtualParticleContainer& boundaries,
+                                                 const SPHNeighborPositionContainer& reference,
+                                                 cudaStream_t stream)
+{
+    const int fluidCount = static_cast<int>(particles.deviceSize());
+    const int count = fluidCount + static_cast<int>(boundaries.deviceSize());
+    if (reference.deviceSize() != static_cast<std::size_t>(count))
+        return std::numeric_limits<math::Real>::infinity();
+    const readNeighborDisplacement read{particles.device<pointMass::positionField>(), boundaries.device<pointMass::positionField>(), reference.device<SPHNeighborPosition::positionField>(), fluidCount};
+    const auto begin = thrust::make_counting_iterator(0);
+    const math::Real result = thrust::transform_reduce(thrust::cuda::par.on(stream), begin, begin + count, read, math::Real{0.0}, maximumNeighborDisplacement{});
+    host_device_detail::checkCuda(cudaGetLastError(), "SPH neighbor-displacement reduction");
+    return result;
+}
+
 SPHStateStatistics calculateSPHStateStatistics(const SPHParticleContainer& particles, const math::Vec3& gravity, cudaStream_t stream)
 {
     const int count = static_cast<int>(particles.deviceSize());
@@ -973,6 +1104,9 @@ SPHStateStatistics calculateSPHStateStatistics(const SPHParticleContainer& parti
                             particles.device<pointMass::forceField>(),
                             particles.device<pointMass::inverseMassField>(),
                             particles.device<SPHParticle::densityField>(),
+                            particles.device<SPHParticle::pressureField>(),
+                            particles.device<SPHParticle::densityRateField>(),
+                            particles.device<pointMass::positionField>(),
                             gravity};
     const SPHStateStatistics result = thrust::transform_reduce(thrust::cuda::par.on(stream), begin, begin + count, read, initial, combineSPHStateStatistics{});
     host_device_detail::checkCuda(cudaGetLastError(), "SPH state-statistics reduction");

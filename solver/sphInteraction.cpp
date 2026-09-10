@@ -280,7 +280,8 @@ void SPHInteraction::updateDensity(SPHParticleContainer& particles, const virtua
         SPHParticle& particle = particleHost[particleIndex];
         if (particle.isConstrained())
         {
-            particle.setDensityRate(0.0);
+            if (math::isFinite(particle.densityRate()))
+                particle.setDensityRate(0.0);
             continue;
         }
         Real densityRate = 0.0;
@@ -321,7 +322,9 @@ void SPHInteraction::updateDensity(SPHParticleContainer& particles, const virtua
                                                                parameters.soundSpeed_,
                                                                parameters.gravity_);
         }
-        particle.setDensityRate(densityRate);
+        // Keep an invalid computed rate latched until initialization so a later split stage cannot hide it.
+        if (math::isFinite(particle.densityRate()))
+            particle.*SPHParticle::densityRateField::member = densityRate;
     }
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static) if (particleCount >= parallelParticleThreshold)
@@ -517,7 +520,8 @@ SPHStateStatistics SPHInteraction::stateStatistics(const SPHParticleContainer& p
         maximumAcceleration = std::max(maximumAcceleration, validAcceleration ? math::norm(acceleration) : 0.0);
         minimumDensity = std::min(minimumDensity, validDensity ? particle.density() : 0.0);
         maximumDensity = std::max(maximumDensity, validDensity ? particle.density() : 0.0);
-        invalidValueCount += validVelocity && validAcceleration && validDensity ? 0 : 1;
+        const bool validThermodynamics = math::isFinite(particle.pressure()) && math::isFinite(particle.densityRate());
+        invalidValueCount += validVelocity && validAcceleration && validDensity && validThermodynamics && math::isFinite(particle.position()) ? 0 : 1;
     }
     return {maximumVelocity, maximumAcceleration, minimumDensity, maximumDensity, invalidValueCount};
 }

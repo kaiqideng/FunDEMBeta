@@ -1,6 +1,7 @@
 #include "virtualParticleCoupling.h"
 
 #include "execution/sphFunctions.h"
+#include "execution/sphCouplingFunctions.h"
 #include "solverFunctions.h"
 
 #include <algorithm>
@@ -47,8 +48,11 @@ void virtualParticleCoupling::initialize(virtualParticleContainer& virtualPartic
 
     currentState_.velocitySums_.assign(virtualParticleCount, Vec3::zero());
     currentState_.accelerationSums_.assign(virtualParticleCount, Vec3::zero());
+    currentState_.previousVelocities_.assign(virtualParticleCount, Vec3::zero());
     currentState_.forcesByOwner_.assign(LSParticleCount, Vec3::zero());
     currentState_.torquesByOwner_.assign(LSParticleCount, Vec3::zero());
+    currentState_.forceIncrementsByOwner_.assign(LSParticleCount, Vec3::zero());
+    currentState_.torqueIncrementsByOwner_.assign(LSParticleCount, Vec3::zero());
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static) if (virtualParticleCount >= cpu::parallelParticleThreshold)
 #endif
@@ -77,10 +81,11 @@ void virtualParticleCoupling::initialize(virtualParticleContainer& virtualPartic
         value.setNormal(normal);
         value.setVelocity(velocity);
         value.setAcceleration(acceleration);
+        currentState_.previousVelocities_[virtualParticleIndex] = velocity;
     }
 }
 
-void virtualParticleCoupling::accumulateKinematics(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity)
+void virtualParticleCoupling::accumulateKinematics(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity, math::Real timeStep)
 {
     const auto& virtualParticleHost = virtualParticles.host();
     const auto& LSParticleHost = LSParticles.host();
@@ -92,6 +97,13 @@ void virtualParticleCoupling::accumulateKinematics(const virtualParticleContaine
     {
         const virtualParticle& value = virtualParticleHost[virtualParticleIndex];
         const LSParticle& owner = LSParticleHost[value.ownerLSParticleIndex()];
+        if (owner.inverseMass() <= 0.0 && timeStep > 0.0)
+        {
+            const Vec3 velocity = owner.velocity() + math::cross(owner.angularVelocity(), math::rotateUnit(owner.orientation(), value.localPosition()));
+            execution::accumulatePrescribedSPHKinematics(currentState_.velocitySums_[virtualParticleIndex], currentState_.accelerationSums_[virtualParticleIndex],
+                                                        currentState_.previousVelocities_[virtualParticleIndex], velocity, timeStep);
+            continue;
+        }
         execution::accumulateVirtualParticleVelocityAndAcceleration(currentState_.velocitySums_[virtualParticleIndex],
                                                                     currentState_.accelerationSums_[virtualParticleIndex],
                                                                     value.localPosition(),
@@ -104,6 +116,18 @@ void virtualParticleCoupling::accumulateKinematics(const virtualParticleContaine
                                                                     owner.inertiaTensor(),
                                                                     owner.inverseInertiaTensor(),
                                                                     gravity);
+    }
+}
+
+void virtualParticleCoupling::resetKinematicsReference(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles)
+{
+    const auto& samples = virtualParticles.host();
+    currentState_.previousVelocities_.resize(samples.size());
+    for (std::size_t index = 0; index < samples.size(); ++index)
+    {
+        const virtualParticle& sample = samples[index];
+        const LSParticle& owner = LSParticles.host()[sample.ownerLSParticleIndex()];
+        currentState_.previousVelocities_[index] = owner.velocity() + math::cross(owner.angularVelocity(), math::rotateUnit(owner.orientation(), sample.localPosition()));
     }
 }
 
@@ -152,6 +176,8 @@ void virtualParticleCoupling::collectForceAndTorque(const virtualParticleContain
             force += value.force();
             torque += math::cross(value.position() - LSParticleHost[ownerIndex].position(), value.force());
         }
+        currentState_.forceIncrementsByOwner_[ownerIndex] = force - currentState_.forcesByOwner_[ownerIndex];
+        currentState_.torqueIncrementsByOwner_[ownerIndex] = torque - currentState_.torquesByOwner_[ownerIndex];
         currentState_.forcesByOwner_[ownerIndex] = force;
         currentState_.torquesByOwner_[ownerIndex] = torque;
     }
@@ -177,6 +203,26 @@ void virtualParticleCoupling::clearKinematics() noexcept
     std::fill(currentState_.accelerationSums_.begin(), currentState_.accelerationSums_.end(), Vec3::zero());
 }
 
+void virtualParticleCoupling::applyImpulseCorrection(LSParticleContainer& LSParticles, math::Real correctionTime) const
+{
+    auto& owners = LSParticles.host();
+    const int ownerCount = static_cast<int>(owners.size());
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static) if (ownerCount >= cpu::parallelParticleThreshold)
+#endif
+    for (int ownerIndex = 0; ownerIndex < ownerCount; ++ownerIndex)
+    {
+        LSParticle& owner = owners[ownerIndex];
+        Vec3 velocityCorrection;
+        Vec3 angularVelocityCorrection;
+        execution::calculateSPHCouplingVelocityCorrection(velocityCorrection, angularVelocityCorrection,
+                                                         currentState_.forceIncrementsByOwner_[ownerIndex], currentState_.torqueIncrementsByOwner_[ownerIndex],
+                                                         owner.orientation(), owner.inverseMass(), owner.inverseInertiaTensor(), correctionTime);
+        owner.setVelocity(owner.velocity() + velocityCorrection);
+        owner.setAngularVelocity(owner.angularVelocity() + angularVelocityCorrection);
+    }
+}
+
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
 
 void virtualParticleCoupling::prepareDeviceKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, int sampleCount, cudaStream_t stream)
@@ -192,8 +238,6 @@ void virtualParticleCoupling::copyForceAndTorqueFromDevice(const virtualParticle
 {
     const int virtualParticleCount = static_cast<int>(virtualParticles.deviceSize());
     const int ownerCount = ownerOffsets_.empty() ? 0 : static_cast<int>(ownerOffsets_.size()) - 1;
-    currentState_.forcesByOwner_.assign(ownerCount, Vec3::zero());
-    currentState_.torquesByOwner_.assign(ownerCount, Vec3::zero());
     if (virtualParticleCount == 0)
     {
         return;
@@ -220,6 +264,8 @@ void virtualParticleCoupling::copyForceAndTorqueFromDevice(const virtualParticle
             force += virtualParticleForce;
             torque += math::cross(virtualParticleHost[virtualParticleIndex].position() - LSParticleHost[ownerIndex].position(), virtualParticleForce);
         }
+        currentState_.forceIncrementsByOwner_[ownerIndex] = force - currentState_.forcesByOwner_[ownerIndex];
+        currentState_.torqueIncrementsByOwner_[ownerIndex] = torque - currentState_.torquesByOwner_[ownerIndex];
         currentState_.forcesByOwner_[ownerIndex] = force;
         currentState_.torquesByOwner_[ownerIndex] = torque;
     }

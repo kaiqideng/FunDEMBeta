@@ -8,6 +8,7 @@
 #include "data/vtuWriter.h"
 #include "math/Vector3.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -87,6 +88,16 @@ public:
     /** Writes one output frame immediately from a synchronized snapshot. */
     void writeOutput();
     /**
+     * Calls @p observer with host state synchronized to time(), temporarily
+     * completing deferred multirate work without changing its continuation.
+     * Nested observations and writeOutput() share the same snapshot. The
+     * observer must not advance or modify the solver; copied values remain
+     * valid after return, but references to temporary host state do not.
+     * Deferred state is restored even when the observer throws.
+     * Reentrant initialize(), step(), and solve() calls are rejected.
+     */
+    void observeCurrentState(const std::function<void(const solver&)>& observer);
+    /**
      * Advances @p numberOfSteps DEM steps, initializing or resuming as needed.
      * Repeated calls continue from the current time and permit append-only model
      * additions between solves.
@@ -159,6 +170,8 @@ private:
 
     /** Validates common time-step, boundary, output, and mode configuration. */
     void validateConfiguration() const;
+    /** Rejects integration lifecycle changes while temporary state is visible. */
+    void requireNoCurrentStateObservation() const;
     /** Lazily creates the configured CUDA-device stream. */
     void initializeDeviceContext();
     /** Resolves and creates the configured output-directory structure. */
@@ -189,6 +202,7 @@ private:
     bool initialized_{false};                         ///< Whether backend state matches the host model.
     bool firstSolve_{true};                           ///< Whether output cleanup is still pending.
     bool continuationValid_{false};                   ///< Whether deferred state may resume.
+    bool observingCurrentState_{false};               ///< Whether a synchronized observation scope is active.
     advanceTemplate advanceTemplate_{nullptr};        ///< Cached mode-specific advance dispatch.
 };
 
