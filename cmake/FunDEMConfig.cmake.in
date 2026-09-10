@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if(@FUNDEM_HAS_CUDA@)
+    find_dependency(CUDAToolkit)
+endif()
+
+if(@FUNDEM_HAS_OPENMP@)
+    find_dependency(OpenMP COMPONENTS CXX)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/FunDEMTargets.cmake")

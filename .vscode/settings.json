@@ -1,0 +1,29 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.configureOnOpen": true,
+    "cmake.buildDirectory": "${workspaceFolder}/../build-cuda132-clean",
+    "cmake.configureSettings": {
+        "FUNDEM_ENABLE_CUDA": true,
+        "CMAKE_CUDA_COMPILER": "/usr/local/cuda-13.2/bin/nvcc",
+        "CMAKE_CUDA_ARCHITECTURES": "120",
+        "FUNDEM_CUDA_ARCHITECTURES": "120",
+        "FUNDEM_BUILD_EXAMPLES": true,
+        "BUILD_TESTING": true
+    },
+    "C_Cpp.default.compilerPath": "/usr/bin/g++",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/../build-cuda132-clean/compile_commands.json",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/**",
+        "/usr/local/cuda-13.2/targets/x86_64-linux/include"
+    ],
+    "C_Cpp.default.defines": [
+        "FUNDEM_HAS_CUDA=1"
+    ],
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.workspaceParsingPriority": "high",
+    "files.associations": {
+        "*.h": "cpp",
+        "*.cu": "cuda-cpp",
+        "*.cuh": "cuda-cpp"
+    }
+}

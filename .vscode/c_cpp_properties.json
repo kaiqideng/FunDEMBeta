@@ -1,0 +1,36 @@
+{
+    "configurations": [
+        {
+            "name": "FunDEMBeta CUDA",
+            "compilerPath": "/usr/bin/g++",
+            "compileCommands": "${workspaceFolder}/../build-cuda132-clean/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/**",
+                "/usr/local/cuda-13.2/targets/x86_64-linux/include",
+                "/usr/include"
+            ],
+            "compilerArgs": [
+                "-isystem",
+                "/usr/local/cuda-13.2/targets/x86_64-linux/include"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "${workspaceFolder}/**",
+                    "/usr/local/cuda-13.2/targets/x86_64-linux/include",
+                    "/usr/include"
+                ],
+                "limitSymbolsToIncludedHeaders": false,
+                "databaseFilename": "${workspaceFolder}/../build-cuda132-clean/browse.vc.db"
+            },
+            "defines": [
+                "FUNDEM_HAS_CUDA=1"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

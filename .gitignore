@@ -1,0 +1,36 @@
+# CMake build trees and generated metadata
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+Makefile
+compile_commands.json
+Testing/
+docs/api/
+
+# Compiler and linker outputs
+*.o
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.lib
+*.pdb
+*.ilk
+
+# Simulation output
+*.vtu
+*.dat
+*_files/
+
+# Editor and operating-system noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
