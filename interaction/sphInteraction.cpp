@@ -2,7 +2,7 @@
 
 #include "execution/sphFunctions.h"
 #include "math/Indexing.h"
-#include "solverFunctions.h"
+#include "execution/cpu/parallelPolicy.h"
 
 #include <algorithm>
 #include <cmath>

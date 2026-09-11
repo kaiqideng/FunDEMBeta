@@ -7,9 +7,9 @@
 #include "particle/SPHParticle.h"
 #include "particle/virtualParticle.h"
 #include "solver/LSDEM.h"
-#include "solver/SPHJet.h"
-#include "solver/SPHNeighborhood.h"
-#include "solver/virtualParticleCoupling.h"
+#include "particle/SPHJet.h"
+#include "interaction/SPHNeighborhood.h"
+#include "interaction/virtualParticleCoupling.h"
 
 #include <memory>
 #include <vector>

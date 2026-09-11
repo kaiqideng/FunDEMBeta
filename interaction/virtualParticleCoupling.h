@@ -1,6 +1,6 @@
 /**
  * @file virtualParticleCoupling.h
- * @brief Aggregates SPH boundary kinematics and resultant loads by LS owner.
+ * @brief Collects virtual-boundary kinematics and SPH reaction loads by LS owner.
  */
 #pragma once
 

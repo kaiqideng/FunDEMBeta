@@ -76,6 +76,8 @@ each acoustic step:
     -> velocity step -> active-jet velocity -> position half step -> density half step
 ```
 
+Before each density or pressure stage, the solver checks actual fluid/boundary displacement against the reference positions owned by `interaction/SPHNeighborhood`. It rebuilds the grids if those references are invalid or the maximum displacement exceeds half the search skin. A rebuild within an advection interval preserves density, viscous prior force, and the current advection phase.
+
 Wall reaction uses atomic additions because many fluid particles may contribute to one virtual boundary point. Each fluid thread writes only its own density, pressure, prior force, and total force.
 
 Finite-duration jet particles are allocated once on the host before device initialization. `launchApplySPHJetVelocity()` receives one source's stable `[begin, begin + count)` range and cannot modify unrelated particles; its kernel also checks that each ranged particle is still inside the upstream pipe and updates the particle's internal `constrained` marker. Density reinitialization and continuity integration kernels skip marked particles. Both applications use the solver stream and the same substep-start activity decision. The marker is cleared when a particle leaves the pipe or when the source ends. After the final source ends, the `jetsCompleted` fast path suppresses all later jet launches. The legacy four-argument `addSPHJet` overload is only a static downstream column and never launches this kernel.

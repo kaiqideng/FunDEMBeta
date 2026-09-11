@@ -1,5 +1,5 @@
 #include "SPHNeighborhood.h"
-#include "solverFunctions.h"
+#include "execution/cpu/parallelPolicy.h"
 
 #include <algorithm>
 #include <limits>

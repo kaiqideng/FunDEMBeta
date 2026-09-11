@@ -6,5 +6,5 @@
 
 #include "solver/LSDEM.h"
 #include "solver/SPHDEM.h"
-#include "solver/SPHJet.h"
+#include "particle/SPHJet.h"
 #include "solver/SphereDEM.h"

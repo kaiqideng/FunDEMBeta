@@ -5,8 +5,8 @@
 #include "execution/sphFunctions.h"
 #include "execution/sphJetFunctions.h"
 #include "execution/sphSourceDiscretization.h"
-#include "solverFunctions.h"
-#include "sphInteraction.h"
+#include "execution/cpu/particleFunctions.h"
+#include "interaction/sphInteraction.h"
 
 #include <algorithm>
 #include <cmath>

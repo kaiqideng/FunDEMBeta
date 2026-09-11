@@ -8,7 +8,7 @@
 #include "solver/LSDEM.h"
 #include "solver/SPHDEM.h"
 #include "solver/SphereDEM.h"
-#include "solver/solverFunctions.h"
+#include "execution/cpu/particleFunctions.h"
 
 #include <algorithm>
 #include <cmath>

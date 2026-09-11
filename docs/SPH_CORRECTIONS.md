@@ -16,7 +16,7 @@ An observation can temporarily rebuild search structures. Restoring the saved pa
 
 ## 2. A common held-load convention
 
-Affected code: `virtualParticleCoupling`, virtual-particle load fields, and CUDA wall-load collection/scattering.
+Affected code: `interaction/virtualParticleCoupling`, virtual-particle load fields, and CUDA wall-load collection/scattering.
 
 Between acoustic updates, all backends hold the last evaluated world force **and world torque**. Previously CPU/Hybrid held torque while GPU recomputed it from the current rotated lever arm. That difference was unrelated to floating-point reduction order.
 
@@ -61,7 +61,7 @@ The existing end-of-acoustic-step statistics also inspect density rate, pressure
 
 ## 6. Reuse neighbors only while their displacement allowance is valid
 
-Affected code: the new `solver/SPHNeighborhood` component and `SPHDEM::ensureSPHNeighborhood` overloads.
+Affected code: `interaction/SPHNeighborhood` and the `SPHDEM::ensureSPHNeighborhood` overloads.
 
 Reference positions are stored separately from physical particle state at each search build. Before a density or pressure stage consumes neighbors, the maximum actual fluid/boundary displacement is compared with half the search skin. Since the relative motion of any pair is bounded by twice that maximum, a stage cannot silently use a list whose original search allowance has been exhausted.
 
@@ -79,10 +79,16 @@ The DEM-versus-stability-limit comparison uses relative tolerance, not an absolu
 
 These changes belong to FunDEMSoftware rather than the solver library:
 
-- Recorded display frames and full restart checkpoints are stored in a process-owned temporary disk spool. Frame time/step metadata stays resident, with a byte-bounded playback cache (32 MiB by default). Oversized individual frames can be loaded without being permanently cached.
+- Recorded display frames and full restart checkpoints are stored in a process-owned temporary disk spool. Frame time/step metadata stays resident. The initial implementation accompanying this 1.0.1 review used a byte-bounded playback cache with a 32 MiB default. Oversized individual frames could be loaded without being permanently cached.
 - Geometry resources are stored separately and reused. Both frame files must be written successfully before a frame is published. Records have format, count, and checksum checks; read or disk-full errors are reported rather than silently dropping history.
 - Reset/project replacement releases the old spool after any in-progress reader finishes. Normal application shutdown removes it. This is temporary session storage, not a substitute for exporting a project or scientific files; abnormal process termination can leave temporary files behind.
 - A frame checkpoint records its original uniform SPH properties. Those properties are read-only when resuming its saved SPH model, and project compilation rejects mismatches. Old JSON files without this metadata establish the baseline from their stored solver settings on import; earlier manual tampering cannot be reconstructed.
+
+### Subsequent workbench update: FunDEMSoftware 0.3.27
+
+The current workbench uses a configurable multi-frame LRU playback cache with a 256 MiB default. **Settings > Display Storage** exposes separate **Viewport** and **Playback Cache** budgets; the latter applies immediately, persists as an application preference across Reset/project replacement, and accepts **Off** to disable retention. Cached frames reuse immutable LS geometry, whose retained allocation is counted once across frames. Reducing the limit evicts cache entries, while oversized frames remain readable without retention. Complete render/checkpoint disk records and the temporary-spool cleanup policy are unchanged.
+
+This follow-up changes workbench memory retention, not the numerical corrections recorded for core version 1.0.1 above. The default is an engineering tradeoff rather than a measured optimum: more retained frames can avoid repeated disk reads, but uncached reads and large frame copies may still delay playback. It is not a total-process RAM or GPU-memory limit and does not introduce lossy scientific history.
 
 ## Focused verification
 

@@ -1,4 +1,4 @@
-add_library(FunDEM_interaction contact.cpp bond.cpp contactSearch.cpp)
+add_library(FunDEM_interaction contact.cpp bond.cpp contactSearch.cpp sphInteraction.cpp SPHNeighborhood.cpp virtualParticleCoupling.cpp)
 add_library(FunDEM::interaction ALIAS FunDEM_interaction)
 
 if(FUNDEM_HAS_CUDA)
@@ -18,6 +18,8 @@ target_sources(
             neighborRange.h
             surfaceNodeMapping.h
             interactionContainer.h
+            SPHNeighborhood.h
+            virtualParticleCoupling.h
 )
 
 target_include_directories(

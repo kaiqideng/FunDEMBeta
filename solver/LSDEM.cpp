@@ -2,7 +2,7 @@
 
 #include "data/energyOutput.h"
 #include "data/myLSObject.h"
-#include "solverFunctions.h"
+#include "execution/cpu/particleFunctions.h"
 
 #include <stdexcept>
 #include <utility>

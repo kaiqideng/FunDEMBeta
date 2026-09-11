@@ -16,6 +16,8 @@ target_sources(
             sphCouplingFunctions.h
             sphJetFunctions.h
             sphSourceDiscretization.h
+            cpu/parallelPolicy.h
+            cpu/particleFunctions.h
 )
 
 target_include_directories(

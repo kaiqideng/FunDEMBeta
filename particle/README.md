@@ -1,6 +1,6 @@
 # `particle/`
 
-> **Purpose:** Define moving objects, particle containers, and the multilevel spatial grid without owning contact search or solver control flow.
+> **Purpose:** Define moving objects, particle containers, SPH source descriptors, and the multilevel spatial grid without owning contact search or solver control flow.
 
 ## Core Contents
 
@@ -20,6 +20,7 @@ pointMass
 | `particle` | Radius, material index, and DEM state for an ordinary sphere |
 | `LSParticle` | Level-set geometry reference, grid, surface, and mass properties |
 | `SPHParticle` | Density, pressure, density rate, and free-surface state |
+| `SPHJet` | Outlet geometry, prescribed speed, and duration for a finite SPH inlet source |
 | `virtualParticle` | Actual volume, normal, and interpolated state of an SPH wall sample |
 | `spatialGrid` | Particle background grid with at most four levels |
 
@@ -99,7 +100,9 @@ An `LSParticle` has two intentionally different geometry access paths:
 
 SPH material properties are uniform solver configuration. A user-created `SPHParticle` supplies position and velocity; insertion assigns mass and reference density. CPU and GPU interaction stages update density, pressure, density rate, force, and free-surface state.
 
-Virtual particles are sampled on the uniform SPH lattice anchored by the first fluid particle. The LS grid is interpolated at each candidate point, and solid-side samples within a two-smoothing-length boundary band are retained with volume equal to one SPH lattice cell. This common lattice prevents boundary samples from overlapping fluid particles by half a spacing. Local position and normal follow the LS owner; world position, velocity, acceleration, force, and normal are refreshed by the coupling layer. Users never append virtual particles directly.
+`SPHJet.h` defines a validated source value type with outlet center, direction, radius, speed, and duration. It does not derive from a particle or own emitted particles. `SPHDEM::addSPHJet()` uses those values to allocate the upstream particle range; the solver owns source timing and applies the prescribed inlet velocity during its acoustic stages.
+
+Virtual particles are sampled on the uniform SPH lattice anchored by the first fluid particle. The LS grid is interpolated at each candidate point, and solid-side samples within a two-smoothing-length boundary band are retained with volume equal to one SPH lattice cell. This common lattice prevents boundary samples from overlapping fluid particles by half a spacing. Local position and normal follow the LS owner; world position, velocity, acceleration, force, and normal are refreshed by the coupling stages. `interaction/virtualParticleCoupling` owns the host owner mappings and accumulators used by those stages. Users never append virtual particles directly.
 
 ## Spatial-Grid Ownership
 

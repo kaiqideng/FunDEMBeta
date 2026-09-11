@@ -1,7 +1,7 @@
 #include "SphereDEM.h"
 
 #include "data/energyOutput.h"
-#include "solverFunctions.h"
+#include "execution/cpu/particleFunctions.h"
 
 #include <stdexcept>
 #include <utility>

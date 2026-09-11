@@ -43,9 +43,9 @@ The source tree is divided by responsibility:
 | `data/` | Host/device containers and VTU/DAT output |
 | `material/` | Standard and level-set materials |
 | `geometry/` | Reusable level-set geometry storage |
-| `particle/` | DEM, level-set, SPH, virtual particles, and spatial grids |
-| `interaction/` | Contacts, bonds, histories, and searches |
-| `execution/` | Physical formulas shared by CPU and CUDA |
+| `particle/` | DEM, level-set, SPH, virtual particles, SPH source descriptors, and spatial grids |
+| `interaction/` | Contacts, bonds, searches, SPH neighborhoods, and wall-coupling state |
+| `execution/` | Shared physical formulas, CPU container loops, and CUDA kernels |
 | `solver/` | Simulation lifecycle and execution modes |
 | `tutorial/` | Small runnable demonstrations |
 | `validation/` | Analytical, convergence, and backend-consistency cases |

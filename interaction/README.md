@@ -1,6 +1,6 @@
 # `interaction/`
 
-> **Purpose:** Store contacts, bonds, neighbors, and histories, and provide CPU contact search.
+> **Purpose:** Store contacts, bonds, neighbors, and coupling histories, and provide CPU searches and SPH interaction stages.
 
 ## Core Contents
 
@@ -12,6 +12,9 @@
 | `surfaceNodeMapping.h` | Map expanded surface nodes to geometry nodes and owning LS particles |
 | `interactionContainer.*` | Manage container lifecycle, capacity, copies, and prefix sums |
 | `contactSearch.*` | Construct sphere–sphere, sphere–LS, and LS–LS contacts on the CPU |
+| `sphInteraction.*` | Build compact CPU SPH neighbor lists and evaluate WCSPH stages, integration, and reductions |
+| `SPHNeighborhood.*` | Track reference positions and actual displacement while CPU or CUDA SPH searches are reused |
+| `virtualParticleCoupling.*` | Accumulate boundary kinematics and resultant SPH forces and torques by LS owner |
 
 ## Key Rules
 
@@ -96,6 +99,16 @@ Growing particle counts preserves current contacts and histories while expanding
 Every contact produces one force and torque record before loads are accumulated into particles. For sphere-LS and LS-LS contact, torque signs follow the stored master/slave convention. CPU assembly uses race-free reductions or staged accumulation; CUDA uses atomics only where multiple interactions write one particle.
 
 Bond calculations first refresh the two rigid-body copies and clear the previous force/torques. A bond is calculable only after equivalent length, connection geometry, and all four stiffnesses have been accepted. Damage state persists across calls and across normal device reinitialization.
+
+## SPH Neighborhoods and Coupling
+
+`sphInteraction.h` is private implementation and is not installed as a user API. Its CPU engine owns two compact host neighbor lists: fluid candidates per fluid particle and virtual-wall candidates per fluid particle. Both are constructed from sorted uniform-grid hashes at advection preparation and rebuilt earlier when displacement invalidates reuse.
+
+`SPHNeighborhood` stores the fluid and boundary positions at the most recent search build separately from physical particle state. Before a density or pressure stage, `SPHDEM` checks that the maximum actual displacement is no greater than half the search skin. If that bound is exceeded or references are invalidated, the solver rebuilds the CPU lists or CUDA grids and captures new references. This rebuild does not reset density, refresh viscous prior force, or change the advection phase; physical kernel support remains `2h`.
+
+`SPHStateStatistics` and `SPHKinematicsStatistics` are transient reduction results used for time-step and search-buffer calculations. `SPHInteractionParameters` holds immutable values for one CPU stage. Uniform physical configuration remains in `SPHDEM`, which supplies current values whenever a stage runs. Shared equations live in `execution/sphFunctions.h` and `execution/sphCouplingFunctions.h`.
+
+`virtualParticleCoupling` retains stable LS-owner mappings, sampled boundary kinematics, held forces and torques, and new-minus-held load increments. It averages or reduces these values when requested and supports capturing/restoring its host accumulators for temporary observations. `SPHDEM` controls the sampling times, acoustic updates, impulse-correction stage, and complete snapshot lifecycle. CUDA copies use the stream supplied by the solver.
 
 ## History Debugging Checklist
 

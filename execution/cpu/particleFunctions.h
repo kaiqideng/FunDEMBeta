@@ -1,9 +1,10 @@
 /**
- * @file solverFunctions.h
+ * @file particleFunctions.h
  * @brief Provides OpenMP-enabled CPU loops for integration and force assembly.
  */
 #pragma once
 
+#include "execution/cpu/parallelPolicy.h"
 #include "interaction/interactionContainer.h"
 
 #include <numeric>
@@ -11,9 +12,6 @@
 
 namespace fundem::cpu
 {
-
-constexpr int parallelParticleThreshold = 1024;
-constexpr int parallelInteractionThreshold = 256;
 
 /** Compressed interaction indices incident to each particle. */
 struct interactionAdjacency {

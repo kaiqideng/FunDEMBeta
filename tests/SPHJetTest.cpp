@@ -1,7 +1,7 @@
 #include "execution/sphJetFunctions.h"
 #include "execution/sphSourceDiscretization.h"
 #include "solver/SPHDEM.h"
-#include "solver/SPHJet.h"
+#include "particle/SPHJet.h"
 
 #include <algorithm>
 #include <cmath>

@@ -8,7 +8,7 @@
 #include "particle/SPHParticle.h"
 #include "particle/spatialGrid.h"
 #include "particle/virtualParticle.h"
-#include "solver/SPHNeighborhood.h"
+#include "interaction/SPHNeighborhood.h"
 
 #include <cuda_runtime_api.h>
 

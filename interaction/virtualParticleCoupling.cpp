@@ -2,7 +2,7 @@
 
 #include "execution/sphFunctions.h"
 #include "execution/sphCouplingFunctions.h"
-#include "solverFunctions.h"
+#include "execution/cpu/parallelPolicy.h"
 
 #include <algorithm>
 #include <stdexcept>

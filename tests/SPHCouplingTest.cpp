@@ -1,6 +1,6 @@
 #include "data/myLSObject.h"
 #include "solver/SPHDEM.h"
-#include "solver/virtualParticleCoupling.h"
+#include "interaction/virtualParticleCoupling.h"
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
 #include "execution/cuda/sphInteractionKernel.cuh"

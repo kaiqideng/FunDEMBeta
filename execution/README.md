@@ -1,6 +1,6 @@
 # `execution/`
 
-> **Purpose:** Provide stateless numerical formulas shared by CPU and GPU code without owning containers or solver flow.
+> **Purpose:** Provide shared numerical formulas and backend execution helpers, with solver flow owned by `solver/`.
 
 ## Core Contents
 
@@ -11,14 +11,16 @@
 | `contactFunctions.h` | Evaluate normal, sliding, rolling, and torsional response with Coulomb limits |
 | `bondFunctions.h` | Evaluate bond force/torque, stiffness, and BK mixed-mode fracture energy |
 | `sphFunctions.h` | Provide Wendland kernels, reference-impedance acoustic Riemann states, density/pressure updates, and fluid/wall interaction formulas |
+| `sphCouplingFunctions.h` | Sample prescribed boundary kinematics and compute endpoint coupling velocity corrections |
 | `sphJetFunctions.h` | Test whether a particle lies inside an upstream SPH jet pipe |
 | `sphSourceDiscretization.h` | Construct the regular cylindrical-source lattice |
+| `cpu/` | Apply generic particle integration and interaction-force assembly over host containers |
 | `cuda/` | Launch CUDA kernels that call these formulas |
 
 ## Key Rules
 
 - Place mutable output parameters before read-only inputs.
-- Shared functions use the project's host/device inline macro and contain no allocation, exceptions, or global state.
+- Shared numerical formulas use the project's host/device inline macro and contain no allocation, exceptions, or global state. CPU container loops and CUDA launchers are separate backend helpers.
 - Use `math::defaultTolerance` and helpers such as `math::isFinite()` for degeneracy checks.
 - `inverseMass == 0` means infinite mass. Motion integration leaves its velocity, position, and orientation unchanged, with inertia and inverse inertia defaulting to zero matrices.
 - Renormalize quaternions after integration to prevent long-term orientation drift.
@@ -33,16 +35,16 @@ Tangential damping is limited by projection onto the Coulomb disk: compute the t
 
 ## Layer Boundary
 
-The `execution` layer knows mathematical values but not solver modes, containers, allocation, histories, or launch configuration. A typical call chain is:
+The shared numerical formulas at the root of `execution/` consume mathematical values and do not own particle containers, histories, solver modes, or launch configuration. [`cpu/`](cpu/README.md) contains host container loops and temporary assembly storage; [`cuda/`](cuda/README.md) contains kernel launchers. Stateful SPH neighborhoods and boundary-coupling accumulators belong to `interaction/`. A typical call chain is:
 
 ```text
 solver stage
-    -> CPU container loop or CUDA kernel
+    -> CPU container loop, interaction component, or CUDA kernel
         -> execution formula
             -> math primitives
 ```
 
-This boundary keeps the physical equation identical on CPU and GPU. Object methods may organize cached inputs and outputs, but the equation itself belongs here when both backends need it.
+This boundary keeps the physical equation identical on CPU and GPU. Object methods may organize cached inputs and outputs, but shared equations belong in the root numerical headers. Backend helpers perform the stage requested by the solver; step ordering, simulation time, initialization, and snapshots remain in `solver/`.
 
 ## Contact Response Sequence
 
@@ -72,7 +74,7 @@ The shared SPH formulas are split intentionally:
 - wall reaction from each fluid acceleration contribution;
 - acoustic/advection time-step limits.
 
-CPU loops and CUDA kernels compose these functions in the same order. The physical support remains `2h`, even when the neighbor search radius is enlarged with a displacement buffer so one neighborhood can be reused across an advection step.
+CPU loops and CUDA kernels compose these functions in the same order. The physical support remains `2h`, even when the neighbor search radius is enlarged with a displacement buffer. `interaction/SPHNeighborhood` tracks actual displacement so the solver can reuse the search structures across acoustic substeps while the buffer remains valid, rebuilding them earlier when needed.
 
 Finite-duration jets reuse one host/device pipe-membership predicate from `sphJetFunctions.h`. The solver performs the one-time upstream particle allocation and owns each source's stable range and end time; the execution formula owns no source state. For every active acoustic substep, the solver applies the prescribed velocity before optional advection preparation and again after velocity integration. Once the final end time is reached, the solver's `jetsCompleted` fast path stops calling the range checks entirely. The legacy four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
 

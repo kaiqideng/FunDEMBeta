@@ -1,6 +1,6 @@
 /**
  * @file sphInteraction.h
- * @brief Declares compact CPU WCSPH neighborhoods, interactions, and reductions.
+ * @brief Declares CPU WCSPH interaction stages and compact neighbor storage.
  */
 #pragma once
 
@@ -47,8 +47,8 @@ public:
     /** Initializes density, pressure, force history, and finite particle mass. */
     void initializeParticles(SPHParticleContainer& particles, math::Real referenceDensity, math::Real soundSpeed) const;
     /**
-     * Rebuilds compact fluid-fluid and fluid-boundary neighborhoods once per
-     * advection interval using a uniform host background grid.
+     * Rebuilds compact fluid-fluid and fluid-boundary neighborhoods using a
+     * uniform host background grid, at advection boundaries or when the search skin expires.
      */
     void buildNeighborhood(const SPHParticleContainer& particles,
                            const virtualParticleContainer& virtualParticles,

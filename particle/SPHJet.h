@@ -1,6 +1,6 @@
 /**
  * @file SPHJet.h
- * @brief Defines the geometric and temporal parameters of an SPH jet.
+ * @brief Defines the geometric and temporal parameters of an SPH particle source.
  */
 #pragma once
 

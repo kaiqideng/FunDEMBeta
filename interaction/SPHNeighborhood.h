@@ -1,6 +1,6 @@
 /**
  * @file SPHNeighborhood.h
- * @brief Tracks actual displacement while SPH search structures are reused.
+ * @brief Tracks displacement validity for cached SPH neighbor searches.
  */
 #pragma once
 

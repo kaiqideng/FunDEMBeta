@@ -15,9 +15,9 @@ solver
 - `LSDEM`: materials, level-set geometry, LS particles, LS–LS contacts, and LS–LS bonds.
 - `SphereDEM`: adds spheres, sphere–sphere interactions, and sphere–LS interactions.
 - `SPHDEM`: adds CPU/GPU SPH, virtual wall particles, and SPH–LS reaction forces; ordinary spheres are disabled.
-- `solverFunctions.h`: container-level loops used by CPU solve paths.
-- `sphInteraction.*`: provides the OpenMP-parallel CPU neighbor lists, WCSPH interactions, integration, and state reductions used by `SPHDEM`.
 - `solvers.h`: unified user include entry point.
+
+Reusable CPU loops live in [`execution/cpu/`](../execution/cpu/README.md). SPH neighborhoods, interaction evaluation, and wall-coupling accumulators live in [`interaction/`](../interaction/README.md), while `particle/SPHJet.h` defines the inlet source values. Solvers own these components' lifetimes and decide when each stage runs.
 
 ## Key Rules
 
@@ -54,7 +54,7 @@ Each DEM step uses a velocity-Verlet structure. Force assembly order is clear st
 
 CPU, GPU, and Hybrid execution apply an active jet at the acoustic-substep start before optional advection preparation and again immediately after velocity integration. Particles that remain inside the virtual pipe carry an internal `constrained` marker, retain their current density and pressure during density reinitialization, and skip continuity-equation density integration. The marker clears as soon as a particle leaves the pipe or the source ends. A constraint active at the start remains active for the complete substep, so its end time is rounded upward by at most one acoustic substep. After the last jet ends, the `jetsCompleted` fast path skips all remaining range and pipe checks; `SPHJetsCompleted()` reports that completion state.
 
-The SPH acoustic time step is an integer multiple of the DEM time step without exceeding the acoustic limit; its minimum is one DEM step. If one DEM step already exceeds the acoustic or advection/viscous limit, initialization rejects the configuration. At the start of each advection step, `SPHDEM` builds the fluid and virtual-wall neighborhood on the selected SPH backend, updates the free-surface state, reinitializes density, and stores the viscous force as a prior force. The following acoustic substeps reuse those grids and update only Riemann density relaxation and pressure force. Neighbor queries include a relative-displacement buffer derived from the maximum fluid and virtual-wall velocity and acceleration. Virtual-wall kinematics accumulated over multiple DEM steps are averaged by step count. Particle-count or SPH-configuration changes invalidate deferred state and rebuild it from the current host state.
+The SPH acoustic time step is an integer multiple of the DEM time step without exceeding the acoustic limit; its minimum is one DEM step. If one DEM step already exceeds the acoustic or advection/viscous limit, initialization rejects the configuration. At the start of each advection step, `SPHDEM` builds the fluid and virtual-wall neighborhood on the selected SPH backend, updates the free-surface state, reinitializes density, and stores the viscous force as a prior force. Neighbor queries include a relative-displacement buffer derived from the maximum fluid and virtual-wall velocity and acceleration. Acoustic substeps reuse the search structures while `interaction/SPHNeighborhood` confirms that actual displacement remains within half that buffer. Before each density or pressure stage, exhausted or invalid references trigger a search rebuild without reinitializing density, refreshing the viscous prior force, or restarting the advection step. Virtual-wall kinematics accumulated over multiple DEM steps are averaged by step count. Particle-count or SPH-configuration changes invalidate deferred state and rebuild it from the current host state.
 
 ### Output
 
@@ -129,11 +129,11 @@ clear force and torque
 
 This ordering guarantees that user hooks add to, rather than silently replace, internal physics. GPU hooks receive a device view and stream; CPU hooks receive the mutable host container selected by the execution template.
 
-## CPU SPH Engine
+## SPH Stage Coordination
 
-`sphInteraction.*` is private solver implementation, not an installed user API. It owns two compact host neighbor lists: fluid candidates per fluid particle and virtual-wall candidates per fluid particle. Both are constructed from sorted uniform-grid hashes once per advection step and reused during acoustic steps.
+`SPHDEM` uses `interaction/sphInteraction.*` for CPU neighbor lists, WCSPH stages, integration, and reductions. That component's header remains private implementation and is not installed. `interaction/SPHNeighborhood.*` tracks search validity for both CPU and CUDA, and `interaction/virtualParticleCoupling.*` retains host boundary kinematics and resultant owner loads.
 
-`SPHStateStatistics` and `SPHKinematicsStatistics` are transient reduction results consumed immediately by time-step and search-buffer calculations. `SPHInteractionParameters` bundles immutable values for one interaction stage so the CPU loops do not receive a long repeated argument list. Persistent user configuration remains owned by `SPHDEM`, preventing a second parameter object from becoming stale after a setter changes gravity or sound speed.
+The solver owns uniform SPH configuration, time-step selection, advection/acoustic stage ordering, and snapshot restoration. It passes current values to the interaction components for each stage and decides when a neighborhood must be rebuilt. The components do not advance the solver clock or choose an output schedule.
 
 The CPU and CUDA sequences are deliberately parallel: free-surface classification, density reinitialization, viscous prior force, two density half-steps, pressure force, velocity integration, and wall reaction use the same formulas from `execution/sphFunctions.h`.
 

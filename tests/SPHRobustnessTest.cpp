@@ -1,8 +1,8 @@
 #include "execution/sphFunctions.h"
 #include "execution/sphSourceDiscretization.h"
 #include "solver/SPHDEM.h"
-#include "solver/SPHNeighborhood.h"
-#include "solver/sphInteraction.h"
+#include "interaction/SPHNeighborhood.h"
+#include "interaction/sphInteraction.h"
 
 #include <cmath>
 #include <iostream>

@@ -13,6 +13,7 @@ target_sources(
             particle.h
             LSParticle.h
             SPHParticle.h
+            SPHJet.h
             virtualParticle.h
             spatialGrid.h
 )

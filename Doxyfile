@@ -1,6 +1,6 @@
 # FunDEMBeta API reference configuration.
 PROJECT_NAME           = "FunDEMBeta"
-PROJECT_NUMBER         = 1.0.1
+PROJECT_NUMBER         = 1.0.2
 PROJECT_BRIEF          = "Unified CPU/CUDA DEM and SPH-DEM framework"
 
 OUTPUT_DIRECTORY       = docs/api
