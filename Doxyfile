@@ -17,8 +17,9 @@ JAVADOC_AUTOBRIEF      = YES
 QT_AUTOBRIEF           = YES
 MULTILINE_CPP_IS_BRIEF = NO
 MARKDOWN_SUPPORT       = YES
+MARKDOWN_ID_STYLE      = GITHUB
 AUTOLINK_SUPPORT       = YES
-USE_MDFILE_AS_MAINPAGE = README.md
+USE_MDFILE_AS_MAINPAGE = ./README.md
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = YES
@@ -36,7 +37,8 @@ SORT_BRIEF_DOCS        = NO
 SORT_MEMBERS_CTORS_1ST = YES
 
 INPUT                  = README.md \
-                         docs/UserGuide.md \
+                         README_macOS.md \
+                         docs \
                          math \
                          data \
                          material \
@@ -44,26 +46,43 @@ INPUT                  = README.md \
                          particle \
                          interaction \
                          execution \
-                         solver
+                         solver \
+                         cmake \
+                         tests \
+                         tutorial \
+                         validation \
+                         example
 INPUT_ENCODING         = UTF-8
-FILE_PATTERNS          = *.h *.cuh *.cpp *.cu
+FILE_PATTERNS          = *.h *.cuh *.cpp *.cu *.md
+EXTENSION_MAPPING      = cu=C++ cuh=C++
+# Filters affect documentation parsing only; source listings remain unchanged.
+FILTER_PATTERNS        = *.md="python3 docs/doxygenMarkdown.py" \
+                         *.h="python3 docs/doxygenCpp.py" \
+                         *.cuh="python3 docs/doxygenCpp.py" \
+                         *.cpp="python3 docs/doxygenCpp.py" \
+                         *.cu="python3 docs/doxygenCpp.py"
+FILTER_SOURCE_FILES    = NO
 RECURSIVE              = YES
 EXCLUDE                = docs/api
 EXCLUDE_PATTERNS       = */build/* */build-*/*
 EXAMPLE_PATH           = tutorial
+IMAGE_PATH             = docs/assets
+HTML_EXTRA_FILES       = docs/assets/tutorial0.mp4
 
 QUIET                  = YES
 WARNINGS               = YES
 WARN_IF_UNDOCUMENTED   = NO
-WARN_IF_DOC_ERROR      = NO
-WARN_IF_INCOMPLETE_DOC = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_INCOMPLETE_DOC = YES
 WARN_NO_PARAMDOC       = NO
-WARN_AS_ERROR          = NO
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
 WARN_LOGFILE           =
 
 GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_FILE_EXTENSION    = .html
+USE_MATHJAX            = YES
+MATHJAX_VERSION        = MathJax_3
 HTML_COLORSTYLE_HUE    = 220
 HTML_COLORSTYLE_SAT    = 80
 HTML_COLORSTYLE_GAMMA  = 90

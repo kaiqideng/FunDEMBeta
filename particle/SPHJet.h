@@ -20,8 +20,9 @@ public:
 
     /**
      * Creates a jet from its outlet, axis, radius, speed, and emission duration.
-     * If any argument or the derived pipe length is invalid, the object remains
-     * in its default invalid state.
+     * If any argument fails its individual setter's validation, the object
+     * remains in its default invalid state. The derived pipe length is checked
+     * by the solver when the jet is added.
      */
     SPHJet(const Vec3& outletCenter, const Vec3& direction, Real radius, Real speed, Real duration) noexcept
     {

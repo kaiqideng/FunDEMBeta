@@ -114,9 +114,9 @@ protected:
     const std::vector<contactVTUField>& contactVTUFields() const noexcept { return contactVTUFields_; }
     const std::vector<bondVTUField>& bondVTUFields() const noexcept { return bondVTUFields_; }
 
-    /** Assembles gravity, LS contacts, bonds, and user loads on the host. */
+    /** Assembles LS contact, bond, and user loads on the host; gravity is applied during velocity integration. */
     void assembleLSParticleForceAndTorque(Real historyTimeStep, cpu::mode);
-    /** Assembles gravity, LS contacts, bonds, and user loads on the device. */
+    /** Assembles LS contact, bond, and user loads on the device; gravity is applied during velocity integration. */
     void assembleLSParticleForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream);
     /** Searches and evaluates LS contacts and bonds on the host. */
     void calculateLSParticleForceAndTorque(Real historyTimeStep, cpu::mode);

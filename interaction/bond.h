@@ -143,8 +143,9 @@ public:
     /**
      * Converts physical normal, shear, bending, and torsional stiffness values
      * into the four stored bond coefficients.
-     * @return False until equivalent length is set or when a coefficient is
-     * non-finite or negative.
+     * The derived bending coupling coefficient B3 may be negative.
+     * @return False until equivalent length is set, when an input stiffness is
+     * non-finite or negative, or when a derived coefficient is non-finite.
      */
     bool setStiffness(Real normalStiffness, Real shearStiffness, Real bendingStiffness, Real torsionalStiffness) noexcept
     {

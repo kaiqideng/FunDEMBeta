@@ -1145,13 +1145,19 @@ The documentation is intentionally layered:
 
 Obvious getters and setters are intentionally not annotated one by one when their behavior is completely expressed by the declaration. Operators and mechanical `DeviceLayout` field tags are treated the same way. This keeps generated reference pages focused on information that cannot be recovered from the identifier alone.
 
-To generate reference pages locally, install Doxygen and run it from the source directory:
+To generate reference pages locally, install Doxygen 1.9.8 or newer and Python 3. Python must be available as `python3` on `PATH`; no additional Python packages, CUDA toolkit, or compiled solver are needed. Run from the `FunDEMBeta` source directory:
 
 ```bash
+doxygen --version
+python3 --version
 doxygen Doxyfile
 ```
 
-Open the generated HTML index reported by Doxygen. For source navigation in VS Code, use the same CMake build directory for compilation and `compile_commands.json`; see [Section 4.1](#41-vs-code-configuration). Public user construction belongs in `solver/*.h`, model state in `particle/`, `material/`, and `interaction/`, shared formulas in `execution/`, and CUDA launch contracts in `execution/cuda/`.
+Open `docs/api/html/index.html`. Generated documentation is ignored by Git. Documentation errors fail the command rather than silently producing a successful build; intentionally undocumented getters and setters remain allowed.
+
+The Doxygen configuration explicitly parses `.cu` and `.cuh` as C++, includes the module READMEs, and uses GitHub-compatible heading IDs. Documentation-only input filters preserve source line numbers while adapting Markdown math/media and resolving container aliases for the API parser. They do not change compiled code or the original files. Referenced images and the tutorial video are copied into the HTML output; equations use MathJax, which requires network access to its CDN when viewing the pages.
+
+For source navigation in VS Code, use the same CMake build directory for compilation and `compile_commands.json`; see [Section 4.1](#41-vs-code-configuration). Public user construction belongs in `solver/*.h`, model state in `particle/`, `material/`, and `interaction/`, shared formulas in `execution/`, and CUDA launch contracts in `execution/cuda/`.
 
 ## 17. Troubleshooting
 

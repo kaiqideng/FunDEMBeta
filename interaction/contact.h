@@ -159,8 +159,8 @@ private:
     Real rollingElasticEnergy_{0.0};                ///< Stored rolling elastic energy.
     Real torsionalElasticEnergy_{0.0};              ///< Stored torsional elastic energy.
     Vec3 slidingSpringDeformation_{Vec3::zero()};   ///< Tangential spring displacement.
-    Vec3 rollingSpringDeformation_{Vec3::zero()};   ///< Rolling spring rotation vector.
-    Vec3 torsionalSpringDeformation_{Vec3::zero()}; ///< Torsional spring rotation vector.
+    Vec3 rollingSpringDeformation_{Vec3::zero()};   ///< Rolling displacement history in length units, scaled by the effective radius.
+    Vec3 torsionalSpringDeformation_{Vec3::zero()}; ///< Torsional displacement history in length units, scaled by twice the effective radius.
 
 public:
     struct masterParticleIndexField {
