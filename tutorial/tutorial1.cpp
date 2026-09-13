@@ -104,8 +104,8 @@ int main(int, char** argv)
         constexpr Real initialHeight = 0.3;
         constexpr Real gridSpacing = 0.002;
         constexpr Real timeStep = 2.0e-5;
-        constexpr Real duration = 2.0;
-        constexpr Real outputTimeInterval = 0.01;
+        constexpr Real duration = 3.0;
+        constexpr Real outputTimeInterval = 0.05;
 
         LSDEM simulation;
         const int materialIndex = simulation.addMaterial(LSMaterial{2.0e10, 8.0e9, 0.4, 0.2, 7850.0});

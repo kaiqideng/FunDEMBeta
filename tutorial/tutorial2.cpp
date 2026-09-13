@@ -3,6 +3,7 @@
  * @brief Demonstrates a bonded spherical-particle cloth falling onto a level-set box.
  */
 #include "data/myLSObject.h"
+#include "execution/cpu/parallelPolicy.h"
 #include "interaction/bond.h"
 #include "material/LSMaterial.h"
 #include "material/material.h"
@@ -11,13 +12,16 @@
 #include "solver/SphereDEM.h"
 #include "tutorialOptions.h"
 
+#if FUNDEM_HAS_CUDA
+#include "tutorial2DampingKernel.cuh"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <exception>
 #include <iostream>
 #include <stdexcept>
-#include <utility>
 #include <vector>
 
 namespace
@@ -26,65 +30,81 @@ namespace
 using fundem::math::Real;
 using fundem::math::Vec3;
 
+/** Applies the Workbench sample's linear and angular particle damping after force assembly. */
+class ClothSimulation : public fundem::SphereDEM
+{
+public:
+    /** Configures the execution backend and the two independent drag coefficients. */
+    ClothSimulation(fundem::executionMode mode, int device, Real velocityDampingRate, Real rotationalDragCoefficient)
+        : SphereDEM(mode, device), velocityDampingRate_(velocityDampingRate), rotationalDragCoefficient_(rotationalDragCoefficient)
+    {}
+
+protected:
+    /** Adds F = -gamma m v and T = -c omega to finite-mass cloth spheres. */
+    void addSphereExternalForceAndTorque(fundem::particleContainer::host_container_type& particles) override
+    {
+        const int particleCount = static_cast<int>(particles.size());
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static) if (particleCount >= fundem::cpu::parallelParticleThreshold)
+#endif
+        for (int particleIndex = 0; particleIndex < particleCount; ++particleIndex)
+        {
+            fundem::particle& value = particles[particleIndex];
+            if (value.inverseMass() > 0.0)
+            {
+                value.addForce(-(velocityDampingRate_ / value.inverseMass()) * value.velocity());
+                value.addTorque(-rotationalDragCoefficient_ * value.angularVelocity());
+            }
+        }
+    }
+
+#if FUNDEM_HAS_CUDA
+    /** Enqueues the same damping for both GPU and hybrid execution. */
+    void addSphereExternalForceAndTorque(fundem::particle::device_type particles, cudaStream_t stream) override
+    {
+        fundem::tutorial::launchClothDamping(particles, velocityDampingRate_, rotationalDragCoefficient_, stream);
+    }
+#endif
+
+private:
+    Real velocityDampingRate_;        ///< Mass-proportional translational damping rate, in inverse seconds.
+    Real rotationalDragCoefficient_; ///< Isotropic rotational drag coefficient, in N m s.
+};
+
 /** Particle centers and neighbor edges of one triangular cloth lattice. */
 struct ClothMesh {
-    std::vector<Vec3> positions_;
-    std::vector<std::array<int, 2>> edges_;
+    std::vector<Vec3> positions_;          ///< Row-major sphere centers matching the software HCP packing.
+    std::vector<std::array<int, 2>> edges_; ///< Unique nearest-neighbor pairs with the smaller index first.
 };
 
 /** Builds a horizontal staggered triangular lattice and its nearest-neighbor edges. */
-ClothMesh makeClothMesh(Real sideLength, Real particleDiameter, Real height)
+ClothMesh makeClothMesh(const Vec3& origin, int columnCount, int rowCount, Real particleDiameter)
 {
     ClothMesh result;
     const Real radius = 0.5 * particleDiameter;
     const Real rowSpacing = std::sqrt(3.0) * radius;
-    const Real maximumCenter = sideLength - radius;
-    std::vector<std::vector<int>> rows;
+    result.positions_.reserve(columnCount * rowCount);
+    result.edges_.reserve(rowCount * (columnCount - 1) + (rowCount - 1) * (2 * columnCount - 1));
 
-    for (int rowIndex = 0;; ++rowIndex)
+    for (int rowIndex = 0; rowIndex < rowCount; ++rowIndex)
     {
-        const Real y = radius + rowIndex * rowSpacing;
-        if (y > maximumCenter + fundem::math::defaultTolerance)
-        {
-            break;
-        }
-
         const Real xOffset = rowIndex % 2 == 0 ? 0.0 : radius;
-        std::vector<int> row;
-        for (Real x = radius + xOffset; x <= maximumCenter + fundem::math::defaultTolerance; x += particleDiameter)
+        for (int columnIndex = 0; columnIndex < columnCount; ++columnIndex)
         {
-            row.push_back(static_cast<int>(result.positions_.size()));
-            result.positions_.push_back({x, y, height});
-        }
-        if (!row.empty())
-        {
-            rows.push_back(std::move(row));
-        }
-    }
-
-    for (int rowIndex = 0; rowIndex < static_cast<int>(rows.size()); ++rowIndex)
-    {
-        const std::vector<int>& row = rows[rowIndex];
-        for (int columnIndex = 0; columnIndex + 1 < static_cast<int>(row.size()); ++columnIndex)
-        {
-            result.edges_.push_back({row[columnIndex], row[columnIndex + 1]});
-        }
-        if (rowIndex == 0)
-        {
-            continue;
-        }
-
-        const std::vector<int>& previousRow = rows[rowIndex - 1];
-        for (int columnIndex = 0; columnIndex < static_cast<int>(row.size()); ++columnIndex)
-        {
-            if (columnIndex < static_cast<int>(previousRow.size()))
+            const int particleIndex = rowIndex * columnCount + columnIndex;
+            result.positions_.push_back(origin + Vec3{columnIndex * particleDiameter + xOffset, rowIndex * rowSpacing, 0.0});
+            if (columnIndex > 0)
             {
-                result.edges_.push_back({row[columnIndex], previousRow[columnIndex]});
+                result.edges_.push_back({particleIndex - 1, particleIndex});
             }
-            const int secondNeighbor = rowIndex % 2 == 0 ? columnIndex - 1 : columnIndex + 1;
-            if (secondNeighbor >= 0 && secondNeighbor < static_cast<int>(previousRow.size()))
+            if (rowIndex > 0)
             {
-                result.edges_.push_back({row[columnIndex], previousRow[secondNeighbor]});
+                result.edges_.push_back({particleIndex - columnCount, particleIndex});
+                const int secondNeighbor = rowIndex % 2 == 0 ? columnIndex - 1 : columnIndex + 1;
+                if (secondNeighbor >= 0 && secondNeighbor < columnCount)
+                {
+                    result.edges_.push_back({(rowIndex - 1) * columnCount + secondNeighbor, particleIndex});
+                }
             }
         }
     }
@@ -100,17 +120,22 @@ int main(int argc, char** argv)
         using namespace fundem;
 
         constexpr Real clothSideLength = 0.60;
-        constexpr Real particleDiameter = 0.01;
+        constexpr int clothColumnCount = 93;
+        constexpr int clothRowCount = 107;
+        constexpr Real particleDiameter = clothSideLength / (clothColumnCount + 0.5);
         constexpr Real particleRadius = 0.5 * particleDiameter;
         constexpr Real clothDensity = 1500.0;
         constexpr Real youngsModulus = 1.0e6;
         constexpr Real poissonRatio = 0.3;
-        constexpr Real frictionCoefficient = 0.4;
-        constexpr Real restitutionCoefficient = 0.5;
+        constexpr Real frictionCoefficient = 0.6;
+        constexpr Real restitutionCoefficient = 0.05;
+        constexpr Real velocityDampingRate = 20.0;
+        constexpr Real angularDampingRate = 40.0;
         constexpr Real clothHeight = 0.38;
         constexpr Vec3 boxSize{0.24, 0.24, 0.24};
         constexpr Vec3 boxCenter{0.30, 0.30, 0.12};
         constexpr Real duration = 3.0;
+        constexpr Real timeStep = 1.0e-5;
         constexpr Real outputTimeInterval = 0.05;
 
         constexpr Real crossSectionArea = math::pi * particleRadius * particleRadius;
@@ -122,13 +147,14 @@ int main(int argc, char** argv)
         constexpr Real bendingStiffness = 0.01 * youngsModulus * areaMomentOfInertia / particleDiameter;
         constexpr Real torsionalStiffness = 0.01 * shearModulus * polarMomentOfInertia / particleDiameter;
         constexpr Real particleMass = (4.0 / 3.0) * math::pi * particleRadius * particleRadius * particleRadius * clothDensity;
-        const Real timeStep = (math::pi / 50.0) * std::sqrt(particleMass / normalStiffness);
+        constexpr Real rotationalDragCoefficient = angularDampingRate * (2.0 / 5.0) * particleMass * particleRadius * particleRadius;
 
         const tutorial::TutorialOptions run = tutorial::parseTutorialOptions(argc, argv, "tutorial2_files");
-        SphereDEM simulation(run.mode_, run.device_);
+        ClothSimulation simulation(run.mode_, run.device_, velocityDampingRate, rotationalDragCoefficient);
         const int clothMaterialIndex = simulation.addMaterial(material{normalStiffness, shearStiffness, 0.0, 0.0, frictionCoefficient, 0.0, 0.0, restitutionCoefficient, clothDensity});
 
-        const ClothMesh cloth = makeClothMesh(clothSideLength, particleDiameter, clothHeight);
+        const Vec3 clothOrigin{particleRadius, 0.5 * (clothSideLength - (clothRowCount - 1) * std::sqrt(3.0) * particleRadius), clothHeight};
+        const ClothMesh cloth = makeClothMesh(clothOrigin, clothColumnCount, clothRowCount, particleDiameter);
         for (const Vec3& position : cloth.positions_)
         {
             particle value;
@@ -143,6 +169,9 @@ int main(int argc, char** argv)
             const Vec3 direction = cloth.positions_[edge[0]] - cloth.positions_[edge[1]];
             const Real equivalentLength = math::norm(direction);
             bond connection{equivalentLength};
+            connection.setFractureArea(0.0);
+            connection.setModeMixityExponent(1.0);
+            connection.setDamageInitiationRatio(1.0);
             if (!connection.setConnection(simulation.spheres(), edge[0], edge[1], math::normalizedOrZero(direction)) ||
                 !connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness))
             {
@@ -151,7 +180,7 @@ int main(int argc, char** argv)
             simulation.addBond(connection);
         }
 
-        const int boxMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, frictionCoefficient, 1.0, 1.0});
+        const int boxMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, frictionCoefficient, restitutionCoefficient, 1.0});
         levelset::BoxWall box{boxSize};
         box.buildLSGrid(particleDiameter, 3);
         const int boxGeometryIndex = simulation.addGeometry(box, true);

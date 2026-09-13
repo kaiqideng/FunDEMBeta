@@ -194,7 +194,7 @@ int main(int argc, char** argv)
         constexpr math::Real smoothingLength = 1.3 * spacing;
         constexpr math::Real timeStep = 2.0e-5;
         constexpr math::Real duration = 3.0;
-        constexpr math::Real outputTimeInterval = 0.02;
+        constexpr math::Real outputTimeInterval = 0.05;
         constexpr math::Real forceFilterWindow = 0.013;
 
         constexpr math::Vec3 tankSize{1.60, 0.61, 0.75};

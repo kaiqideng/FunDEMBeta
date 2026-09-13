@@ -9,6 +9,19 @@ target_compile_features(tutorial1 PRIVATE cxx_std_17)
 add_executable(tutorial2 tutorial2.cpp)
 target_link_libraries(tutorial2 PRIVATE FunDEM::FunDEM)
 target_compile_features(tutorial2 PRIVATE cxx_std_17)
+if(FUNDEM_HAS_CUDA)
+    target_sources(tutorial2 PRIVATE tutorial2DampingKernel.cu tutorial2DampingKernel.cuh)
+    set_target_properties(
+        tutorial2
+        PROPERTIES
+            CUDA_STANDARD 17
+            CUDA_STANDARD_REQUIRED YES
+            CUDA_EXTENSIONS NO
+    )
+    if(FUNDEM_CUDA_ARCHITECTURES)
+        set_target_properties(tutorial2 PROPERTIES CUDA_ARCHITECTURES "${FUNDEM_CUDA_ARCHITECTURES}")
+    endif()
+endif()
 
 add_executable(tutorial3 tutorial3.cpp)
 target_link_libraries(tutorial3 PRIVATE FunDEM::FunDEM)

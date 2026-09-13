@@ -142,7 +142,7 @@ The animation plays directly in the README. Click it to open the full 1080p MP4.
 
 ### Tutorial 1: interlocked level-set chain
 
-`tutorial1` contains eleven physically interlocked level-set chain links. The two end links have infinite mass, the remaining links fall under gravity, and no artificial bonds are used. It simulates 2 seconds with a `2.0e-5 s` DEM time step and writes a frame every `0.01 s`.
+`tutorial1` contains eleven physically interlocked level-set chain links. The two end links have infinite mass, the remaining links fall under gravity, and no artificial bonds are used. It simulates 3 seconds with a `2.0e-5 s` DEM time step and writes a frame every `0.05 s`.
 
 The tutorial intentionally uses the default CPU execution mode. The CUDA backend remains available in the same build for GPU-enabled user simulations.
 
