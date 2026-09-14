@@ -414,7 +414,7 @@ struct TriangleMesh::accelerationData {
             const Vec3 twiceAreaNormal = math::cross(second - first, third - first);
             const Real area = 0.5 * math::norm(twiceAreaNormal);
             centroid += area * (first + second + third) / 3.0;
-            areaNormal += twiceAreaNormal;
+            areaNormal += 0.5 * twiceAreaNormal; // Sum A * n for the far-field solid-angle approximation.
             areaSum += area;
         }
         if (areaSum > 0.0)
