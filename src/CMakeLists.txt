@@ -1,0 +1,8 @@
+add_subdirectory(math)
+add_subdirectory(data)
+add_subdirectory(material)
+add_subdirectory(geometry)
+add_subdirectory(execution)
+add_subdirectory(particle)
+add_subdirectory(interaction)
+add_subdirectory(solver)

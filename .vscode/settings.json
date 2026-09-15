@@ -13,6 +13,7 @@
     "C_Cpp.default.compilerPath": "/usr/bin/g++",
     "C_Cpp.default.compileCommands": "${workspaceFolder}/../build-cuda132-clean/compile_commands.json",
     "C_Cpp.default.includePath": [
+        "${workspaceFolder}/src",
         "${workspaceFolder}/**",
         "/usr/local/cuda-13.2/targets/x86_64-linux/include"
     ],

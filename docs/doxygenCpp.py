@@ -15,7 +15,7 @@ import re
 import sys
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent / 'src'
 NON_CODE = re.compile(
     r'(?:(?:u8|u|U|L)?R)"(?P<delimiter>[^ ()\\\t\r\n]{0,16})'
     r'\(.*?\)(?P=delimiter)"'

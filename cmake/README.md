@@ -8,7 +8,7 @@
 | --- | --- |
 | `FunDEMConfig.cmake.in` | Load `FunDEMTargets.cmake` and locate CUDA Toolkit and OpenMP dependencies required by the build |
 
-The root `CMakeLists.txt` generates the version and exported-target files during configuration and installation. This directory contains no solver code.
+The root `CMakeLists.txt` generates the version and exported-target files during configuration and installation. Core targets are defined under [`src/`](../src/README.md), which supplies the build-tree include root. This directory contains no solver code.
 
 ## Key Rules
 
@@ -37,7 +37,7 @@ The installed configuration records whether the library was built with CUDA and 
 The primary consumer target is:
 
 ```cmake
-find_package(FunDEM 2 CONFIG REQUIRED)
+find_package(FunDEM CONFIG REQUIRED)
 target_link_libraries(my_case PRIVATE FunDEM::FunDEM)
 ```
 

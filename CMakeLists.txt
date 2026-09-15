@@ -54,16 +54,9 @@ if(FUNDEM_ENABLE_OPENMP)
     endif()
 endif()
 
-set(FUNDEM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+set(FUNDEM_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-add_subdirectory(math)
-add_subdirectory(data)
-add_subdirectory(material)
-add_subdirectory(geometry)
-add_subdirectory(execution)
-add_subdirectory(particle)
-add_subdirectory(interaction)
-add_subdirectory(solver)
+add_subdirectory(src)
 
 add_library(FunDEM INTERFACE)
 add_library(FunDEM::FunDEM ALIAS FunDEM)
@@ -112,7 +105,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    add_subdirectory(tests)
+    add_subdirectory(src/tests)
 endif()
 
 if(FUNDEM_INSTALL)

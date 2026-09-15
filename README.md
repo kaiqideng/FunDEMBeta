@@ -35,20 +35,26 @@ solver
     └── SPHDEM     SPH coupled to level-set particles
 ```
 
-The source tree is divided by responsibility:
+The core library and its tests live under [`src/`](src/README.md). The repository root keeps the CMake entry point, documentation, build support, tutorials, examples, and validation cases:
 
 | Directory | Responsibility |
 | --- | --- |
-| `math/` | CPU/CUDA mathematical types and functions |
-| `data/` | Host/device containers and VTU/DAT output |
-| `material/` | Standard and level-set materials |
-| `geometry/` | Reusable level-set geometry storage |
-| `particle/` | DEM, level-set, SPH, virtual particles, SPH source descriptors, and spatial grids |
-| `interaction/` | Contacts, bonds, searches, SPH neighborhoods, and wall-coupling state |
-| `execution/` | Shared physical formulas, CPU container loops, and CUDA kernels |
-| `solver/` | Simulation lifecycle and execution modes |
-| `tutorial/` | Small runnable demonstrations |
-| `validation/` | Analytical, convergence, and backend-consistency cases |
+| [`src/math/`](src/math/README.md) | CPU/CUDA mathematical types and functions |
+| [`src/data/`](src/data/README.md) | Host/device containers and VTU/DAT output |
+| [`src/material/`](src/material/README.md) | Standard and level-set materials |
+| [`src/geometry/`](src/geometry/README.md) | Reusable level-set geometry storage |
+| [`src/particle/`](src/particle/README.md) | DEM, level-set, SPH, virtual particles, SPH source descriptors, and spatial grids |
+| [`src/interaction/`](src/interaction/README.md) | Contacts, bonds, searches, SPH neighborhoods, and wall-coupling state |
+| [`src/execution/`](src/execution/README.md) | Shared physical formulas, CPU container loops, and CUDA kernels |
+| [`src/solver/`](src/solver/README.md) | Simulation lifecycle and execution modes |
+| [`src/tests/`](src/tests/README.md) | CPU/CUDA regression and integration tests |
+| [`docs/`](docs/UserGuide.md) | User guide, API documentation, and validation notes |
+| [`cmake/`](cmake/README.md) | Installed CMake package configuration |
+| [`tutorial/`](tutorial/README.md) | Small runnable demonstrations |
+| [`example/`](example/README.md) | Larger application cases |
+| [`validation/`](validation/README.md) | Analytical, convergence, and backend-consistency cases |
+
+Configure CMake from the repository root. Public include names such as `#include "solver/solvers.h"` are unchanged; CMake supplies `src/` as the build include root and installs public headers under `include/FunDEM/<module>/`.
 
 ## 1. Configure the environment
 

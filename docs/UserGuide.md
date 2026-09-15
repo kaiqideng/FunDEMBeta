@@ -106,7 +106,7 @@ Keep generated files outside the source directory. The repository is designed fo
 └── .vscode/            # editor configuration for the whole workspace
 ```
 
-All FunDEM configuration commands below assume the shell starts in the parent `<workspace>/` directory. `-S FunDEMBeta` explicitly selects the source directory. If a different layout is used, update the source path, build path, and VS Code `compileCommands` path together.
+All FunDEM configuration commands below assume the shell starts in the parent `<workspace>/` directory. `-S FunDEMBeta` explicitly selects the repository root containing `CMakeLists.txt`; the core modules are under `FunDEMBeta/src/`. If a different layout is used, update the source path, build path, and VS Code `compileCommands` path together.
 
 ### 2.2 CUDA-enabled Release build
 
@@ -261,7 +261,7 @@ List tests without running them:
 ctest --test-dir build -N
 ```
 
-CPU unit tests are available whenever `BUILD_TESTING=ON`. CUDA builds additionally register host/device container and device state-consistency tests.
+CPU unit tests are available whenever `BUILD_TESTING=ON`. CUDA builds additionally register host/device container and device state-consistency tests. Their sources are under [`src/tests/`](../src/tests/README.md), and a single-configuration build places their executables under `build/src/tests/`.
 
 ## 4. Development environment and external projects
 
@@ -306,7 +306,10 @@ A minimal `<workspace>/.vscode/c_cpp_properties.json` is:
             "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "browse": {
                 "path": [
-                    "${workspaceFolder}/FunDEMBeta"
+                    "${workspaceFolder}/FunDEMBeta/src",
+                    "${workspaceFolder}/FunDEMBeta/tutorial",
+                    "${workspaceFolder}/FunDEMBeta/example",
+                    "${workspaceFolder}/FunDEMBeta/validation"
                 ],
                 "limitSymbolsToIncludedHeaders": false,
                 "databaseFilename": "${workspaceFolder}/build/browse.vc.db"
@@ -355,7 +358,7 @@ cmake --build build-install --parallel
 cmake --install build-install
 ```
 
-The installation exports one public target, `FunDEM::FunDEM`, together with the module libraries, headers, and CMake package files.
+The installation exports one public target, `FunDEM::FunDEM`, together with the module libraries, headers, and CMake package files. Public headers are installed under `include/FunDEM/<module>/`; source organization under `src/` does not add a `src` component to installed paths or to include directives such as `#include "solver/solvers.h"`.
 
 ### 4.3 External application
 
@@ -365,7 +368,7 @@ The installation exports one public target, `FunDEM::FunDEM`, together with the 
 cmake_minimum_required(VERSION 3.24)
 project(my_fundem_case LANGUAGES CXX)
 
-find_package(FunDEM 2 CONFIG REQUIRED)
+find_package(FunDEM CONFIG REQUIRED)
 
 add_executable(my_fundem_case main.cpp)
 target_link_libraries(my_fundem_case PRIVATE FunDEM::FunDEM)
@@ -1117,19 +1120,24 @@ A larger DEM step is useful only while resolving the stiffest contact or bond mo
 
 ### 16.1 Source-tree guide
 
+[`src/README.md`](../src/README.md) introduces the nine source modules. The root `CMakeLists.txt` configures the project, and `docs/`, `cmake/`, `tutorial/`, `example/`, and `validation/` remain at the repository root.
+
 | Directory | Responsibility |
 | --- | --- |
-| [`math/`](../math/README.md) | Shared CPU/GPU scalars, vectors, matrices, quaternions, tolerances, and indexing |
-| [`data/`](../data/README.md) | Host AoS/device SoA storage, VTU/DAT output, energy output, and level-set input objects |
-| [`material/`](../material/README.md) | Ordinary and level-set material definitions |
-| [`geometry/`](../geometry/README.md) | Four-array reusable level-set geometry storage |
-| [`particle/`](../particle/README.md) | Point masses, rigid bodies, spheres, level-set particles, SPH particles, virtual particles, and spatial grids |
-| [`interaction/`](../interaction/README.md) | Contacts, bonds, neighbor ranges, histories, mapping, and CPU contact search |
-| [`execution/`](../execution/README.md) | Stateless numerical formulas shared by CPU and CUDA |
-| [`execution/cuda/`](../execution/cuda/README.md) | CUDA kernels and host launch interfaces |
-| [`solver/`](../solver/README.md) | Common lifecycle and `LSDEM`, `SphereDEM`, and `SPHDEM` |
-| [`tests/`](../tests/README.md) | CPU/CUDA unit and state-consistency tests |
+| [`src/math/`](../src/math/README.md) | Shared CPU/GPU scalars, vectors, matrices, quaternions, tolerances, and indexing |
+| [`src/data/`](../src/data/README.md) | Host AoS/device SoA storage, VTU/DAT output, energy output, and level-set input objects |
+| [`src/material/`](../src/material/README.md) | Ordinary and level-set material definitions |
+| [`src/geometry/`](../src/geometry/README.md) | Four-array reusable level-set geometry storage |
+| [`src/particle/`](../src/particle/README.md) | Point masses, rigid bodies, spheres, level-set particles, SPH particles, virtual particles, and spatial grids |
+| [`src/interaction/`](../src/interaction/README.md) | Contacts, bonds, neighbor ranges, histories, mapping, and CPU contact search |
+| [`src/execution/`](../src/execution/README.md) | Shared numerical formulas and backend execution helpers |
+| [`src/execution/cpu/`](../src/execution/cpu/README.md) | Host container loops and temporary assembly storage |
+| [`src/execution/cuda/`](../src/execution/cuda/README.md) | CUDA kernels and host launch interfaces |
+| [`src/solver/`](../src/solver/README.md) | Common lifecycle and `LSDEM`, `SphereDEM`, and `SPHDEM` |
+| [`src/tests/`](../src/tests/README.md) | CPU/CUDA unit and state-consistency tests |
 | [`tutorial/`](../tutorial/README.md) | Compact CPU level-set tutorials |
+| [`example/`](../example/README.md) | Larger application cases |
+| [`validation/`](../validation/README.md) | Analytical, convergence, and backend-consistency cases |
 | [`cmake/`](../cmake/README.md) | Installed CMake package configuration |
 
 All public code is in namespace `fundem`; geometry input objects are in `fundem::levelset`, mathematical types in `fundem::math`, shared physics functions in `fundem::execution`, and CUDA launch interfaces in `fundem::cuda`.
@@ -1140,7 +1148,7 @@ The documentation is intentionally layered:
 
 1. The root [`README`](../README.md) explains the project, configuration, and first build.
 2. This guide documents solver construction, lifecycle, output, and backend behavior.
-3. Each source directory has a detailed README describing ownership and invariants for that module.
+3. The source index and each module README under `src/` describe ownership and invariants.
 4. Header Doxygen records class purpose, non-obvious member semantics, constraints, side effects, and synchronization requirements.
 
 Obvious getters and setters are intentionally not annotated one by one when their behavior is completely expressed by the declaration. Operators and mechanical `DeviceLayout` field tags are treated the same way. This keeps generated reference pages focused on information that cannot be recovered from the identifier alone.
@@ -1157,7 +1165,7 @@ Open `docs/api/html/index.html`. Generated documentation is ignored by Git. Docu
 
 The Doxygen configuration explicitly parses `.cu` and `.cuh` as C++, includes the module READMEs, and uses GitHub-compatible heading IDs. Documentation-only input filters preserve source line numbers while adapting Markdown math/media and resolving container aliases for the API parser. They do not change compiled code or the original files. Referenced images and the tutorial video are copied into the HTML output; equations use MathJax, which requires network access to its CDN when viewing the pages.
 
-For source navigation in VS Code, use the same CMake build directory for compilation and `compile_commands.json`; see [Section 4.1](#41-vs-code-configuration). Public user construction belongs in `solver/*.h`, model state in `particle/`, `material/`, and `interaction/`, shared formulas in `execution/`, and CUDA launch contracts in `execution/cuda/`.
+For source navigation in VS Code, use the same CMake build directory for compilation and `compile_commands.json`; see [Section 4.1](#41-vs-code-configuration). Public user construction belongs in `src/solver/*.h`, model state in `src/particle/`, `src/material/`, and `src/interaction/`, shared formulas in `src/execution/`, and CUDA launch contracts in `src/execution/cuda/`.
 
 ## 17. Troubleshooting
 

@@ -39,16 +39,8 @@ SORT_MEMBERS_CTORS_1ST = YES
 INPUT                  = README.md \
                          README_macOS.md \
                          docs \
-                         math \
-                         data \
-                         material \
-                         geometry \
-                         particle \
-                         interaction \
-                         execution \
-                         solver \
+                         src \
                          cmake \
-                         tests \
                          tutorial \
                          validation \
                          example

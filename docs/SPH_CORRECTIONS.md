@@ -6,7 +6,7 @@ This note describes the implementation corrections identified by the September 2
 
 ## 1. One current-time observation scope
 
-Affected code: `solver::observeCurrentState`, `solver::writeOutput`, and the SPH output-snapshot hooks in `solver/SPHDEM.cpp`.
+Affected code: `solver::observeCurrentState`, `solver::writeOutput`, and the SPH output-snapshot hooks in `src/solver/SPHDEM.cpp`.
 
 SPH acoustic updates can span several DEM steps. Between updates the stored fluid state represents an earlier time than the DEM clock. Previously, writing VTU temporarily advanced the fluid and then restored that deferred state; a frontend reading the particle container afterward obtained old positions with a new time label.
 
@@ -16,7 +16,7 @@ An observation can temporarily rebuild search structures. Restoring the saved pa
 
 ## 2. A common held-load convention
 
-Affected code: `interaction/virtualParticleCoupling`, virtual-particle load fields, and CUDA wall-load collection/scattering.
+Affected code: `src/interaction/virtualParticleCoupling`, virtual-particle load fields, and CUDA wall-load collection/scattering.
 
 Between acoustic updates, all backends hold the last evaluated world force **and world torque**. Previously CPU/Hybrid held torque while GPU recomputed it from the current rotated lever arm. That difference was unrelated to floating-point reduction order.
 
@@ -32,7 +32,7 @@ This fixes the previous use of partially assembled contact-only force to reconst
 
 ## 4. Match transient reaction impulse at acoustic boundaries
 
-Affected code: `execution/sphCouplingFunctions.h`, coupling load increments, and the final rigid-body velocity stage.
+Affected code: `src/execution/sphCouplingFunctions.h`, coupling load increments, and the final rigid-body velocity stage.
 
 Let an acoustic interval contain N DEM steps of duration delta_t. With an old held fluid reaction F0 and a newly evaluated reaction F1, the split solid integration receives
 
@@ -61,7 +61,7 @@ The existing end-of-acoustic-step statistics also inspect density rate, pressure
 
 ## 6. Reuse neighbors only while their displacement allowance is valid
 
-Affected code: `interaction/SPHNeighborhood` and the `SPHDEM::ensureSPHNeighborhood` overloads.
+Affected code: `src/interaction/SPHNeighborhood` and the `SPHDEM::ensureSPHNeighborhood` overloads.
 
 Reference positions are stored separately from physical particle state at each search build. Before a density or pressure stage consumes neighbors, the maximum actual fluid/boundary displacement is compared with half the search skin. Since the relative motion of any pair is bounded by twice that maximum, a stage cannot silently use a list whose original search allowance has been exhausted.
 

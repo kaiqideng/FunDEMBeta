@@ -5,8 +5,8 @@
             "compilerPath": "/usr/bin/g++",
             "compileCommands": "${workspaceFolder}/../build-cuda132-clean/compile_commands.json",
             "includePath": [
-                "${workspaceFolder}",
-                "${workspaceFolder}/**",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/src/**",
                 "/usr/local/cuda-13.2/targets/x86_64-linux/include",
                 "/usr/include"
             ],
@@ -16,7 +16,7 @@
             ],
             "browse": {
                 "path": [
-                    "${workspaceFolder}",
+                    "${workspaceFolder}/src",
                     "${workspaceFolder}/**",
                     "/usr/local/cuda-13.2/targets/x86_64-linux/include",
                     "/usr/include"
