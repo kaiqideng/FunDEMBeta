@@ -23,7 +23,7 @@
 
 ## Build and Run
 
-Run from the parent `<workspace>/` directory containing `FunDEMBeta/`:
+Open a terminal in the parent `workplace/` directory containing `FunDEMBeta/` and keep it there for all commands:
 
 ```bash
 cmake -S FunDEMBeta -B build -DBUILD_TESTING=ON -DFUNDEM_ENABLE_CUDA=ON
@@ -61,7 +61,7 @@ ctest --test-dir build -L cuda --output-on-failure
 - `unit;cuda`: fast device tests requiring a CUDA-capable runtime.
 - `integration;cpu`: longer physical evolution such as the fiber convergence test.
 
-Use `ctest -L unit` during normal development. Run integration tests before publishing changes to time integration, force assembly, damping, bonds, or convergence criteria. Examples and tutorials are not registered as tests because they are user workflows and may produce substantial output.
+Use `ctest --test-dir build -L unit` during normal development. Run integration tests before publishing changes to time integration, force assembly, damping, bonds, or convergence criteria. Examples and tutorials are not registered as tests because they are user workflows and may produce substantial output.
 
 ## Writing a Focused Test
 

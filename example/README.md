@@ -23,6 +23,8 @@ These examples demonstrate application-specific solver derivation, bonded level 
 
 ## Build
 
+Open a terminal in `workplace/`, the directory containing `FunDEMBeta/`, and keep it there for all commands.
+
 ```bash
 cmake -S FunDEMBeta -B build -DFUNDEM_ENABLE_CUDA=ON -DFUNDEM_BUILD_EXAMPLES=ON
 cmake --build build --target structureIceLoad zhang2017ObstacleRWCSPH canelas2016StackedCubesRWCSPH -j

@@ -37,7 +37,7 @@ All CUDA launchers receive the solver stream explicitly. The example-local CUDA 
 
 ## Build
 
-From the workspace directory containing `FunDEMBeta/`:
+Open a terminal in `workplace/`, the directory containing `FunDEMBeta/`, and keep it there for all commands:
 
 ```bash
 cmake -S FunDEMBeta -B build -DFUNDEM_BUILD_EXAMPLES=ON -DFUNDEM_ENABLE_CUDA=ON

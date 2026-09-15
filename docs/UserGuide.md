@@ -98,7 +98,7 @@ The NVIDIA driver and CUDA toolkit must be mutually compatible. FunDEM does not 
 Keep generated files outside the source directory. The repository is designed for a sibling build directory:
 
 ```text
-<workspace>/
+workplace/             # terminal working directory throughout this guide
 ├── FunDEMBeta/          # source only
 ├── build/              # generated CPU or CUDA build
 ├── build-cpu/          # optional second configuration
@@ -106,7 +106,7 @@ Keep generated files outside the source directory. The repository is designed fo
 └── .vscode/            # editor configuration for the whole workspace
 ```
 
-All FunDEM configuration commands below assume the shell starts in the parent `<workspace>/` directory. `-S FunDEMBeta` explicitly selects the repository root containing `CMakeLists.txt`; the core modules are under `FunDEMBeta/src/`. If a different layout is used, update the source path, build path, and VS Code `compileCommands` path together.
+Open the terminal in the parent `workplace/` directory and keep it there for every command in this guide, including configuration, compilation, execution, testing, installation, and result inspection. `-S FunDEMBeta` explicitly selects the repository root containing `CMakeLists.txt`; `-B build` creates the sibling build directory. The core modules are under `FunDEMBeta/src/`.
 
 ### 2.2 CUDA-enabled Release build
 
@@ -271,10 +271,11 @@ FunDEM does not require clangd. The Microsoft C/C++ extension (`cpptools`) can p
 
 #### Open the parent workspace
 
-For the recommended layout, open the parent `<workspace>` directory, not only `FunDEMBeta`. Place this in `<workspace>/.vscode/settings.json`:
+For the recommended layout, open `workplace/` in VS Code. Place this in `workplace/.vscode/settings.json`:
 
 ```json
 {
+    "terminal.integrated.cwd": "${workspaceFolder}",
     "cmake.sourceDirectory": "${workspaceFolder}/FunDEMBeta",
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.configureOnOpen": true,
@@ -295,7 +296,7 @@ For the recommended layout, open the parent `<workspace>` directory, not only `F
 
 If only cpptools is installed, run the CMake configure command manually before opening source files. CMake Tools is not required to consume `compile_commands.json`.
 
-A minimal `<workspace>/.vscode/c_cpp_properties.json` is:
+A minimal `workplace/.vscode/c_cpp_properties.json` is:
 
 ```json
 {
@@ -324,10 +325,13 @@ A minimal `<workspace>/.vscode/c_cpp_properties.json` is:
 
 #### If the source directory itself is opened
 
-When `FunDEMBeta` is the VS Code workspace root, change the compile database path to:
+When `FunDEMBeta` is the VS Code workspace root, use these settings so new terminals still start in the parent `workplace/` and the compile database resolves to the sibling build:
 
 ```json
-"C_Cpp.default.compileCommands": "${workspaceFolder}/../build/compile_commands.json"
+{
+    "terminal.integrated.cwd": "${workspaceFolder}/..",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/../build/compile_commands.json"
+}
 ```
 
 #### Restore declaration/definition navigation
@@ -348,7 +352,7 @@ An `includePath` alone is not an adequate replacement for the compile database b
 ```bash
 cmake -S FunDEMBeta -B build-install \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=install \
+    -DCMAKE_INSTALL_PREFIX="$PWD/install" \
     -DFUNDEM_ENABLE_CUDA=ON \
     -DFUNDEM_INSTALL=ON \
     -DFUNDEM_BUILD_TUTORIALS=OFF \
@@ -362,7 +366,7 @@ The installation exports one public target, `FunDEM::FunDEM`, together with the 
 
 ### 4.3 External application
 
-`CMakeLists.txt`:
+Place the external application's `main.cpp` and the following `CMakeLists.txt` in `workplace/my_fundem_case/`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.24)
@@ -375,21 +379,19 @@ target_link_libraries(my_fundem_case PRIVATE FunDEM::FunDEM)
 target_compile_features(my_fundem_case PRIVATE cxx_std_17)
 ```
 
-Configure the application by pointing CMake to the installation prefix:
+From `workplace/`, configure the application against `workplace/install/` and place its generated files in `workplace/build-case/`:
 
 ```bash
-cmake -S /absolute/path/to/my_fundem_case \
-    -B /absolute/path/to/my_fundem_case/build \
-    -DCMAKE_PREFIX_PATH=/absolute/path/to/install
-cmake --build /absolute/path/to/my_fundem_case/build --parallel
+cmake -S my_fundem_case -B build-case \
+    -DCMAKE_PREFIX_PATH="$PWD/install"
+cmake --build build-case --parallel
 ```
 
 When an application defines its own CUDA kernels or compiles `.cu` sources, declare `LANGUAGES CXX CUDA` in the application project. A package installed with CUDA also asks CMake to find `CUDAToolkit`; a CPU-only package does not. If the CUDA toolkit is outside `PATH` and CMake's default search locations, pass its root when configuring the consuming project:
 
 ```bash
-cmake -S /absolute/path/to/my_fundem_case \
-    -B /absolute/path/to/my_fundem_case/build \
-    -DCMAKE_PREFIX_PATH=/absolute/path/to/install \
+cmake -S my_fundem_case -B build-case \
+    -DCMAKE_PREFIX_PATH="$PWD/install" \
     -DCUDAToolkit_ROOT=/usr/local/cuda-13.2
 ```
 
@@ -1153,15 +1155,15 @@ The documentation is intentionally layered:
 
 Obvious getters and setters are intentionally not annotated one by one when their behavior is completely expressed by the declaration. Operators and mechanical `DeviceLayout` field tags are treated the same way. This keeps generated reference pages focused on information that cannot be recovered from the identifier alone.
 
-To generate reference pages locally, install Doxygen 1.9.8 or newer and Python 3. Python must be available as `python3` on `PATH`; no additional Python packages, CUDA toolkit, or compiled solver are needed. Run from the `FunDEMBeta` source directory:
+To generate reference pages locally, install Doxygen 1.9.8 or newer and Python 3. Python must be available as `python3` on `PATH`; no additional Python packages, CUDA toolkit, or compiled solver are needed. Run from `workplace/`:
 
 ```bash
 doxygen --version
 python3 --version
-doxygen Doxyfile
+cmake -E chdir FunDEMBeta doxygen Doxyfile
 ```
 
-Open `docs/api/html/index.html`. Generated documentation is ignored by Git. Documentation errors fail the command rather than silently producing a successful build; intentionally undocumented getters and setters remain allowed.
+`cmake -E chdir` sets the working directory only for the Doxygen process, so the terminal remains in `workplace/`. Open `FunDEMBeta/docs/api/html/index.html`. Generated documentation is ignored by Git. Documentation errors fail the command rather than silently producing a successful build; intentionally undocumented getters and setters remain allowed.
 
 The Doxygen configuration explicitly parses `.cu` and `.cuh` as C++, includes the module READMEs, and uses GitHub-compatible heading IDs. Documentation-only input filters preserve source line numbers while adapting Markdown math/media and resolving container aliases for the API parser. They do not change compiled code or the original files. Referenced images and the tutorial video are copied into the HTML output; equations use MathJax, which requires network access to its CDN when viewing the pages.
 

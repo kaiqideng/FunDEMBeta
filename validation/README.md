@@ -4,7 +4,7 @@ This directory separates numerical verification and physical validation from tut
 
 ## Build and run
 
-Validation executables are enabled by default. Configure and build FunDEM from the directory containing the source tree:
+Validation executables are enabled by default. Open a terminal in `workplace/`, the directory containing `FunDEMBeta/`, and keep it there for all commands:
 
 ```bash
 cmake -S FunDEMBeta -B build

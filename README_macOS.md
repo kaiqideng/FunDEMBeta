@@ -2,6 +2,8 @@
 
 This guide gets FunDEMBeta building and running on the CPU on both Apple Silicon and Intel Macs. For the complete API and advanced workflows, see the [User Guide](docs/UserGuide.md).
 
+Open a terminal in `workplace/`, the parent directory that will contain `FunDEMBeta/` and its sibling build directories. Keep the terminal in `workplace/` for every command in this guide.
+
 > [!IMPORTANT]
 > Modern macOS does not provide a supported NVIDIA CUDA environment. This guide explicitly disables CUDA. CPU tutorials and CPU-compatible examples remain fully available.
 
@@ -37,30 +39,25 @@ FunDEMBeta requires CMake 3.24 or newer and a compiler with C++17 support.
 Keep the source and generated build files in separate directories:
 
 ```bash
-mkdir -p ~/FunDEM-workspace
-cd ~/FunDEM-workspace
 git clone https://github.com/kaiqideng/FunDEMBeta.git
-cd FunDEMBeta
 ```
 
-The workspace will have this layout after configuration:
+The `workplace/` directory will have this layout after configuration:
 
 ```text
-FunDEM-workspace/
+workplace/
 ├── FunDEMBeta/   # Source code
 └── build-macos/  # Generated build files
 ```
 
-If you already have the source, start in its parent directory and adjust the path passed to `-S` in the commands below.
+If you already have the source, open the terminal in its parent `workplace/` directory.
 
 ## 3. Configure and build
 
 For the shortest first build, disable CUDA, OpenMP, large examples, validation cases, and tests. Build only the CPU tutorials:
 
 ```bash
-cd ~/FunDEM-workspace/FunDEMBeta
-
-cmake -S . -B ../build-macos -G Ninja \
+cmake -S FunDEMBeta -B build-macos -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DFUNDEM_ENABLE_CUDA=OFF \
     -DFUNDEM_ENABLE_OPENMP=OFF \
@@ -69,13 +66,13 @@ cmake -S . -B ../build-macos -G Ninja \
     -DFUNDEM_BUILD_VALIDATIONS=OFF \
     -DBUILD_TESTING=OFF
 
-cmake --build ../build-macos --target tutorial0 --parallel
+cmake --build build-macos --target tutorial0 --parallel
 ```
 
 After a successful build, the executable is located at:
 
 ```text
-../build-macos/tutorial/tutorial0
+build-macos/tutorial/tutorial0
 ```
 
 ## 4. Run a smoke test
@@ -83,7 +80,7 @@ After a successful build, the executable is located at:
 Run ten time steps to confirm that the program can initialize, advance the simulation, and write output:
 
 ```bash
-../build-macos/tutorial/tutorial0 \
+build-macos/tutorial/tutorial0 \
     --steps 10 \
     --output tutorial0_smoke
 ```
@@ -93,7 +90,7 @@ On its first run, the program must generate the Gömböc level-set grid. This ca
 When the solver prints its status and returns to the prompt without an error, the smoke test has passed. The output is written beside the executable:
 
 ```text
-../build-macos/tutorial/tutorial0_smoke/
+build-macos/tutorial/tutorial0_smoke/
 ├── particle/     # Particle VTU files
 └── energy.dat    # System energy
 ```
@@ -101,7 +98,7 @@ When the solver prints its status and returns to the prompt without an error, th
 A ten-step smoke test normally contains only the initial output frame. To generate the complete Gömböc self-righting simulation, run:
 
 ```bash
-../build-macos/tutorial/tutorial0
+build-macos/tutorial/tutorial0
 ```
 
 The complete case simulates 120 seconds of physical time and takes much longer than the smoke test.
@@ -117,8 +114,8 @@ brew install --cask paraview
 For the complete run, open these numbered file series in ParaView:
 
 ```text
-../build-macos/tutorial/tutorial0_files/particle/LSParticle_*.vtu
-../build-macos/tutorial/tutorial0_files/particle/fixedLSParticle_*.vtu
+build-macos/tutorial/tutorial0_files/particle/LSParticle_*.vtu
+build-macos/tutorial/tutorial0_files/particle/fixedLSParticle_*.vtu
 ```
 
 Select the file series in the file dialog, click **Apply**, and then click **Reset Camera**. After the full simulation has finished, use **Play** to animate the result.
@@ -136,10 +133,9 @@ brew install libomp
 Create a separate OpenMP build directory. `brew --prefix` selects the correct Homebrew path for Apple Silicon or Intel automatically:
 
 ```bash
-cd ~/FunDEM-workspace/FunDEMBeta
 LIBOMP_PREFIX="$(brew --prefix libomp)"
 
-cmake -S . -B ../build-macos-openmp -G Ninja \
+cmake -S FunDEMBeta -B build-macos-openmp -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DFUNDEM_ENABLE_CUDA=OFF \
     -DFUNDEM_ENABLE_OPENMP=ON \
@@ -152,14 +148,14 @@ cmake -S . -B ../build-macos-openmp -G Ninja \
     -DOpenMP_omp_LIBRARY="$LIBOMP_PREFIX/lib/libomp.dylib" \
     -DOpenMP_CXX_INCLUDE_DIR="$LIBOMP_PREFIX/include"
 
-cmake --build ../build-macos-openmp --target tutorial0 --parallel
+cmake --build build-macos-openmp --target tutorial0 --parallel
 ```
 
 CMake should report that OpenMP was found. To select the thread count for one run:
 
 ```bash
 OMP_NUM_THREADS="$(sysctl -n hw.logicalcpu)" \
-    ../build-macos-openmp/tutorial/tutorial0 --steps 1000
+    build-macos-openmp/tutorial/tutorial0 --steps 1000
 ```
 
 Small simulations do not always become faster as the thread count increases. For performance measurements, compare several `OMP_NUM_THREADS` values.
@@ -169,15 +165,15 @@ Small simulations do not always become faster as the thread count increases. For
 Build all tutorial targets:
 
 ```bash
-cmake --build ../build-macos --parallel
+cmake --build build-macos --parallel
 ```
 
 Then run any of the remaining tutorials:
 
 ```bash
-../build-macos/tutorial/tutorial1
-../build-macos/tutorial/tutorial2 --steps 1000
-../build-macos/tutorial/tutorial3 --steps 1000
+build-macos/tutorial/tutorial1
+build-macos/tutorial/tutorial2 --steps 1000
+build-macos/tutorial/tutorial3 --steps 1000
 ```
 
 Keep the default CPU execution mode on macOS. Do not pass `--mode gpu` or `--mode hybrid`; those modes require CUDA.
@@ -194,7 +190,7 @@ Confirm that Homebrew is available, then run:
 brew install cmake ninja
 ```
 
-The default Apple Silicon Homebrew prefix is `/opt/homebrew`. If you have just installed Homebrew, run the shell setup command printed by its installer and open a new Terminal window.
+The default Apple Silicon Homebrew prefix is `/opt/homebrew`. If you have just installed Homebrew, run the shell setup command printed by its installer and open a new Terminal window in `workplace/`.
 
 ### CMake is older than 3.24
 

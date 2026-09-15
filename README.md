@@ -6,6 +6,8 @@ This README provides one complete path from a new development environment throug
 
 Using a Mac? Follow the dedicated [macOS quick start](README_macOS.md) for a CPU-only build on Apple Silicon or Intel.
 
+Create a parent directory named `workplace` and open a terminal there before following this guide. Keep the terminal in `workplace/` for every command below; the source checkout and build directory will be `workplace/FunDEMBeta/` and `workplace/build/`.
+
 ## Program framework
 
 ```text
@@ -54,7 +56,7 @@ The core library and its tests live under [`src/`](src/README.md). The repositor
 | [`example/`](example/README.md) | Larger application cases |
 | [`validation/`](validation/README.md) | Analytical, convergence, and backend-consistency cases |
 
-Configure CMake from the repository root. Public include names such as `#include "solver/solvers.h"` are unchanged; CMake supplies `src/` as the build include root and installs public headers under `include/FunDEM/<module>/`.
+From `workplace/`, configure CMake with `-S FunDEMBeta -B build`. Public include names such as `#include "solver/solvers.h"` are unchanged; CMake supplies `src/` as the build include root and installs public headers under `include/FunDEM/<module>/`.
 
 ## 1. Configure the environment
 
@@ -95,19 +97,16 @@ If `cmake --version` reports a version older than 3.24, install a newer CMake be
 
 ## 2. Download the source code
 
-Create a workspace that keeps generated files outside the source directory:
+With the terminal still in `workplace/`, clone the source:
 
 ```bash
-mkdir -p FunDEM-workspace
-cd FunDEM-workspace
 git clone https://github.com/kaiqideng/FunDEMBeta.git
-cd FunDEMBeta
 ```
 
 The resulting layout will be:
 
 ```text
-FunDEM-workspace/
+workplace/      terminal working directory for this guide
 ├── FunDEMBeta/  source code
 └── build/       generated in the next step
 ```
@@ -117,7 +116,7 @@ FunDEM-workspace/
 Use one Release configuration with CUDA and OpenMP enabled. Tutorials are built, while larger examples and tests are omitted from this first build:
 
 ```bash
-cmake -S . -B ../build -G Ninja \
+cmake -S FunDEMBeta -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DFUNDEM_ENABLE_CUDA=ON \
     -DFUNDEM_ENABLE_OPENMP=ON \
@@ -125,7 +124,7 @@ cmake -S . -B ../build -G Ninja \
     -DFUNDEM_BUILD_EXAMPLES=OFF \
     -DBUILD_TESTING=OFF
 
-cmake --build ../build --parallel
+cmake --build build --parallel
 ```
 
 CPU code is always compiled. When CUDA is found, the same configuration also compiles the CUDA libraries and kernels. During configuration, confirm that CMake reports an NVIDIA CUDA compiler. If it prints `CUDA compiler not found`, the build contains CPU support only; make `nvcc` available on `PATH`, remove `build/`, and configure again.
@@ -136,10 +135,10 @@ CPU code is always compiled. When CUDA is found, the same configuration also com
 
 `tutorial0` drops a ceramic level-set Gömböc onto a fixed plane and demonstrates its self-righting motion. The case uses the default CPU execution mode, advances with a `1e-4 s` time step for 120 seconds, and writes a frame every `0.05 s`.
 
-Run it from the workspace directory:
+Run it from `workplace/`:
 
 ```bash
-../build/tutorial/tutorial0
+build/tutorial/tutorial0
 ```
 
 [![Gömböc self-righting simulated by tutorial0](docs/assets/tutorial0.gif)](docs/assets/tutorial0.mp4)
@@ -152,16 +151,16 @@ The animation plays directly in the README. Click it to open the full 1080p MP4.
 
 The tutorial intentionally uses the default CPU execution mode. The CUDA backend remains available in the same build for GPU-enabled user simulations.
 
-Run it from the workspace directory:
+Run it from `workplace/`:
 
 ```bash
-../build/tutorial/tutorial1
+build/tutorial/tutorial1
 ```
 
 The terminal reports the calculated step count, physical time, output-frame index, and allocated device memory at every frame. Results are written beside the executable:
 
 ```text
-../build/tutorial/tutorial1_files/
+build/tutorial/tutorial1_files/
 ├── particle/
 │   ├── LSParticle_000000.vtu
 │   ├── LSParticle_000001.vtu
@@ -180,8 +179,8 @@ The terminal reports the calculated step count, physical time, output-frame inde
 Open ParaView and load these two file series:
 
 ```text
-../build/tutorial/tutorial1_files/particle/LSParticle_*.vtu
-../build/tutorial/tutorial1_files/particle/fixedLSParticle_*.vtu
+build/tutorial/tutorial1_files/particle/LSParticle_*.vtu
+build/tutorial/tutorial1_files/particle/fixedLSParticle_*.vtu
 ```
 
 ParaView normally recognizes the numbered files as time series. Select both readers in the Pipeline Browser, click **Apply**, press **Reset Camera**, and use **Play** to animate the chain. Load `interaction/LSParticleContact_*.vtu` as another series when contact points and normals are also required.
@@ -193,7 +192,7 @@ VTU is appended binary by default. ParaView reads it directly; no conversion is 
 `energy.dat` is a whitespace-separated text table. Inspect its header and first frames with:
 
 ```bash
-head -n 6 ../build/tutorial/tutorial1_files/energy.dat
+head -n 6 build/tutorial/tutorial1_files/energy.dat
 ```
 
 Each row contains simulation time followed by solid-particle kinetic energy, gravitational potential energy, contact elastic energy, bond elastic energy, and `totalEnergy`. SPH-fluid energy is intentionally excluded from this DEM energy record.
@@ -207,7 +206,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-path = Path("../build/tutorial/tutorial1_files/energy.dat")
+path = Path("build/tutorial/tutorial1_files/energy.dat")
 energy = np.genfromtxt(path, names=True)
 elastic_names = [name for name in energy.dtype.names if name.endswith("ElasticEnergy")]
 elastic = sum((energy[name] for name in elastic_names), np.zeros_like(energy["time"]))

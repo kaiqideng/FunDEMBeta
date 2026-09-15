@@ -16,12 +16,12 @@ This directory contains FunDEMBeta's eight library modules and the test suite. E
 
 ## Build and include paths
 
-The project entry point is the repository-root [`CMakeLists.txt`](../CMakeLists.txt). Configure from `FunDEMBeta/`, for example:
+The project entry point is the repository-root [`CMakeLists.txt`](../CMakeLists.txt). Open a terminal in the parent `workplace/` directory containing `FunDEMBeta/` and keep it there for all commands:
 
 ```bash
-cmake -S . -B ../build -DFUNDEM_ENABLE_CUDA=OFF -DBUILD_TESTING=ON
-cmake --build ../build --parallel
-ctest --test-dir ../build --output-on-failure
+cmake -S FunDEMBeta -B build -DFUNDEM_ENABLE_CUDA=OFF -DBUILD_TESTING=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
 ```
 
 CMake exposes this `src/` directory as the build include root. Public include directives keep their module-relative names:
@@ -30,7 +30,7 @@ CMake exposes this `src/` directory as the build include root. Public include di
 #include "solver/solvers.h"
 ```
 
-Applications should link `FunDEM::FunDEM` to receive the include paths and transitive dependencies. Installation keeps public headers under `include/FunDEM/<module>/`. A single-configuration build places test executables under `<build>/src/tests/`; CTest is run from the build root.
+Applications should link `FunDEM::FunDEM` to receive the include paths and transitive dependencies. Installation keeps public headers under `include/FunDEM/<module>/`. A single-configuration build places test executables under `build/src/tests/`; invoke CTest from `workplace/` with `--test-dir build`.
 
 ## Repository-level resources
 

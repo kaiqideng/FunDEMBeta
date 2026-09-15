@@ -74,7 +74,7 @@ Reference publications:
 
 ## Build and Run
 
-Run from the directory containing `FunDEMBeta/`:
+Open a terminal in `workplace/`, the directory containing `FunDEMBeta/`, and keep it there for all commands:
 
 ```bash
 cmake -S FunDEMBeta -B build -DFUNDEM_BUILD_TUTORIALS=ON
