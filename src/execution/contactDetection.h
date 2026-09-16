@@ -95,16 +95,15 @@ FUNDEM_MATH_HD constexpr Real levelSetSignedDistance(Real value) noexcept { retu
 template <typename GridNodeValue> FUNDEM_MATH_HD constexpr Real levelSetSignedDistance(const GridNodeValue& value) noexcept { return value.signedDistance_; }
 
 /**
- * Queries a point or sphere against a level-set grid.
- * @return True when the query overlaps the represented solid and a finite world-space normal is available.
+ * Samples a local point or sphere against a level-set grid.
+ * @return True on overlap; @p localGradient is the unnormalized interpolant gradient.
+ * The caller transforms and normalizes the gradient in its required frame.
  */
 template <typename GridNodeValue>
-FUNDEM_MATH_HD inline bool detectLevelSetContact(Real& overlap,
-                                                 Vec3& normal,
+FUNDEM_MATH_HD inline bool sampleLevelSetContact(Real& overlap,
+                                                 Vec3& localGradient,
                                                  const GridNodeValue* gridNodes,
-                                                 const Vec3& queryPosition,
-                                                 const Vec3& levelSetPosition,
-                                                 const Quaternion& levelSetOrientation,
+                                                 const Vec3& queryLocalPosition,
                                                  const Vec3& gridNodeOrigin,
                                                  Real gridNodeInverseSpacing,
                                                  const int3& gridNodeSize,
@@ -112,9 +111,8 @@ FUNDEM_MATH_HD inline bool detectLevelSetContact(Real& overlap,
                                                  Real queryRadius = 0.0) noexcept
 {
     overlap = 0.0;
-    normal = Vec3::zero();
+    localGradient = Vec3::zero();
 
-    const Vec3 queryLocalPosition = math::inverseRotateUnit(levelSetOrientation, queryPosition - levelSetPosition);
     const Vec3 levelSetGridPosition = gridNodeInverseSpacing * (queryLocalPosition - gridNodeOrigin);
     const int x0 = static_cast<int>(math::detail::floor(levelSetGridPosition.x));
     const int y0 = static_cast<int>(math::detail::floor(levelSetGridPosition.y));
@@ -146,7 +144,28 @@ FUNDEM_MATH_HD inline bool detectLevelSetContact(Real& overlap,
         return false;
     }
 
-    normal = math::rotateUnit(levelSetOrientation, interpolateLevelSetGradient(interpolation, gridNodeInverseSpacing, phi000, phi100, phi010, phi110, phi001, phi101, phi011, phi111));
+    localGradient = interpolateLevelSetGradient(interpolation, gridNodeInverseSpacing, phi000, phi100, phi010, phi110, phi001, phi101, phi011, phi111);
+    return true;
+}
+
+/** Queries a world point or sphere and returns a finite world-space contact normal on overlap. */
+template <typename GridNodeValue>
+FUNDEM_MATH_HD inline bool detectLevelSetContact(Real& overlap,
+                                                 Vec3& normal,
+                                                 const GridNodeValue* gridNodes,
+                                                 const Vec3& queryPosition,
+                                                 const Vec3& levelSetPosition,
+                                                 const Quaternion& levelSetOrientation,
+                                                 const Vec3& gridNodeOrigin,
+                                                 Real gridNodeInverseSpacing,
+                                                 const int3& gridNodeSize,
+                                                 int signedDistanceOffset,
+                                                 Real queryRadius = 0.0) noexcept
+{
+    const Vec3 queryLocalPosition = math::inverseRotateUnit(levelSetOrientation, queryPosition - levelSetPosition);
+    if (!sampleLevelSetContact(overlap, normal, gridNodes, queryLocalPosition, gridNodeOrigin, gridNodeInverseSpacing, gridNodeSize, signedDistanceOffset, queryRadius))
+        return false;
+    normal = math::rotateUnit(levelSetOrientation, normal);
     if (!math::tryNormalize(normal))
     {
         overlap = 0.0;

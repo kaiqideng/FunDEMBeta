@@ -49,13 +49,19 @@ public:
     int findContacts(contactContainer& contacts, const particleContainer& spheres);
     /** Rebuilds sphere-LS contacts with LS particles as slaves. */
     int findContacts(contactContainer& contacts, const particleContainer& spheres, const LSParticleContainer& LSParticles);
-    /** Rebuilds LS-LS contacts and returns their count. */
+    /** Rebuilds LS-LS contacts using node-work-based parallel blocks and stable pair/node ordering. */
     int findContacts(contactContainer& contacts, const LSParticleContainer& LSParticles);
 
     /** Clears cached grid entries, occupied cells, and candidate pairs. */
     void clear() noexcept;
 
 private:
+    /** A contiguous part of one master surface; no particle or node indices are reordered. */
+    struct surfaceNodeWorkBlock {
+        int pairIndex_{0}; ///< Index into the current ordered candidate pairs.
+        int nodeBegin_{0}; ///< Inclusive master surface-node index.
+        int nodeEnd_{0};   ///< Exclusive master surface-node index.
+    };
     /** Integer coordinate of one CPU background-grid cell. */
     struct gridCell {
         int x_{0}; ///< Cell coordinate along x.
@@ -107,6 +113,8 @@ private:
     std::vector<gridParticle> gridParticles_;  ///< Entries sorted lexicographically by cell.
     std::vector<occupiedCell> cells_;          ///< Compact ranges for occupied cells.
     std::vector<particlePair> candidatePairs_; ///< Broad-phase candidate pairs.
+    std::vector<surfaceNodeWorkBlock> surfaceNodeWorkBlocks_; ///< Flattened pair/node work for the current LS search.
+    std::vector<std::vector<contact>> surfaceNodeBlockContacts_; ///< Reused block-local buffers, merged in stable order.
 };
 
 } // namespace fundem

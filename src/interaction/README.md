@@ -81,6 +81,10 @@ read positions and radii
 
 Sphere-LS always stores the sphere as master. LS-LS samples master surface nodes in the slave signed-distance field. Infinite-mass ordering is enforced before contact construction so a single fixed member becomes slave. Candidate generation may be parallel, but the final contact order and history key must remain deterministic enough for restoration.
 
+For CPU LS–LS detection, the parallel threshold is 4096 candidate master-surface-node queries summed over all pairs, not 4096 particles or detected contacts. Ordered pair/node ranges are split into blocks of at most 1024 nodes and scheduled at a single OpenMP level. Each pair's rotations and relative position are calculated once per search; its blocks use local-coordinate SDF queries and reusable contact buffers. The CPU-only transform cache preserves the shared CPU/CUDA world-space query interface.
+
+Blocks are merged in pair and surface-node order regardless of worker scheduling. Effective mass is normalized over the **whole active contact area of the pair**, never separately per block: `nodal effective mass = pair effective mass × nodal area / total active pair area`. The area sum follows surface-node order, and spring restoration retains the same `(master index, slave index, master surface-node index)` key. Changing the work partition therefore does not renumber history entries or treat each block as a separate physical contact pair.
+
 ## GPU Storage Lifecycle
 
 1. `initializeDevice()` sizes range arrays from particles and, for LS particles, generates surface-node mappings.

@@ -36,6 +36,13 @@ fundem_add_cpp_test(
     PhysicsTest.cpp
 )
 
+fundem_add_cpp_test(fundem_random_shape_test FunDEM.RandomShape RandomShapeTest.cpp)
+
+fundem_add_cpp_test(fundem_ls_contact_parallel_test FunDEM.LSContactParallel LSContactParallelTest.cpp)
+if(FUNDEM_HAS_OPENMP)
+    target_link_libraries(fundem_ls_contact_parallel_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
 fundem_add_cpp_test(
     fundem_sph_cpu_state_test
     FunDEM.SPHState.CPU

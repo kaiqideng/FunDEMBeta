@@ -7,6 +7,7 @@
 #include "CudaTypes.h"
 #include "math/Vector3.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -128,6 +129,22 @@ private:
 
     std::unique_ptr<accelerationData> acceleration_; ///< Owned mesh-query acceleration structure.
 };
+
+/**
+ * Creates a closed, outward-facing mesh by smoothly deforming an icosphere.
+ * Heights are radial offsets from the positive base radius; both must be finite,
+ * minimumSurfaceHeight <= maximumSurfaceHeight, and radius + minimumSurfaceHeight > 0.
+ * Sampled vertex radii span [radius + minimumSurfaceHeight, radius + maximumSurfaceHeight].
+ * The result is star-shaped about the origin, not a generator of arbitrary topology.
+ * A fixed seed reproduces the mesh; equal heights produce a spherical mesh.
+ * subdivisionLevel is non-negative and controls surface resolution only. The
+ * TriangleMesh provides mesh signed distances; callers build the LS grid separately.
+ */
+std::unique_ptr<TriangleMesh> makeRandomShape(math::Real radius,
+                                            math::Real minimumSurfaceHeight,
+                                            math::Real maximumSurfaceHeight,
+                                            int subdivisionLevel = 3,
+                                            std::uint64_t seed = 0);
 
 /** Analytic sphere input geometry centered at the local origin. */
 class Sphere final : public LSInfo

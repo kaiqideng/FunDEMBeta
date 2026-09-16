@@ -79,6 +79,27 @@ solid and interaction state
 
 `vtuWriter` is deliberately unaware of particles and contacts; it receives generic points, cells, and named arrays. `vtuOutput` performs domain-specific expansion, such as transforming LS surface nodes into world coordinates and separating movable from infinite-mass LS particles. Binary appended data is the default and uses explicit byte counts and offsets.
 
+## Random Level-Set Particles
+
+`levelset::makeRandomShape(radius, minimumSurfaceHeight, maximumSurfaceHeight, subdivisionLevel = 3, seed = 0)` in `myLSObject.h` returns an owned `TriangleMesh`. It applies a smooth, spatially correlated radial deformation to an icosphere, preserving a closed surface with outward normals. The result is star-shaped about the local origin: it can have lobes and indentations, but no holes or radial overhangs.
+
+The height bounds are offsets from the base radius, in the same length units as that radius and the rest of the simulation. Sampled vertex radii span `[radius + minimumSurfaceHeight, radius + maximumSurfaceHeight]`; the planar faces interpolate those vertices. The base radius and deformed radii must be positive and finite, and the finite height bounds must be ordered. Equal bounds produce a spherical mesh. A fixed seed reproduces the sampled shape; subdivision controls mesh resolution.
+
+The factory builds mesh-distance acceleration data, but does not allocate an LS grid. Build the grid separately at the desired simulation resolution before adding the geometry to a solver:
+
+```cpp
+#include "data/myLSObject.h"
+#include "solver/LSDEM.h"
+
+fundem::LSDEM simulation;
+// All lengths here are metres: 10 mm base radius, offsets from -2 to +3 mm.
+auto shape = fundem::levelset::makeRandomShape(0.010, -0.002, 0.003, 3, 42);
+shape->buildLSGrid(40); // Target 40 cells across the largest bounding-box extent.
+const int geometryIndex = simulation.addGeometry(*shape);
+```
+
+Signed distances are Euclidean distances to the generated triangle mesh, negative inside. They are not approximated by subtracting a directional radius.
+
 ## Adding Data Safely
 
 When adding a new field, decide first whether it is dynamic device state, host-only configuration, or derived output. Device state belongs in `DeviceLayout`; host references and validation flags do not. Derived quantities such as kinetic energy are usually calculated during output rather than stored. Update device views and copy tests whenever a new device field is introduced.

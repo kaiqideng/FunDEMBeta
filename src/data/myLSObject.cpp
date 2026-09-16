@@ -1,6 +1,7 @@
 #include "myLSObject.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -9,6 +10,7 @@
 #include <iomanip>
 #include <limits>
 #include <queue>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -769,6 +771,91 @@ void TriangleMesh::fineMesh()
     }
     subdivideSurface();
     initializeMesh();
+}
+
+std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHeight, Real maximumSurfaceHeight, int subdivisionLevel, std::uint64_t seed)
+{
+    const Real minimumRadius = radius + minimumSurfaceHeight;
+    const Real maximumRadius = radius + maximumSurfaceHeight;
+    if (!finitePositive(radius) || !math::isFinite(minimumSurfaceHeight) || !math::isFinite(maximumSurfaceHeight) || minimumSurfaceHeight > maximumSurfaceHeight ||
+        !finitePositive(minimumRadius) || !finitePositive(maximumRadius))
+    {
+        throw std::invalid_argument("Random shape requires a positive finite radius, ordered finite height bounds, and positive finite deformed radii.");
+    }
+    if (subdivisionLevel < 0)
+    {
+        throw std::invalid_argument("Subdivision level must be non-negative.");
+    }
+    // The mesh acceleration structure uses int triangle indices. Check growth
+    // before sampling, without imposing an unrelated rendering/detail limit.
+    int faceCount = 20;
+    for (int level = 0; level < subdivisionLevel; ++level)
+    {
+        if (faceCount > std::numeric_limits<int>::max() / 4)
+        {
+            throw std::invalid_argument("Random shape subdivision exceeds the mesh index capacity.");
+        }
+        faceCount *= 4;
+    }
+
+    Sphere sphere(1.0);
+    sphere.buildSurfaceNode(subdivisionLevel);
+    std::vector<Vec3> vertices = sphere.surfaceNodePosition();
+
+    // A few low-frequency waves form a continuous correlated field on the unit
+    // sphere. Unlike independent vertex noise, refinement preserves smooth lobes.
+    struct surfaceWave {
+        Vec3 waveVector;
+        Real phase;
+        Real amplitude;
+    };
+    std::mt19937_64 random(seed);
+    const auto uniform = [&random]() { return static_cast<Real>(random() >> 11U) * 0x1.0p-53; };
+    std::array<surfaceWave, 12> waves;
+    for (std::size_t index = 0; index < waves.size(); ++index)
+    {
+        const Real z = 2.0 * uniform() - 1.0;
+        const Real azimuth = math::twoPi * uniform();
+        const Real equatorialRadius = std::sqrt(std::max(0.0, 1.0 - z * z));
+        const Real band = 1.0 + static_cast<Real>(index / 4);
+        waves[index] = {(1.0 + band) * Vec3{equatorialRadius * std::cos(azimuth), equatorialRadius * std::sin(azimuth), z},
+                        math::twoPi * uniform(),
+                        (0.5 + 0.5 * uniform()) / (band * band)};
+    }
+    std::vector<Real> heights(vertices.size(), 0.0);
+    for (std::size_t index = 0; index < vertices.size(); ++index)
+    {
+        for (const surfaceWave& wave : waves)
+        {
+            heights[index] += wave.amplitude * std::sin(math::dot(wave.waveVector, vertices[index]) + wave.phase);
+        }
+    }
+    const auto [minimum, maximum] = std::minmax_element(heights.begin(), heights.end());
+    const Real heightRange = *maximum - *minimum;
+    for (std::size_t index = 0; index < vertices.size(); ++index)
+    {
+        const Real fraction = heightRange > 0.0 ? std::clamp((heights[index] - *minimum) / heightRange, 0.0, 1.0) : 0.5;
+        vertices[index] *= minimumRadius + fraction * (maximumRadius - minimumRadius);
+    }
+
+    // Positive radial scaling preserves the icosphere's topology and winding.
+    // Reject arithmetic overflow before it can enter mesh acceleration queries;
+    // TriangleMesh also checks closure and its existing area/volume tolerances.
+    Real signedVolumeTimesSix = 0.0;
+    for (const int3& face : sphere.surfaceNodeConnectivity())
+    {
+        const Vec3& first = vertices[face.x];
+        const Vec3& second = vertices[face.y];
+        const Vec3& third = vertices[face.z];
+        const Vec3 normal = math::cross(second - first, third - first);
+        const Real volumeTimesSix = math::dot(first, math::cross(second, third));
+        signedVolumeTimesSix += volumeTimesSix;
+        if (!math::isFinite(normal) || !finitePositive(volumeTimesSix) || !math::isFinite(signedVolumeTimesSix))
+        {
+            throw std::invalid_argument("Random shape dimensions exceed the numerical range of a non-degenerate triangle mesh.");
+        }
+    }
+    return std::make_unique<TriangleMesh>(vertices, sphere.surfaceNodeConnectivity());
 }
 
 Sphere::Sphere(Real radius) { setParameter(radius); }

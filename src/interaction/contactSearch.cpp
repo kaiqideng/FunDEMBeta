@@ -1,6 +1,7 @@
 #include "contactSearch.h"
 
 #include "execution/contactDetection.h"
+#include "execution/cpu/parallelPolicy.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,8 +18,8 @@ namespace
 using Real = math::Real;
 using Vec3 = math::Vec3;
 
-constexpr int parallelParticleThreshold = 1024;
-constexpr int parallelInteractionThreshold = 256;
+using cpu::parallelParticleThreshold;
+using cpu::parallelInteractionThreshold;
 constexpr long long parallelPairTestThreshold = 4096;
 
 template <class Value> void compactValues(std::vector<Value>& values, const std::vector<unsigned char>& keep)
@@ -288,37 +289,48 @@ contact makeSphereLevelSetContact(bool& valid, const particleContainer& masterSp
     return newContact;
 }
 
-void appendLevelSetContacts(std::vector<contact>& contacts, const LSParticleContainer& LSParticles, const particlePair& pair, const contactHistoryMap& history)
+/** Pair-invariant transforms reused by every node block of this pair. */
+struct levelSetPairQuery {
+    math::Mat3 masterRotation_;
+    math::Mat3 slaveRotation_;
+    math::Mat3 relativeRotation_;
+    Vec3 relativePosition_;
+
+    levelSetPairQuery(const LSParticle& master, const LSParticle& slave)
+        : masterRotation_(math::rotationMatrixUnit(master.orientation())), slaveRotation_(math::rotationMatrixUnit(slave.orientation())),
+          relativeRotation_(math::transposed(slaveRotation_) * masterRotation_), relativePosition_(math::transposed(slaveRotation_) * (master.position() - slave.position()))
+    {}
+};
+
+void appendLevelSetContacts(std::vector<contact>& contacts,
+                           const LSParticleContainer& LSParticles,
+                           const particlePair& pair,
+                           const levelSetPairQuery& query,
+                           int nodeBegin,
+                           int nodeEnd,
+                           const contactHistoryMap& history)
 {
     const LSParticle& masterLSParticle = LSParticles.host()[pair.masterParticleIndex_];
     const LSParticle& slaveLSParticle = LSParticles.host()[pair.slaveParticleIndex_];
     const std::vector<LSGridNode>& gridNodes = slaveLSParticle.gridNodes();
     const Real gridNodeInverseSpacing = slaveLSParticle.gridNodeInverseSpacing();
-    if (gridNodes.empty() || gridNodeInverseSpacing <= 0.0)
-    {
-        return;
-    }
-
     const Real slaveRadiusSquared = slaveLSParticle.boundingRadius() * slaveLSParticle.boundingRadius();
     const std::vector<LSSurfaceNode>& surfaceNodes = masterLSParticle.surfaceNodes();
-    const int contactBegin = static_cast<int>(contacts.size());
-    for (int surfaceNodeIndex = 0; surfaceNodeIndex < static_cast<int>(surfaceNodes.size()); ++surfaceNodeIndex)
+    for (int surfaceNodeIndex = nodeBegin; surfaceNodeIndex < nodeEnd; ++surfaceNodeIndex)
     {
         const LSSurfaceNode& surfaceNode = surfaceNodes[surfaceNodeIndex];
-        const Vec3 surfaceNodePosition = masterLSParticle.position() + math::rotateUnit(masterLSParticle.orientation(), surfaceNode.position_);
-        if (math::distanceSquared(surfaceNodePosition, slaveLSParticle.position()) > slaveRadiusSquared)
+        const Vec3 queryLocalPosition = query.relativePosition_ + query.relativeRotation_ * surfaceNode.position_;
+        if (math::normSquared(queryLocalPosition) > slaveRadiusSquared)
         {
             continue;
         }
 
         Real overlap = 0.0;
         Vec3 normal;
-        if (!execution::detectLevelSetContact(overlap,
+        if (!execution::sampleLevelSetContact(overlap,
                                               normal,
                                               gridNodes.data(),
-                                              surfaceNodePosition,
-                                              slaveLSParticle.position(),
-                                              slaveLSParticle.orientation(),
+                                              queryLocalPosition,
                                               slaveLSParticle.gridNodeOrigin(),
                                               gridNodeInverseSpacing,
                                               slaveLSParticle.gridNodeSize(),
@@ -326,7 +338,11 @@ void appendLevelSetContacts(std::vector<contact>& contacts, const LSParticleCont
         {
             continue;
         }
+        normal = query.slaveRotation_ * normal;
+        if (!math::tryNormalize(normal))
+            continue;
 
+        const Vec3 surfaceNodePosition = masterLSParticle.position() + query.masterRotation_ * surfaceNode.position_;
         contact newContact;
         if (!newContact.setMasterSlaveParticle(LSParticles, pair.masterParticleIndex_, pair.slaveParticleIndex_))
         {
@@ -342,18 +358,6 @@ void appendLevelSetContacts(std::vector<contact>& contacts, const LSParticleCont
         contacts.push_back(std::move(newContact));
     }
 
-    Real totalContactArea = 0.0;
-    for (int contactIndex = contactBegin; contactIndex < static_cast<int>(contacts.size()); ++contactIndex)
-    {
-        totalContactArea += contacts[contactIndex].area();
-    }
-
-    const Real pairEffectiveMass = execution::effectiveMass(masterLSParticle.inverseMass(), slaveLSParticle.inverseMass());
-    const Real effectiveMassPerArea = totalContactArea > 0.0 ? pairEffectiveMass / totalContactArea : 0.0;
-    for (int contactIndex = contactBegin; contactIndex < static_cast<int>(contacts.size()); ++contactIndex)
-    {
-        contacts[contactIndex].setEffectiveMass(contacts[contactIndex].area() * effectiveMassPerArea);
-    }
 }
 
 } // namespace
@@ -685,17 +689,62 @@ int contactSearch::findContacts(contactContainer& contacts, const LSParticleCont
     enforceLevelSetSlaveOrdering(candidatePairs_, LSParticles);
 
     const int pairCount = static_cast<int>(candidatePairs_.size());
-    std::vector<std::vector<contact>> pairContacts(pairCount);
+    const auto& particles = LSParticles.host();
+    std::vector<levelSetPairQuery> queries;
+    queries.reserve(pairCount);
+    std::vector<int> pairBlockOffsets(pairCount + 1, 0);
+    surfaceNodeWorkBlocks_.clear();
+    [[maybe_unused]] long long nodeWork = 0;
+    for (int pairIndex = 0; pairIndex < pairCount; ++pairIndex)
+    {
+        const particlePair& pair = candidatePairs_[pairIndex];
+        const LSParticle& master = particles[pair.masterParticleIndex_];
+        const LSParticle& slave = particles[pair.slaveParticleIndex_];
+        queries.emplace_back(master, slave);
+        const int nodeCount = slave.gridNodes().empty() || slave.gridNodeInverseSpacing() <= 0.0 ? 0 : static_cast<int>(master.surfaceNodes().size());
+        nodeWork += nodeCount;
+        for (int begin = 0; begin < nodeCount;)
+        {
+            const int end = begin + std::min(cpu::surfaceNodeWorkBlockSize, nodeCount - begin);
+            surfaceNodeWorkBlocks_.push_back({pairIndex, begin, end});
+            begin = end;
+        }
+        pairBlockOffsets[pairIndex + 1] = static_cast<int>(surfaceNodeWorkBlocks_.size());
+    }
+    const int blockCount = static_cast<int>(surfaceNodeWorkBlocks_.size());
+    surfaceNodeBlockContacts_.resize(blockCount);
 #if defined(_OPENMP)
-#pragma omp parallel for schedule(guided, 4) if (pairCount >= parallelInteractionThreshold)
+#pragma omp parallel for schedule(guided, 1) if (nodeWork >= cpu::parallelSurfaceNodeThreshold)
+#endif
+    for (int blockIndex = 0; blockIndex < blockCount; ++blockIndex)
+    {
+        const auto& block = surfaceNodeWorkBlocks_[blockIndex];
+        auto& blockContacts = surfaceNodeBlockContacts_[blockIndex];
+        blockContacts.clear();
+        appendLevelSetContacts(blockContacts, LSParticles, candidatePairs_[block.pairIndex_], queries[block.pairIndex_], block.nodeBegin_, block.nodeEnd_, history);
+    }
+
+    // Normalize across the whole pair, never separately per work block. Sum in
+    // surface-node order so thread scheduling cannot change effective masses.
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static) if (nodeWork >= cpu::parallelSurfaceNodeThreshold)
 #endif
     for (int pairIndex = 0; pairIndex < pairCount; ++pairIndex)
     {
-        appendLevelSetContacts(pairContacts[pairIndex], LSParticles, candidatePairs_[pairIndex], history);
+        Real totalArea = 0.0;
+        for (int block = pairBlockOffsets[pairIndex]; block < pairBlockOffsets[pairIndex + 1]; ++block)
+            for (const contact& value : surfaceNodeBlockContacts_[block])
+                totalArea += value.area();
+        const particlePair& pair = candidatePairs_[pairIndex];
+        const Real pairMass = execution::effectiveMass(particles[pair.masterParticleIndex_].inverseMass(), particles[pair.slaveParticleIndex_].inverseMass());
+        const Real massPerArea = totalArea > 0.0 ? pairMass / totalArea : 0.0;
+        for (int block = pairBlockOffsets[pairIndex]; block < pairBlockOffsets[pairIndex + 1]; ++block)
+            for (contact& value : surfaceNodeBlockContacts_[block])
+                value.setEffectiveMass(value.area() * massPerArea);
     }
 
     std::vector<contact> activeContacts;
-    mergeLocalValues(activeContacts, pairContacts);
+    mergeLocalValues(activeContacts, surfaceNodeBlockContacts_);
     const int contactCount = static_cast<int>(activeContacts.size());
     replaceContacts(contacts, std::move(activeContacts));
     return contactCount;
@@ -709,6 +758,8 @@ void contactSearch::clear() noexcept
     gridParticles_.clear();
     cells_.clear();
     candidatePairs_.clear();
+    surfaceNodeWorkBlocks_.clear();
+    surfaceNodeBlockContacts_.clear();
 }
 
 } // namespace fundem
