@@ -246,17 +246,17 @@ void LSInfo::reverseSDFSign() noexcept
     }
 }
 
-Real LSInfo::signedDistance(const Vec3& point) const
+Real LSInfo::signedDistance(const Vec3& localPoint) const
 {
     if (!isValid())
     {
         throw std::logic_error("Configure the level-set geometry before evaluating its signed distance.");
     }
-    if (!math::isFinite(point))
+    if (!math::isFinite(localPoint))
     {
         throw std::invalid_argument("Cannot evaluate a non-finite point.");
     }
-    const Real value = evaluateSFD(point + centroidOffset_);
+    const Real value = evaluateSFD(localPoint + centroidOffset_);
     if (!math::isFinite(value))
     {
         throw std::domain_error("Level-set evaluation produced a non-finite signed distance.");

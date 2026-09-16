@@ -56,8 +56,9 @@ public:
 
     /** Evaluates the native signed distance at a point in the returned, possibly centroid-corrected local frame.
      * reverseSDFSign() affects stored samples only, not this native shape query or integrated properties.
+     * @param localPoint Point in the current local frame, centroid-corrected when a movable grid has been built.
      */
-    Real signedDistance(const Vec3& point) const;
+    Real signedDistance(const Vec3& localPoint) const;
     /** Returns a representative bounding radius used to size the grid. */
     virtual Real radius() const noexcept;
     /** Returns the average tributary area of one generated surface node. */
