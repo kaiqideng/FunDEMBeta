@@ -132,9 +132,9 @@ int main(int argc, char** argv)
         const int cubeMaterialIndex = simulation.addMaterial(LSMaterial{normalStiffnessPerUnitArea, shearStiffnessPerUnitArea, cubeFrictionCoefficient, restitutionCoefficient, cubeDensity});
 
         levelset::BoxWall flumeWall{{flumeLength, flumeWidth, flumeHeight}};
-        flumeWall.buildLSGrid(spacing, 3);
+        flumeWall.buildLSGrid(spacing, 3, true);
         flumeWall.reverseSDFSign();
-        const int wallGeometryIndex = simulation.addGeometry(flumeWall, true);
+        const int wallGeometryIndex = simulation.addGeometry(flumeWall);
 
         LSParticle wall;
         wall.setPosition({0.5 * (downstreamLength - upstreamLength), 0.5 * flumeWidth, 0.5 * flumeHeight});

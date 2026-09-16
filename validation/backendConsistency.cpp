@@ -41,8 +41,8 @@ state run(executionMode mode)
     simulation.addSphere(sphere);
 
     levelset::PlaneWall plane{Vec3::unitZ(), 1.0};
-    plane.buildLSGrid(0.05, 2);
-    const int geometryIndex = simulation.addGeometry(plane, true);
+    plane.buildLSGrid(0.05, 2, true);
+    const int geometryIndex = simulation.addGeometry(plane);
     LSParticle wall;
     wall.setMaterial(simulation.materials(), wallMaterialIndex);
     wall.setGeometry(simulation.geometries(), geometryIndex);

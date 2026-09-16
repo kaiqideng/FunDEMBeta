@@ -5,6 +5,7 @@
 #pragma once
 
 #include "CudaTypes.h"
+#include "math/Matrix3.h"
 #include "math/Vector3.h"
 
 #include <cstdint>
@@ -24,6 +25,7 @@ class LSInfo
 public:
     using Real = math::Real;
     using Vec3 = math::Vec3;
+    using Mat3 = math::Mat3;
 
     LSInfo() = default;
     LSInfo(const LSInfo&) = default;
@@ -34,21 +36,39 @@ public:
 
     /** Reports whether the concrete shape has enough valid parameters to build a grid. */
     bool valid() const noexcept { return isValid(); }
-    /** Builds a signed-distance grid from a target number of cells across the diameter. */
+    /** Builds the grid from cells across the diameter; Wall types default to fixed, other shapes to movable. */
     void buildLSGrid(int resolutionPerDiameter = 50);
-    /** Builds a signed-distance grid with explicit spacing and padding cells. */
+    /** Builds using an explicit fixed/movable policy, overriding the shape's default for this grid.
+     * Movable geometry is recentered at its integrated centroid; fixed geometry retains its input frame and zero volume/inertia.
+     */
+    void buildLSGrid(int resolutionPerDiameter, bool isFixed);
+    /** Builds at explicit spacing/padding with the shape's default fixed/movable policy, including through LSInfo references. */
     void buildLSGrid(Real spacing, int paddingSize = 2);
+    /** Builds the grid with explicit spacing/padding, then computes radius, volume, and unit-density inertia.
+     * @param isFixed Skip centroid correction and volume/inertia integration when true.
+     * Surface points and the grid origin share the returned local frame; rebuilding never accumulates centroid shifts.
+     */
+    void buildLSGrid(Real spacing, int paddingSize, bool isFixed);
     /** Reverses the sign convention of every stored signed-distance value. */
     void reverseSDFSign() noexcept;
     /** Writes the generated Cartesian signed-distance grid as a VTI file. */
     void outputGridVTI(const std::string& fileName) const;
 
-    /** Interpolates the signed distance at a point in the geometry-local frame. */
+    /** Evaluates the native signed distance at a point in the returned, possibly centroid-corrected local frame.
+     * reverseSDFSign() affects stored samples only, not this native shape query or integrated properties.
+     */
     Real signedDistance(const Vec3& point) const;
     /** Returns a representative bounding radius used to size the grid. */
     virtual Real radius() const noexcept;
     /** Returns the average tributary area of one generated surface node. */
     virtual Real meanSurfaceNodeArea() const noexcept;
+
+    /** Returns the maximum local surface-node radius, or a conservative bounding-box radius for grid-only shapes. */
+    Real boundingRadius() const noexcept { return boundingRadius_; }
+    /** Returns integrated solid volume; zero until a movable grid is built or after invalidation. */
+    Real volume() const noexcept { return volume_; }
+    /** Returns centroidal inertia at unit density; fixed or invalidated geometry has a zero tensor. */
+    const Mat3& unitDensityInertiaTensor() const noexcept { return unitDensityInertiaTensor_; }
 
     const Vec3& gridNodeOrigin() const noexcept { return gridNodeOrigin_; }
     const int3& gridNodeSize3D() const noexcept { return gridNodeSize_; }
@@ -58,7 +78,7 @@ public:
     const std::vector<int3>& surfaceNodeConnectivity() const noexcept { return surfaceTriangles_; }
 
 protected:
-    /** Clears generated grid data while retaining analytic shape parameters. */
+    /** Restores native-frame surface positions and clears generated grid data and integrated properties. */
     void clearGrid() noexcept;
     /** Builds and projects an icosphere sampling of an implicit surface. */
     void buildImplicitSurfaceNode(int subdivisionLevel);
@@ -72,6 +92,8 @@ protected:
     bool configured_{false};                 ///< Whether shape parameters define a valid object.
 
 private:
+    /** Selects the default integration policy dynamically; wall subclasses skip inertial integration. */
+    virtual bool defaultFixedGeometry() const noexcept { return false; }
     /** Validates the concrete shape parameters. */
     virtual bool isValid() const noexcept = 0;
     /** Returns the lower local-space extent used to build the Cartesian grid. */
@@ -87,13 +109,19 @@ private:
 
     /** Creates the base icosahedron used by implicit-surface sampling. */
     void buildIcosahedron();
-    /** Samples the current shape and extracts node-area data. */
+    /** Samples the current shape in its native frame. */
     void buildLSGridKernel(int paddingSize);
+    /** Integrates occupancy moments and applies one shared local-frame shift to the surface and grid. */
+    void updateGeometryProperties(bool isFixed);
 
     Vec3 gridNodeOrigin_{Vec3::zero()};        ///< Position of grid node (0,0,0) in the local frame.
     int3 gridNodeSize_{0, 0, 0};               ///< Number of nodes along each Cartesian direction.
     Real gridNodeSpacing_{0.0};                ///< Uniform grid spacing.
     std::vector<Real> gridNodeSignedDistance_; ///< Flattened signed-distance samples.
+    Vec3 centroidOffset_{Vec3::zero()};        ///< Native-frame translation of the returned local origin.
+    Real boundingRadius_{0.0};                ///< Maximum corrected surface-node radius after grid construction.
+    Real volume_{0.0};                        ///< Integrated volume; zero for fixed or unbuilt geometry.
+    Mat3 unitDensityInertiaTensor_{Mat3::zero()}; ///< Centroidal inertia at unit density; zero for fixed or unbuilt geometry.
 };
 
 using LSObject = LSInfo;
@@ -209,6 +237,7 @@ public:
     void setParameter(const Vec3& outwardNormal, Real size);
 
 private:
+    bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
     Vec3 boundingBoxMin() const noexcept override;
     Vec3 boundingBoxMax() const noexcept override;
@@ -236,6 +265,7 @@ protected:
     void buildSurfaceNode();
 
 private:
+    bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
     Vec3 boundingBoxMin() const noexcept override;
     Vec3 boundingBoxMax() const noexcept override;
@@ -254,6 +284,7 @@ public:
     Real meanSurfaceNodeArea() const noexcept override;
 
 private:
+    bool defaultFixedGeometry() const noexcept override { return false; }
     const char* objectName() const noexcept override { return "Box Particle"; }
 };
 
@@ -267,6 +298,7 @@ public:
     void setCircumferentialSegments(int segmentCount);
 
 private:
+    bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
     Vec3 boundingBoxMin() const noexcept override;
     Vec3 boundingBoxMax() const noexcept override;
@@ -291,6 +323,7 @@ public:
     void setCircumferentialSegments(int segmentCount);
 
 private:
+    bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
     Vec3 boundingBoxMin() const noexcept override;
     Vec3 boundingBoxMax() const noexcept override;

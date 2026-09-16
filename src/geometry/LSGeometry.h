@@ -5,11 +5,10 @@
 #pragma once
 
 #include "data/HostAoSDeviceSoA.h"
-#include "math/Indexing.h"
+#include "data/myLSObject.h"
 #include "math/Matrix3.h"
 #include "math/Vector3.h"
 
-#include <cmath>
 #include <stdexcept>
 #include <vector>
 
@@ -181,27 +180,21 @@ public:
     const std::vector<LSSurfaceTriangle>& hostSurfaceTriangles() const noexcept { return surfaceTriangles_.host(); }
 
     /**
-     * Validates and appends one signed-distance geometry.
-     * @param gridNodeOrigin Position of grid node (0,0,0) in the input frame.
-     * @param gridNodeSpacing Positive uniform grid spacing.
-     * @param gridNodeSize Number of nodes along each axis.
-     * @param gridNodeSignedDistance Flattened signed-distance samples.
-     * @param surfaceNodePositions Input-frame surface-node positions.
-     * @param connectivities Triangle indices into @p surfaceNodePositions.
-     * @param isFixed Skip centroid, volume, and inertia integration when true.
+     * Appends an LSInfo geometry whose grid and integral properties are already built.
+     * Positions and cached mass properties are copied without further centroid correction.
+     * @param value Built geometry in its final local frame; fixed geometry keeps its input frame.
      * @return Stable descriptor index of the appended geometry.
      * @throws std::invalid_argument for malformed input arrays.
-     * @throws std::domain_error when a movable geometry has no usable interior
-     * volume or a surface node has no positive area.
+     * @throws std::domain_error when a surface node has no positive area.
      */
-    int add(const Vec3& gridNodeOrigin,
-            Real gridNodeSpacing,
-            const int3& gridNodeSize,
-            const std::vector<Real>& gridNodeSignedDistance,
-            const std::vector<Vec3>& surfaceNodePositions,
-            const std::vector<int3>& connectivities,
-            bool isFixed = false)
+    int add(const levelset::LSInfo& value)
     {
+        const Vec3& gridNodeOrigin = value.gridNodeOrigin();
+        const Real gridNodeSpacing = value.gridNodeSpacing();
+        const int3& gridNodeSize = value.gridNodeSize3D();
+        const auto& gridNodeSignedDistance = value.gridNodeSFD();
+        const auto& surfaceNodePositions = value.surfaceNodePosition();
+        const auto& connectivities = value.surfaceNodeConnectivity();
         if (gridNodeSize.x < 2 || gridNodeSize.y < 2 || gridNodeSize.z < 2)
         {
             throw std::invalid_argument("Invalid level-set grid size.");
@@ -243,120 +236,24 @@ public:
         }
 
         const Real inverseSpacing = 1.0 / gridNodeSpacing;
-        Real volume = 0.0;
-        Vec3 centroid = Vec3::zero();
-        Mat3 unitDensityInertiaTensor = Mat3::zero();
+        const Real volume = value.volume();
+        const Mat3& unitDensityInertiaTensor = value.unitDensityInertiaTensor();
+        const Real boundingRadius = value.boundingRadius();
 
-        if (!isFixed)
-        {
-            const auto interiorFraction = [](Real dimensionlessDistance) noexcept
-            {
-                constexpr Real smoothingWidth = 1.5;
-                if (dimensionlessDistance < -smoothingWidth)
-                {
-                    return Real{1.0};
-                }
-                if (dimensionlessDistance > smoothingWidth)
-                {
-                    return Real{0.0};
-                }
-
-                const Real normalizedDistance = -dimensionlessDistance / smoothingWidth;
-                return 0.5 * (1.0 + normalizedDistance + std::sin(math::pi * normalizedDistance) / math::pi);
-            };
-
-            const int sizeX = gridNodeSize.x;
-            const int sizeY = gridNodeSize.y;
-            const int sizeZ = gridNodeSize.z;
-            const Real nodeVolume = gridNodeSpacing * gridNodeSpacing * gridNodeSpacing;
-
-            Real occupancySum = 0.0;
-            Vec3 firstMoment = Vec3::zero();
-            for (int z = 0; z < sizeZ; ++z)
-            {
-                for (int y = 0; y < sizeY; ++y)
-                {
-                    for (int x = 0; x < sizeX; ++x)
-                    {
-                        const int index = math::linearIndex(x, y, z, sizeX, sizeY);
-                        const Real occupancy = interiorFraction(gridNodeSignedDistance[index] * inverseSpacing);
-                        const Vec3 nodePosition = gridNodeOrigin + gridNodeSpacing * Vec3{Real(x), Real(y), Real(z)};
-                        occupancySum += occupancy;
-                        firstMoment += occupancy * nodePosition;
-                    }
-                }
-            }
-
-            volume = occupancySum * nodeVolume;
-            if (!math::isFinite(occupancySum) || occupancySum <= math::defaultTolerance || !math::isFinite(volume) || volume <= math::defaultTolerance)
-            {
-                throw std::domain_error("Level-set grid has no finite interior volume.");
-            }
-
-            centroid = firstMoment / occupancySum;
-            if (!math::isFinite(centroid))
-            {
-                throw std::overflow_error("Level-set centroid integration is not finite.");
-            }
-
-            for (int z = 0; z < sizeZ; ++z)
-            {
-                for (int y = 0; y < sizeY; ++y)
-                {
-                    for (int x = 0; x < sizeX; ++x)
-                    {
-                        const int index = math::linearIndex(x, y, z, sizeX, sizeY);
-                        const Real occupancy = interiorFraction(gridNodeSignedDistance[index] * inverseSpacing);
-                        const Real pointMass = occupancy * nodeVolume;
-                        const Vec3 pointPosition = gridNodeOrigin + gridNodeSpacing * Vec3{Real(x), Real(y), Real(z)} - centroid;
-
-                        unitDensityInertiaTensor(0, 0) += pointMass * (pointPosition.y * pointPosition.y + pointPosition.z * pointPosition.z);
-                        unitDensityInertiaTensor(1, 1) += pointMass * (pointPosition.x * pointPosition.x + pointPosition.z * pointPosition.z);
-                        unitDensityInertiaTensor(2, 2) += pointMass * (pointPosition.x * pointPosition.x + pointPosition.y * pointPosition.y);
-                        unitDensityInertiaTensor(0, 1) -= pointMass * pointPosition.x * pointPosition.y;
-                        unitDensityInertiaTensor(0, 2) -= pointMass * pointPosition.x * pointPosition.z;
-                        unitDensityInertiaTensor(1, 2) -= pointMass * pointPosition.y * pointPosition.z;
-                    }
-                }
-            }
-            unitDensityInertiaTensor(1, 0) = unitDensityInertiaTensor(0, 1);
-            unitDensityInertiaTensor(2, 0) = unitDensityInertiaTensor(0, 2);
-            unitDensityInertiaTensor(2, 1) = unitDensityInertiaTensor(1, 2);
-            if (!math::isFinite(unitDensityInertiaTensor))
-            {
-                throw std::overflow_error("Level-set inertia integration is not finite.");
-            }
-        }
-
-        std::vector<LSGridNode> centeredGridNodes;
-        centeredGridNodes.reserve(gridNodeSignedDistance.size());
+        std::vector<LSGridNode> preparedGridNodes;
+        preparedGridNodes.reserve(gridNodeSignedDistance.size());
         for (Real signedDistance : gridNodeSignedDistance)
         {
-            centeredGridNodes.push_back({signedDistance});
+            preparedGridNodes.push_back({signedDistance});
         }
 
-        std::vector<LSSurfaceNode> centeredSurfaceNodes;
-        centeredSurfaceNodes.reserve(surfaceNodePositions.size());
+        std::vector<LSSurfaceNode> preparedSurfaceNodes;
+        preparedSurfaceNodes.reserve(surfaceNodePositions.size());
         for (const Vec3& position : surfaceNodePositions)
         {
-            centeredSurfaceNodes.push_back({position, 0.0});
+            preparedSurfaceNodes.push_back({position, 0.0});
         }
-        Real boundingRadius = 0.0;
-        for (LSSurfaceNode& node : centeredSurfaceNodes)
-        {
-            if (!isFixed)
-            {
-                node.position_ -= centroid;
-            }
-            node.area_ = 0.0;
-            const Real candidate = math::norm(node.position_);
-            if (!math::isFinite(candidate))
-            {
-                throw std::overflow_error("Level-set bounding radius is not finite.");
-            }
-            boundingRadius = candidate > boundingRadius ? candidate : boundingRadius;
-        }
-        if (boundingRadius <= 0.0)
+        if (!math::isFinite(boundingRadius) || boundingRadius <= 0.0)
         {
             throw std::domain_error("Level-set bounding radius must be positive.");
         }
@@ -364,7 +261,7 @@ public:
         if (connectivities.empty())
         {
             const Real fallbackArea = 4.0 * math::pi * boundingRadius * boundingRadius / surfaceNodeCount;
-            for (LSSurfaceNode& node : centeredSurfaceNodes)
+            for (LSSurfaceNode& node : preparedSurfaceNodes)
             {
                 node.area_ = fallbackArea;
             }
@@ -373,18 +270,18 @@ public:
         {
             for (const int3& connectivity : connectivities)
             {
-                const Vec3& a = centeredSurfaceNodes[connectivity.x].position_;
-                const Vec3& b = centeredSurfaceNodes[connectivity.y].position_;
-                const Vec3& c = centeredSurfaceNodes[connectivity.z].position_;
+                const Vec3& a = preparedSurfaceNodes[connectivity.x].position_;
+                const Vec3& b = preparedSurfaceNodes[connectivity.y].position_;
+                const Vec3& c = preparedSurfaceNodes[connectivity.z].position_;
                 const Real nodalArea = math::norm(math::cross(b - a, c - a)) / 6.0;
 
-                centeredSurfaceNodes[connectivity.x].area_ += nodalArea;
-                centeredSurfaceNodes[connectivity.y].area_ += nodalArea;
-                centeredSurfaceNodes[connectivity.z].area_ += nodalArea;
+                preparedSurfaceNodes[connectivity.x].area_ += nodalArea;
+                preparedSurfaceNodes[connectivity.y].area_ += nodalArea;
+                preparedSurfaceNodes[connectivity.z].area_ += nodalArea;
             }
         }
 
-        for (const LSSurfaceNode& node : centeredSurfaceNodes)
+        for (const LSSurfaceNode& node : preparedSurfaceNodes)
         {
             if (!math::isFinite(node.area_) || node.area_ <= 0.0)
             {
@@ -403,17 +300,17 @@ public:
         const int surfaceTriangleOffset = static_cast<int>(surfaceTriangleHost.size());
 
         descriptorHost.reserve(descriptorHost.size() + 1);
-        gridNodeHost.reserve(gridNodeHost.size() + centeredGridNodes.size());
-        surfaceNodeHost.reserve(surfaceNodeHost.size() + centeredSurfaceNodes.size());
+        gridNodeHost.reserve(gridNodeHost.size() + preparedGridNodes.size());
+        surfaceNodeHost.reserve(surfaceNodeHost.size() + preparedSurfaceNodes.size());
         surfaceTriangleHost.reserve(surfaceTriangleHost.size() + connectivities.size());
 
-        gridNodeHost.insert(gridNodeHost.end(), centeredGridNodes.begin(), centeredGridNodes.end());
-        surfaceNodeHost.insert(surfaceNodeHost.end(), centeredSurfaceNodes.begin(), centeredSurfaceNodes.end());
+        gridNodeHost.insert(gridNodeHost.end(), preparedGridNodes.begin(), preparedGridNodes.end());
+        surfaceNodeHost.insert(surfaceNodeHost.end(), preparedSurfaceNodes.begin(), preparedSurfaceNodes.end());
         for (const int3& connectivity : connectivities)
         {
             surfaceTriangleHost.push_back({connectivity});
         }
-        descriptorHost.push_back({isFixed ? gridNodeOrigin : gridNodeOrigin - centroid,
+        descriptorHost.push_back({gridNodeOrigin,
                                   inverseSpacing,
                                   gridNodeSize,
                                   signedDistanceOffset,

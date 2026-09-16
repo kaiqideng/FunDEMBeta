@@ -38,7 +38,7 @@ int LSDEM::appendMaterial(const material& value)
     return materialIndex;
 }
 
-int LSDEM::addGeometry(const levelset::LSInfo& value, bool isFixed)
+int LSDEM::addGeometry(const levelset::LSInfo& value)
 {
     if (initialized())
     {
@@ -49,8 +49,7 @@ int LSDEM::addGeometry(const levelset::LSInfo& value, bool isFixed)
         throw std::invalid_argument("Cannot add an invalid level-set geometry.");
     }
 
-    const int geometryIndex =
-        geometries_.add(value.gridNodeOrigin(), value.gridNodeSpacing(), value.gridNodeSize3D(), value.gridNodeSFD(), value.surfaceNodePosition(), value.surfaceNodeConnectivity(), isFixed);
+    const int geometryIndex = geometries_.add(value);
     invalidateContinuation();
     return geometryIndex;
 }

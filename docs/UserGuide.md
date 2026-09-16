@@ -436,8 +436,8 @@ int main()
         simulation.addLSParticle(fallingParticle);
 
         levelset::PlaneWall plane{{0.0, 0.0, 1.0}, 1.0};
-        plane.buildLSGrid(0.1, 2);
-        const int planeIndex = simulation.addGeometry(plane, true);
+        plane.buildLSGrid(0.1, 2, true);
+        const int planeIndex = simulation.addGeometry(plane);
 
         LSParticle fixedPlane;
         fixedPlane.setMaterial(simulation.materials(), wallMaterialIndex);
@@ -535,12 +535,16 @@ Geometry is built through `fundem::levelset::LSInfo` implementations:
 | `CylinderWall` | Bottom center, top center, and radius |
 | `ConeWall` | Bottom/top centers and bottom/top radii |
 
-Every geometry requires a signed-distance grid before it is passed to the solver:
+Build the surface representation first, then build a signed-distance grid before passing the geometry to the solver. Grid construction accepts a resolution across the largest bounding-box extent (default `50`) or explicit spacing with optional padding (default `2`):
 
 ```cpp
-shape.buildLSGrid(50);          // approximate resolution per diameter
+shape.buildLSGrid(50);          // cells across the largest bounding-box extent
 shape.buildLSGrid(0.002, 3);    // explicit spacing and padding
 ```
+
+Ordinary particle shapes default to movable geometry. `PlaneWall`, `BoxWall`, `CylinderWall`, and `ConeWall` default to fixed geometry, including when called through an `LSInfo&`. `BoxParticle` defaults to movable geometry even though it inherits from `BoxWall`. An explicit `isFixed` argument overrides the shape's default: it is the second argument in the resolution form and the third in the spacing/padding form. Walls can explicitly request movable geometry with `false`.
+
+For movable geometry, `LSInfo` integrates volume, centroid, and unit-density inertia from the grid. It shifts both the surface nodes and grid origin into the centroid frame, then stores the resulting bounding radius and mass properties. These are available before solver insertion through `boundingRadius()`, `volume()`, and `unitDensityInertiaTensor()`.
 
 Useful geometry operations include:
 
@@ -549,19 +553,22 @@ shape.reverseSDFSign();
 shape.outputGridVTI("shape.vti");
 ```
 
-Add movable geometry with the default `false` flag:
+Add the built movable geometry:
 
 ```cpp
 const int geometryIndex = simulation.addGeometry(shape);
 ```
 
-Add an infinite-mass wall with `true`:
+For an infinite-mass wall, use its fixed default or pass `true` explicitly when building its grid:
 
 ```cpp
-const int wallGeometryIndex = simulation.addGeometry(wall, true);
+wall.buildLSGrid(50, true);
+const int wallGeometryIndex = simulation.addGeometry(wall);
 ```
 
-For fixed geometry, the geometry container does not calculate a center-of-mass offset, volume, or unit-density inertia tensor. An `LSParticle` using that descriptor consequently has infinite mass and is written to the `fixedLSParticle` output.
+For fixed geometry, `LSInfo` preserves the input local frame and stores zero volume and unit-density inertia. An `LSParticle` using that descriptor consequently has infinite mass and is written to the `fixedLSParticle` output.
+
+`LSDEM::addGeometry(const LSInfo&)` and `LSGeometryContainer::add(const LSInfo&)` accept only the built geometry. The container validates and copies its arrays and cached metadata, and computes nodal areas; insertion does not integrate mass properties or apply another centroid shift.
 
 ### 6.3 Level-set particles
 
@@ -1058,9 +1065,9 @@ An enclosing box reverses the signed-distance convention:
 
 ```cpp
 levelset::BoxWall tank{{length, width, height}};
-tank.buildLSGrid(spacing, 3);
+tank.buildLSGrid(spacing, 3, true);
 tank.reverseSDFSign();
-const int tankGeometry = simulation.addGeometry(tank, true);
+const int tankGeometry = simulation.addGeometry(tank);
 ```
 
 ### 14.5 SPH time-step schedule

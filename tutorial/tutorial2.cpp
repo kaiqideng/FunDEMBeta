@@ -182,8 +182,8 @@ int main(int argc, char** argv)
 
         const int boxMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, frictionCoefficient, restitutionCoefficient, 1.0});
         levelset::BoxWall box{boxSize};
-        box.buildLSGrid(particleDiameter, 3);
-        const int boxGeometryIndex = simulation.addGeometry(box, true);
+        box.buildLSGrid(particleDiameter, 3, true);
+        const int boxGeometryIndex = simulation.addGeometry(box);
 
         LSParticle fixedBox;
         fixedBox.setPosition(boxCenter);

@@ -38,6 +38,9 @@ fundem_add_cpp_test(
 
 fundem_add_cpp_test(fundem_random_shape_test FunDEM.RandomShape RandomShapeTest.cpp)
 
+fundem_add_cpp_test(fundem_ls_geometry_test FunDEM.LSGeometry LSGeometryTest.cpp)
+set_tests_properties(FunDEM.LSGeometry PROPERTIES ENVIRONMENT "OMP_NUM_THREADS=2" TIMEOUT 120)
+
 fundem_add_cpp_test(fundem_ls_contact_parallel_test FunDEM.LSContactParallel LSContactParallelTest.cpp)
 if(FUNDEM_HAS_OPENMP)
     target_link_libraries(fundem_ls_contact_parallel_test PRIVATE OpenMP::OpenMP_CXX)

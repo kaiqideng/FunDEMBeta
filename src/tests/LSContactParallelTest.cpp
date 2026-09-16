@@ -124,8 +124,8 @@ struct Fixture {
     void wall()
     {
         levelset::PlaneWall geometry(Vec3::unitZ(), 5.0);
-        geometry.buildLSGrid(0.15, 3);
-        const int index = definitions.addGeometry(geometry, true);
+        geometry.buildLSGrid(0.15, 3, true);
+        const int index = definitions.addGeometry(geometry);
         add(index, {0.13, -0.17, 0.025}, 0.07);
         require(particles.host().back().inverseMass() == 0.0, "Wall fixture must have infinite mass.");
     }

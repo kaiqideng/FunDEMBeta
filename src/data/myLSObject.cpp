@@ -1,4 +1,5 @@
 #include "myLSObject.h"
+#include "math/Indexing.h"
 
 #include <algorithm>
 #include <array>
@@ -46,13 +47,24 @@ bool finitePositive(Real value) noexcept { return math::isFinite(value) && value
 
 void LSInfo::clearGrid() noexcept
 {
+    if (centroidOffset_ != Vec3::zero())
+        for (Vec3& point : surfaceNodePositions_)
+            point += centroidOffset_;
+    centroidOffset_ = Vec3::zero();
+    boundingRadius_ = 0.0;
+    volume_ = 0.0;
+    unitDensityInertiaTensor_ = Mat3::zero();
     gridNodeOrigin_ = Vec3::zero();
     gridNodeSize_ = {0, 0, 0};
     gridNodeSpacing_ = 0.0;
     gridNodeSignedDistance_.clear();
 }
 
-void LSInfo::buildLSGrid(int resolutionPerDiameter)
+void LSInfo::buildLSGrid(int resolutionPerDiameter) { buildLSGrid(resolutionPerDiameter, defaultFixedGeometry()); }
+
+void LSInfo::buildLSGrid(Real spacing, int paddingSize) { buildLSGrid(spacing, paddingSize, defaultFixedGeometry()); }
+
+void LSInfo::buildLSGrid(int resolutionPerDiameter, bool isFixed)
 {
     if (!isValid())
     {
@@ -69,10 +81,10 @@ void LSInfo::buildLSGrid(int resolutionPerDiameter)
     {
         throw std::domain_error("Level-set bounding box must have a positive finite extent.");
     }
-    buildLSGrid(referenceDiameter / resolutionPerDiameter, 2);
+    buildLSGrid(referenceDiameter / resolutionPerDiameter, 2, isFixed);
 }
 
-void LSInfo::buildLSGrid(Real spacing, int paddingSize)
+void LSInfo::buildLSGrid(Real spacing, int paddingSize, bool isFixed)
 {
     if (!isValid())
     {
@@ -82,8 +94,18 @@ void LSInfo::buildLSGrid(Real spacing, int paddingSize)
     {
         throw std::invalid_argument("Level-set spacing must be positive and padding must be non-negative.");
     }
+    clearGrid();
     gridNodeSpacing_ = spacing;
-    buildLSGridKernel(paddingSize);
+    try
+    {
+        buildLSGridKernel(paddingSize);
+        updateGeometryProperties(isFixed);
+    }
+    catch (...)
+    {
+        clearGrid();
+        throw;
+    }
 }
 
 void LSInfo::buildLSGridKernel(int paddingSize)
@@ -127,6 +149,95 @@ void LSInfo::buildLSGridKernel(int paddingSize)
     }
 }
 
+void LSInfo::updateGeometryProperties(bool isFixed)
+{
+    const Real inverseSpacing = 1.0 / gridNodeSpacing_;
+    const Real nodeVolume = gridNodeSpacing_ * gridNodeSpacing_ * gridNodeSpacing_;
+    Real volume = 0.0;
+    Vec3 centroid = Vec3::zero();
+    Mat3 inertia = Mat3::zero();
+    if (!isFixed)
+    {
+        const auto interiorFraction = [](Real distance) noexcept
+        {
+            constexpr Real smoothingWidth = 1.5;
+            if (distance < -smoothingWidth)
+                return Real{1.0};
+            if (distance > smoothingWidth)
+                return Real{0.0};
+            const Real normalizedDistance = -distance / smoothingWidth;
+            return 0.5 * (1.0 + normalizedDistance + std::sin(math::pi * normalizedDistance) / math::pi);
+        };
+        const int sizeX = gridNodeSize_.x;
+        const int sizeY = gridNodeSize_.y;
+        const int sizeZ = gridNodeSize_.z;
+        Real occupancySum = 0.0;
+        Vec3 firstMoment = Vec3::zero();
+        for (int z = 0; z < sizeZ; ++z)
+            for (int y = 0; y < sizeY; ++y)
+                for (int x = 0; x < sizeX; ++x)
+                {
+                    const int index = math::linearIndex(x, y, z, sizeX, sizeY);
+                    const Real occupancy = interiorFraction(gridNodeSignedDistance_[index] * inverseSpacing);
+                    const Vec3 nodePosition = gridNodeOrigin_ + gridNodeSpacing_ * Vec3{Real(x), Real(y), Real(z)};
+                    occupancySum += occupancy;
+                    firstMoment += occupancy * nodePosition;
+                }
+        volume = occupancySum * nodeVolume;
+        if (!math::isFinite(occupancySum) || occupancySum <= math::defaultTolerance || !math::isFinite(volume) || volume <= math::defaultTolerance)
+            throw std::domain_error("Level-set grid has no finite interior volume.");
+        centroid = firstMoment / occupancySum;
+        if (!math::isFinite(centroid))
+            throw std::overflow_error("Level-set centroid integration is not finite.");
+        for (int z = 0; z < sizeZ; ++z)
+            for (int y = 0; y < sizeY; ++y)
+                for (int x = 0; x < sizeX; ++x)
+                {
+                    const int index = math::linearIndex(x, y, z, sizeX, sizeY);
+                    const Real pointMass = interiorFraction(gridNodeSignedDistance_[index] * inverseSpacing) * nodeVolume;
+                    const Vec3 position = gridNodeOrigin_ + gridNodeSpacing_ * Vec3{Real(x), Real(y), Real(z)} - centroid;
+                    inertia(0, 0) += pointMass * (position.y * position.y + position.z * position.z);
+                    inertia(1, 1) += pointMass * (position.x * position.x + position.z * position.z);
+                    inertia(2, 2) += pointMass * (position.x * position.x + position.y * position.y);
+                    inertia(0, 1) -= pointMass * position.x * position.y;
+                    inertia(0, 2) -= pointMass * position.x * position.z;
+                    inertia(1, 2) -= pointMass * position.y * position.z;
+                }
+        inertia(1, 0) = inertia(0, 1);
+        inertia(2, 0) = inertia(0, 2);
+        inertia(2, 1) = inertia(1, 2);
+        if (!math::isFinite(inertia))
+            throw std::overflow_error("Level-set inertia integration is not finite.");
+    }
+    Real radius = 0.0;
+    const auto includeRadius = [&](const Vec3& point)
+    {
+        const Real candidate = math::norm(point - centroid);
+        if (!math::isFinite(candidate))
+            throw std::overflow_error("Level-set bounding radius is not finite.");
+        radius = std::max(radius, candidate);
+    };
+    for (const Vec3& point : surfaceNodePositions_)
+        includeRadius(point);
+    if (surfaceNodePositions_.empty())
+    {
+        // Grid-only analytic queries remain supported before surface sampling.
+        const Vec3 minimum = boundingBoxMin();
+        const Vec3 maximum = boundingBoxMax();
+        for (int corner = 0; corner < 8; ++corner)
+            includeRadius({corner & 1 ? maximum.x : minimum.x, corner & 2 ? maximum.y : minimum.y, corner & 4 ? maximum.z : minimum.z});
+    }
+    if (radius <= 0.0)
+        throw std::domain_error("Level-set bounding radius must be positive.");
+    for (Vec3& point : surfaceNodePositions_)
+        point -= centroid;
+    gridNodeOrigin_ -= centroid;
+    centroidOffset_ = centroid;
+    boundingRadius_ = radius;
+    volume_ = volume;
+    unitDensityInertiaTensor_ = inertia;
+}
+
 void LSInfo::reverseSDFSign() noexcept
 {
     for (Real& value : gridNodeSignedDistance_)
@@ -145,7 +256,7 @@ Real LSInfo::signedDistance(const Vec3& point) const
     {
         throw std::invalid_argument("Cannot evaluate a non-finite point.");
     }
-    const Real value = evaluateSFD(point);
+    const Real value = evaluateSFD(point + centroidOffset_);
     if (!math::isFinite(value))
     {
         throw std::domain_error("Level-set evaluation produced a non-finite signed distance.");
@@ -235,6 +346,7 @@ void LSInfo::buildImplicitSurfaceNode(int subdivisionLevel)
     {
         throw std::invalid_argument("Subdivision level must be non-negative.");
     }
+    clearGrid();
     const Vec3 boxMin = boundingBoxMin();
     const Vec3 boxMax = boundingBoxMax();
     if (!math::isFinite(boxMin) || !math::isFinite(boxMax) || boxMax.x <= boxMin.x || boxMax.y <= boxMin.y || boxMax.z <= boxMin.z)
@@ -275,6 +387,7 @@ void LSInfo::buildIcosahedron()
 
 void LSInfo::subdivideSurface()
 {
+    clearGrid();
     std::unordered_map<std::uint64_t, int> midpointIndices;
     std::vector<int3> refinedTriangles;
     refinedTriangles.reserve(4 * surfaceTriangles_.size());
@@ -338,14 +451,14 @@ struct TriangleMesh::accelerationData {
         bool leaf() const noexcept { return count_ > 0; }
     };
 
-    const Vec3* vertices_{nullptr};
+    std::vector<Vec3> vertices_; ///< Native-frame vertex copy, independent of centroid-corrected output surface positions.
     const int3* triangles_{nullptr};
     std::vector<triangleReference> references_;
     std::vector<node> nodes_;
 
     void build(const std::vector<Vec3>& vertices, const std::vector<int3>& triangles)
     {
-        vertices_ = vertices.data();
+        vertices_ = vertices;
         triangles_ = triangles.data();
         references_.resize(triangles.size());
         for (int index = 0; index < static_cast<int>(triangles.size()); ++index)
@@ -572,6 +685,8 @@ Real TriangleMesh::evaluateSFD(const Vec3& point) const noexcept
 
 void TriangleMesh::initializeMesh()
 {
+    configured_ = false;
+    clearGrid();
     if (surfaceNodePositions_.empty() || surfaceTriangles_.empty())
     {
         throw std::invalid_argument("Triangle mesh requires vertices and triangles.");
@@ -688,7 +803,6 @@ void TriangleMesh::initializeMesh()
         }
     }
     acceleration_->build(surfaceNodePositions_, surfaceTriangles_);
-    clearGrid();
     configured_ = true;
 }
 
@@ -769,6 +883,7 @@ void TriangleMesh::fineMesh()
     {
         throw std::logic_error("Load a valid triangle mesh before refining it.");
     }
+    configured_ = false;
     subdivideSurface();
     initializeMesh();
 }
@@ -1011,6 +1126,7 @@ void PlaneWall::setParameter(const Vec3& outwardNormal, Real size)
 
 void PlaneWall::buildSurfaceNode()
 {
+    clearGrid();
     Vec3 tangent1;
     Vec3 tangent2;
     orthogonalBasis(outwardNormal_, tangent1, tangent2);
@@ -1043,6 +1159,7 @@ void BoxWall::setParameter(const Vec3& size)
 
 void BoxWall::buildSurfaceNode()
 {
+    clearGrid();
     const Vec3 half = 0.5 * size_;
     surfaceNodePositions_ = {{-half.x, -half.y, -half.z},
                              {half.x, -half.y, -half.z},
@@ -1085,6 +1202,7 @@ void BoxParticle::buildSurfaceNode(Real surfaceSpacing)
     {
         throw std::invalid_argument("Box surface spacing must be positive and finite.");
     }
+    clearGrid();
 
     const int countX = std::max(1, static_cast<int>(std::ceil(size.x / surfaceSpacing)));
     const int countY = std::max(1, static_cast<int>(std::ceil(size.y / surfaceSpacing)));
@@ -1180,6 +1298,7 @@ void CylinderWall::setCircumferentialSegments(int segmentCount)
 
 void CylinderWall::buildSurfaceNode(int segmentCount)
 {
+    clearGrid();
     const Vec3 axis = math::normalizedOrZero(topCenter_ - bottomCenter_);
     Vec3 tangent1;
     Vec3 tangent2;
@@ -1282,6 +1401,7 @@ void ConeWall::setCircumferentialSegments(int segmentCount)
 
 void ConeWall::buildSurfaceNode(int segmentCount)
 {
+    clearGrid();
     const Vec3 axis = math::normalizedOrZero(topCenter_ - bottomCenter_);
     Vec3 tangent1;
     Vec3 tangent2;

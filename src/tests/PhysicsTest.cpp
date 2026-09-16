@@ -184,8 +184,8 @@ void testAppendAfterSolve()
     require(simulation.addSphere(addedSphere) == 2, "A sphere must be appendable after solve() completes.");
 
     levelset::PlaneWall wall{{0.0, 0.0, 1.0}, 1.0};
-    wall.buildLSGrid(0.1, 2);
-    const int geometryIndex = simulation.addGeometry(wall, true);
+    wall.buildLSGrid(0.1, 2, true);
+    const int geometryIndex = simulation.addGeometry(wall);
     LSParticle fixedWall;
     fixedWall.setPosition({0.0, 0.0, -0.4});
     fixedWall.setMaterial(simulation.materials(), addedLSMaterialIndex);
@@ -214,9 +214,9 @@ void testLevelSetContainerOwnership()
     firstSolver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
     secondSolver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
     levelset::PlaneWall wall{{0.0, 0.0, 1.0}, 1.0};
-    wall.buildLSGrid(0.1, 2);
-    firstSolver.addGeometry(wall, true);
-    secondSolver.addGeometry(wall, true);
+    wall.buildLSGrid(0.1, 2, true);
+    firstSolver.addGeometry(wall);
+    secondSolver.addGeometry(wall);
 
     LSParticle particle;
     particle.setMaterial(firstSolver.materials(), 0);
@@ -241,8 +241,8 @@ void testLSParticleMotionReset(executionMode mode)
     simulation.setExecutionMode(mode);
     simulation.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
     levelset::PlaneWall wall{{0.0, 0.0, 1.0}, 1.0};
-    wall.buildLSGrid(0.1, 2);
-    simulation.addGeometry(wall, true);
+    wall.buildLSGrid(0.1, 2, true);
+    simulation.addGeometry(wall);
 
     LSParticle particle;
     particle.setMaterial(simulation.materials(), 0);
@@ -583,8 +583,8 @@ void testSPHWallReaction(executionMode mode)
 
     const int materialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.0, 1.0, 1.0});
     levelset::PlaneWall plane{math::Vec3::unitZ(), 0.2};
-    plane.buildLSGrid(spacing, 3);
-    const int geometryIndex = simulation.addGeometry(plane, true);
+    plane.buildLSGrid(spacing, 3, true);
+    const int geometryIndex = simulation.addGeometry(plane);
     LSParticle wall;
     wall.setMaterial(simulation.materials(), materialIndex);
     wall.setGeometry(simulation.geometries(), geometryIndex);

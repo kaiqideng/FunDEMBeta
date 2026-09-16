@@ -51,8 +51,8 @@ public:
 
     /** Appends a valid level-set material and returns its stable index. */
     int addMaterial(const LSMaterial& value);
-    /** Converts and appends one reusable level-set input geometry. */
-    int addGeometry(const levelset::LSInfo& value, bool isFixed = false);
+    /** Appends one built LSInfo, copying its prepared local coordinates and cached integral properties. */
+    int addGeometry(const levelset::LSInfo& value);
     /** Appends a valid LS particle whose material and geometry belong here. */
     int addLSParticle(const LSParticle& value);
     /** Appends a valid LS-LS bond referencing this solver's particle container. */

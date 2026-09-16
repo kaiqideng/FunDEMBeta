@@ -1,4 +1,5 @@
 #include "sphInteractionKernel.cuh"
+#include "math/Indexing.h"
 
 #include "atomicKernel.cuh"
 #include "data/HostAoSDeviceSoA.h"

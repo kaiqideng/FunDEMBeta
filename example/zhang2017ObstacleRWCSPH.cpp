@@ -109,9 +109,9 @@ int main(int argc, char** argv)
         const int wallMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.0, 1.0, 1.0});
 
         levelset::BoxWall tankWall{{tankLength, tankWidth, tankHeight}};
-        tankWall.buildLSGrid(spacing, 3);
+        tankWall.buildLSGrid(spacing, 3, true);
         tankWall.reverseSDFSign();
-        const int tankGeometryIndex = simulation.addGeometry(tankWall, true);
+        const int tankGeometryIndex = simulation.addGeometry(tankWall);
 
         LSParticle tank;
         tank.setPosition({0.5 * tankLength, 0.5 * tankWidth, 0.5 * tankHeight});
@@ -120,8 +120,8 @@ int main(int argc, char** argv)
         simulation.addLSParticle(tank);
 
         levelset::BoxWall obstacle{{obstacleLength, obstacleWidth, obstacleHeight}};
-        obstacle.buildLSGrid(spacing, 3);
-        const int obstacleGeometryIndex = simulation.addGeometry(obstacle, true);
+        obstacle.buildLSGrid(spacing, 3, true);
+        const int obstacleGeometryIndex = simulation.addGeometry(obstacle);
 
         LSParticle obstacleParticle;
         obstacleParticle.setPosition({obstacleCenterX, 0.5 * tankWidth, 0.5 * obstacleHeight});

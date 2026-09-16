@@ -179,8 +179,8 @@ int main(int argc, char** argv)
         }
 
         levelset::ConeWall structureGeometry{{0.0, 0.0, -structureRadius}, {0.0, 0.0, structureRadius}, 1.5 * structureRadius, 0.5 * structureRadius};
-        structureGeometry.buildLSGrid(0.25 * iceThickness, 3);
-        const int structureGeometryIndex = simulation.addGeometry(structureGeometry, true);
+        structureGeometry.buildLSGrid(0.25 * iceThickness, 3, true);
+        const int structureGeometryIndex = simulation.addGeometry(structureGeometry);
         const int structureMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.1, 1.0, 1.0});
 
         const Real structureCenterX = ice.maximumBoundary().x + structureRadius + ice.elementRadius();

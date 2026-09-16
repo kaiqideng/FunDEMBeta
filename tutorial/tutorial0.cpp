@@ -145,8 +145,8 @@ int main(int argc, char** argv)
         simulation.addLSParticle(fallingGomboc);
 
         levelset::PlaneWall plane{{0.0, 0.0, 1.0}, 1.0};
-        plane.buildLSGrid(0.1, 2);
-        const int planeGeometryIndex = simulation.addGeometry(plane, true);
+        plane.buildLSGrid(0.1, 2, true);
+        const int planeGeometryIndex = simulation.addGeometry(plane);
 
         LSParticle fixedPlane;
         fixedPlane.setMaterial(simulation.materials(), wallMaterialIndex);

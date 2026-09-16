@@ -219,9 +219,9 @@ int main(int argc, char** argv)
 
         // Reversing a closed box places the boundary solid outside the fluid cavity.
         levelset::BoxWall tank{tankSize};
-        tank.buildLSGrid(spacing, 3);
+        tank.buildLSGrid(spacing, 3, true);
         tank.reverseSDFSign();
-        const int tankGeometryIndex = simulation.addGeometry(tank, true);
+        const int tankGeometryIndex = simulation.addGeometry(tank);
         LSParticle fixedTank;
         fixedTank.setPosition(0.5 * tankSize);
         fixedTank.setMaterial(simulation.materials(), wallMaterialIndex);
@@ -229,8 +229,8 @@ int main(int argc, char** argv)
         simulation.addLSParticle(fixedTank);
 
         levelset::BoxWall squareColumn{columnSize};
-        squareColumn.buildLSGrid(spacing, 3);
-        const int columnGeometryIndex = simulation.addGeometry(squareColumn, true);
+        squareColumn.buildLSGrid(spacing, 3, true);
+        const int columnGeometryIndex = simulation.addGeometry(squareColumn);
         LSParticle fixedColumn;
         fixedColumn.setPosition(columnCenter);
         fixedColumn.setMaterial(simulation.materials(), wallMaterialIndex);

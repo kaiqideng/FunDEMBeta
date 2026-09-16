@@ -14,7 +14,7 @@
 | `vtuOutput.*` | Assemble default and optional fields for spheres, LS particles, SPH particles, contacts, and bonds |
 | `datWriter.*` | Write column-oriented DAT files |
 | `energyOutput.*` | Aggregate solid-particle and interaction energy and write `energy.dat`; SPH-fluid energy is excluded |
-| `myLSObject.*` | Provide `LSInfo` and common level-set input objects |
+| `myLSObject.*` | Provide `LSInfo`, common level-set input objects, and their integrated geometry properties |
 
 ## Key Rules
 
@@ -78,6 +78,23 @@ solid and interaction state
 ```
 
 `vtuWriter` is deliberately unaware of particles and contacts; it receives generic points, cells, and named arrays. `vtuOutput` performs domain-specific expansion, such as transforming LS surface nodes into world coordinates and separating movable from infinite-mass LS particles. Binary appended data is the default and uses explicit byte counts and offsets.
+
+## Level-Set Geometry Properties
+
+`levelset::LSInfo` owns the generated geometry arrays and their local frame, bounding radius, volume, and unit-density inertia. Build the surface representation before constructing its grid. Use a resolution across the largest bounding-box extent (default `50`) or explicit spacing with optional padding (default `2`):
+
+```cpp
+shape.buildLSGrid(50);
+shape.buildLSGrid(0.002, 3);
+```
+
+The default mode follows the concrete shape, including calls through an `LSInfo&`: ordinary particle shapes are movable, while `PlaneWall`, `BoxWall`, `CylinderWall`, and `ConeWall` are fixed. `BoxParticle` remains movable by default despite inheriting from `BoxWall`. An explicit `isFixed` argument overrides that default as the second argument in the resolution form or the third in the spacing/padding form; walls also accept explicit `false` for movable geometry.
+
+For movable geometry, grid construction integrates volume, centroid, and unit-density inertia, then shifts both the surface nodes and grid origin into the centroid frame. `boundingRadius()`, `volume()`, and `unitDensityInertiaTensor()` expose the cached properties before insertion into a solver. Rebuilding restores the native frame first, so centroid shifts do not accumulate.
+
+With `isFixed = true`, grid construction preserves the input local frame and stores zero volume and inertia. For example, use `wall.buildLSGrid(50, true)` or `wall.buildLSGrid(spacing, 2, true)`, then `simulation.addGeometry(wall)`.
+
+`LSGeometryContainer::add(const levelset::LSInfo&)` and `LSDEM::addGeometry(const levelset::LSInfo&)` take only the built geometry. The container validates and copies its arrays and metadata, and computes nodal areas; it does not integrate mass properties or perform centroid correction.
 
 ## Random Level-Set Particles
 
