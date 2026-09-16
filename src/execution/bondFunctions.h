@@ -85,6 +85,7 @@ FUNDEM_MATH_HD inline Real calculateBKCriticalEnergy(Real modeIEnergyReleaseRate
 /**
  * Updates irreversible BK damage and returns true once the bond has completely failed.
  * Normal elastic energy contributes to mode I only during axial opening.
+ * A zero cross-sectional area disables further damage evolution.
  */
 FUNDEM_MATH_HD inline bool updateBKDamage(Real& damageFactor,
                                           Real& maximumEnergyReleaseRatio,
@@ -93,7 +94,7 @@ FUNDEM_MATH_HD inline bool updateBKDamage(Real& damageFactor,
                                           Real shearElasticEnergy,
                                           Real bendingElasticEnergy,
                                           Real torsionalElasticEnergy,
-                                          Real fractureArea,
+                                          Real crossSectionArea,
                                           Real modeICriticalEnergy,
                                           Real modeIICriticalEnergy,
                                           Real modeMixityExponent,
@@ -104,7 +105,7 @@ FUNDEM_MATH_HD inline bool updateBKDamage(Real& damageFactor,
         damageFactor = 1.0;
         return true;
     }
-    if (fractureArea <= 0.0)
+    if (crossSectionArea <= 0.0)
     {
         return false;
     }
@@ -112,8 +113,8 @@ FUNDEM_MATH_HD inline bool updateBKDamage(Real& damageFactor,
     const Real openingNormalElasticEnergy = axialDisplacement > 0.0 ? normalElasticEnergy : 0.0;
     const Real modeIElasticEnergy = openingNormalElasticEnergy + bendingElasticEnergy;
     const Real modeIIElasticEnergy = shearElasticEnergy + torsionalElasticEnergy;
-    const Real modeIEnergyReleaseRate = (modeIElasticEnergy > 0.0 ? modeIElasticEnergy : 0.0) / fractureArea;
-    const Real modeIIEnergyReleaseRate = (modeIIElasticEnergy > 0.0 ? modeIIElasticEnergy : 0.0) / fractureArea;
+    const Real modeIEnergyReleaseRate = (modeIElasticEnergy > 0.0 ? modeIElasticEnergy : 0.0) / crossSectionArea;
+    const Real modeIIEnergyReleaseRate = (modeIIElasticEnergy > 0.0 ? modeIIElasticEnergy : 0.0) / crossSectionArea;
     const Real totalEnergyReleaseRate = modeIEnergyReleaseRate + modeIIEnergyReleaseRate;
     if (totalEnergyReleaseRate <= math::defaultTolerance)
     {

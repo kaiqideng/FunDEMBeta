@@ -24,7 +24,7 @@
 - Sphere–LS: the `LSParticle` is always the slave, and the complete spherical model includes sliding, rolling, and torsional torque.
 - LS–LS: use one-way surface-node sampling. The smaller or finite-mass side becomes the master, and its surface nodes query the slave signed-distance field. Nodal area weights effective mass and force.
 - A level-set master material selects the nodal area-scaled model. Standard master material selects the complete spherical model for both sphere–sphere and sphere–LS contacts.
-- Sphere–LS normal, sliding, rolling, and torsional stiffnesses come directly from the sphere material; the LS material still contributes all three friction coefficients and restitution.
+- Sphere–LS normal, sliding, rolling, and torsional stiffnesses and rolling/torsional friction coefficients come directly from the sphere material; only sliding friction and restitution combine both materials.
 - `effectiveRadius_` is only a physical radius/lever arm; it no longer selects the contact model.
 - `geometrySurfaceNodeIndex_` is a global index into the geometry surface-node container; `ownerParticleIndex_` indexes the LS-particle container.
 
@@ -40,6 +40,8 @@ Configure a bond in this order:
 4. Insert the bond into the solver container matching its particle types.
 
 Changing equivalent length invalidates dependent connection geometry and stiffnesses, which must then be configured again. Each calculation cycle refreshes the master/slave particle copies and clears the previous force and torques before evaluating the bond response.
+
+`setCrossSectionArea()` assigns the nominal cross-sectional area in square metres. BK damage uses this area to convert elastic energy to energy-release rate; zero disables fracture without disabling the bond's elastic response. The matching VTU field is `bondVTUField::crossSectionArea`.
 
 ### Container Lifecycle
 

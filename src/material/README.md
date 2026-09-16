@@ -17,9 +17,9 @@
 - Density must be finite and strictly positive; a material becomes valid only after density is set.
 - Infinite mass is represented by fixed level-set geometry or rigid-body mass state, not by zero density.
 - `materialType::standard` is the default; every `LSMaterial` is permanently marked as `materialType::levelSet`.
-- `LSMaterial` publicly exposes sliding, rolling, and torsional friction coefficient getters/setters.
+- `LSMaterial` exposes only sliding friction; its rolling/torsional friction interfaces are hidden and those storage values remain zero.
 - LS–LS node contacts scale `LSMaterial` stiffness by nodal area.
-- Sphere–LS contacts use all four stiffnesses directly from the sphere material, while friction and restitution still combine both materials.
+- Sphere–LS contacts use all four stiffnesses and both rolling/torsional friction coefficients directly from the sphere material. Only sliding friction and restitution combine both materials.
 
 ## Extension Guide
 
@@ -32,7 +32,7 @@
 | Normal stiffness | Force per overlap | Stiffness per nodal contact area |
 | Sliding stiffness | Tangential force per displacement | Shear stiffness per nodal contact area |
 | Rolling/torsional stiffness | Explicit stored values | Hidden and initialized to zero |
-| Friction | Sliding, rolling, and torsional values | All three coefficients remain configurable |
+| Friction | Sliding, rolling, and torsional values | Only sliding friction is configurable |
 | Restitution | Dimensionless value in `[0, 1]` | Same storage and validation |
 | Density | Used to construct particle mass | Used with integrated LS volume |
 
@@ -41,7 +41,7 @@ The level-set subclass changes names and access restrictions, not layout. This a
 ## Contact Combination Rules
 
 - Sphere-sphere response uses the ordinary material properties of both spheres.
-- Sphere-LS stiffness comes directly from the sphere material; friction and restitution combine both materials.
+- Sphere-LS stiffness and rolling/torsional friction come directly from the sphere material; sliding friction and restitution combine both materials using their harmonic mean.
 - LS-LS stiffness is area-scaled using the level-set material marker and the sampled surface-node area.
 - `effectiveRadius` remains a physical lever arm and never selects the model.
 

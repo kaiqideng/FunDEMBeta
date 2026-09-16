@@ -101,7 +101,7 @@ enum class bondVTUField
     slaveEndpointNormal,
     slaveEndpointTangent1,
     slaveEndpointTangent2,
-    fractureArea,
+    crossSectionArea,
     damageFactor,
     modeICriticalEnergy,
     modeIICriticalEnergy,

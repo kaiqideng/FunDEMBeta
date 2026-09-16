@@ -504,13 +504,11 @@ LSMaterial levelSetMaterial{
     density};
 ```
 
-`LSMaterial` adds no storage to `material`; it changes the public parameter names and records `materialType::levelSet`. Its three friction coefficients may be configured independently:
+`LSMaterial` adds no storage to `material`; it changes the public parameter names and records `materialType::levelSet`. It exposes sliding friction only. Rolling/torsional stiffness and friction interfaces are hidden, and their shared-storage values remain zero:
 
 ```cpp
 LSMaterial wallMaterial{2.4e9, 7.1e8, 0.25, 0.55, 1200.0};
 wallMaterial.setSlidingFrictionCoefficient(0.25);
-wallMaterial.setRollingFrictionCoefficient(0.02);
-wallMaterial.setTorsionalFrictionCoefficient(0.01);
 ```
 
 Rules:
@@ -685,7 +683,8 @@ Contact type is determined from the material marker rather than inferred from `e
 For sphere–LS contact:
 
 - Normal, sliding, rolling, and torsional stiffness come directly from the sphere's ordinary material.
-- Sliding, rolling, and torsional friction combine the two materials.
+- Rolling and torsional friction coefficients come directly from the sphere material; no LS-side coefficients are required.
+- Sliding friction combines the two materials using the harmonic mean.
 - Restitution combines the two materials.
 - A non-level-set material cannot be assigned to an `LSParticle`.
 
@@ -749,7 +748,7 @@ simulation.addBond(connection);
 The equivalent length must be finite and positive. All four stiffness inputs must be finite and non-negative. `setStiffness()` requires the equivalent length to have been set. Optional BK damage parameters are configured with:
 
 ```cpp
-connection.setFractureArea(area);
+connection.setCrossSectionArea(area);
 connection.setModeICriticalEnergy(modeI);
 connection.setModeIICriticalEnergy(modeII);
 connection.setModeMixityExponent(exponent);
@@ -757,7 +756,7 @@ connection.setDamageInitiationRatio(ratio);
 connection.setMaximumEnergyReleaseRatio(ratioLimit);
 ```
 
-`damageFactor` and `damageInitiationRatio` are bounded to `[0, 1]` and `(0, 1]`, respectively. Always check boolean setters when values originate outside the program.
+`crossSectionArea` is the nominal bond cross-sectional area in square metres. Setting it to zero disables fracture; otherwise it converts elastic energy into energy release per unit area. `damageFactor` and `damageInitiationRatio` are bounded to `[0, 1]` and `(0, 1]`, respectively. Always check boolean setters when values originate outside the program.
 
 ## 10. User-defined external force and torque
 
@@ -930,7 +929,7 @@ Available fields are:
 - LSParticle: `particleIndex`, `distanceToCenter`, `orientation`, `angularVelocity`, `force`, `torque`, `inertiaTensor`, `boundingRadius`, `materialIndex`, `volume`, `geometryIndex`, `surfaceNodeArea`, `kineticEnergy`, `gravitationalPotentialEnergy`.
 - SPH: `force`, `density`, `densityRate`, `freeSurface`, `kineticEnergy`, `gravitationalPotentialEnergy`.
 - Contact: `force`, `torque`, master/slave indices, `overlap`, `area`, `effectiveMass`, `effectiveRadius`, `normalForceMagnitude`, four elastic energies, and three spring deformations.
-- Bond: `force`, master/slave torque and indices, `equivalentLength`, four elastic energies, global master/slave endpoint normal/tangent bases, fracture area, damage factor, mode-I/mode-II critical energy, mode-mixity exponent, damage-initiation ratio, and maximum energy-release ratio.
+- Bond: `force`, master/slave torque and indices, `equivalentLength`, four elastic energies, global master/slave endpoint normal/tangent bases, `crossSectionArea`, damage factor, mode-I/mode-II critical energy, mode-mixity exponent, damage-initiation ratio, and maximum energy-release ratio.
 
 The LSParticle `distanceToCenter` value is the distance from each output surface node to its owning particle center. Bond endpoint orientation fields are transformed to the current global frame before output.
 

@@ -445,8 +445,8 @@ void addBondField(vtuWriter& writer, const bondContainer& bonds, const MasterSto
                                                       slaveParticles,
                                                       [](const bond& value, const auto&, const auto& slave) { return math::rotateUnit(slave.orientation(), value.slaveEndpointLocalTangent2()); }));
         break;
-    case bondVTUField::fractureArea:
-        writer.addPointData("fractureArea", collectValues(bonds, [](const bond& value) { return value.fractureArea(); }));
+    case bondVTUField::crossSectionArea:
+        writer.addPointData("crossSectionArea", collectValues(bonds, [](const bond& value) { return value.crossSectionArea(); }));
         break;
     case bondVTUField::damageFactor:
         writer.addPointData("damageFactor", collectValues(bonds, [](const bond& value) { return value.damageFactor(); }));

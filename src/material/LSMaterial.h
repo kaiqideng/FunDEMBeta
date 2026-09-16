@@ -28,12 +28,8 @@ public:
     Real shearStiffnessPerUnitArea() const noexcept { return material::slidingStiffness(); }
     Real frictionCoefficient() const noexcept { return material::slidingFrictionCoefficient(); }
 
-    using material::rollingFrictionCoefficient;
-    using material::setRollingFrictionCoefficient;
     using material::setSlidingFrictionCoefficient;
-    using material::setTorsionalFrictionCoefficient;
     using material::slidingFrictionCoefficient;
-    using material::torsionalFrictionCoefficient;
 
     void setNormalStiffnessPerUnitArea(Real value) { material::setNormalStiffness(value); }
     void setShearStiffnessPerUnitArea(Real value) { material::setSlidingStiffness(value); }
@@ -41,7 +37,7 @@ public:
 
     /**
      * Replaces the validated level-set stiffness, friction, restitution, and
-     * density properties. Rolling and torsional stiffness are kept at zero.
+     * density properties. Rolling/torsional stiffness and friction are kept at zero.
      */
     void setProperties(Real normalStiffnessPerUnitArea, Real shearStiffnessPerUnitArea, Real frictionCoefficient, Real restitutionCoefficient, Real density)
     {
@@ -50,13 +46,17 @@ public:
 
 private:
     using material::normalStiffness;
+    using material::rollingFrictionCoefficient;
     using material::rollingStiffness;
     using material::setNormalStiffness;
     using material::setProperties;
+    using material::setRollingFrictionCoefficient;
     using material::setRollingStiffness;
     using material::setSlidingStiffness;
+    using material::setTorsionalFrictionCoefficient;
     using material::setTorsionalStiffness;
     using material::slidingStiffness;
+    using material::torsionalFrictionCoefficient;
     using material::torsionalStiffness;
 };
 

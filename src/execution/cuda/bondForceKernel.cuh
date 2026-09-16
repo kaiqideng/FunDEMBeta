@@ -39,7 +39,7 @@ struct bondDeviceView {
     const math::Vec3* slaveEndpointLocalTangent1_{nullptr};  ///< Slave endpoint first reference tangent.
     const math::Vec3* slaveEndpointLocalTangent2_{nullptr};  ///< Slave endpoint second reference tangent.
     const math::Vec3* slaveEndpointLocalPosition_{nullptr};  ///< Slave endpoint position in body coordinates.
-    const math::Real* fractureArea_{nullptr};                ///< Fracture-process areas.
+    const math::Real* crossSectionArea_{nullptr};            ///< Nominal cross-sectional areas; zero disables fracture.
     math::Real* damageFactor_{nullptr};                      ///< Irreversible damage variables in `[0, 1]`.
     const math::Real* modeICriticalEnergy_{nullptr};         ///< Critical mode-I fracture energies.
     const math::Real* modeIICriticalEnergy_{nullptr};        ///< Critical mode-II fracture energies.
@@ -86,7 +86,7 @@ inline bondDeviceView makeBondDeviceView(bondContainer& bonds) noexcept
     view.slaveEndpointLocalTangent1_ = bonds.device<bond::slaveEndpointLocalTangent1Field>();
     view.slaveEndpointLocalTangent2_ = bonds.device<bond::slaveEndpointLocalTangent2Field>();
     view.slaveEndpointLocalPosition_ = bonds.device<bond::slaveEndpointLocalPositionField>();
-    view.fractureArea_ = bonds.device<bond::fractureAreaField>();
+    view.crossSectionArea_ = bonds.device<bond::crossSectionAreaField>();
     view.damageFactor_ = bonds.device<bond::damageFactorField>();
     view.modeICriticalEnergy_ = bonds.device<bond::modeICriticalEnergyField>();
     view.modeIICriticalEnergy_ = bonds.device<bond::modeIICriticalEnergyField>();

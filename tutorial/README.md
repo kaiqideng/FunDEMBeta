@@ -50,7 +50,7 @@ Tutorial2 also matches the software sample's cloth discretization, material prop
 - Horizontal and diagonal nearest neighbors are joined by tensile, shear, bending, and torsional bonds derived from the cloth Young's modulus, Poisson ratio, thickness, and density.
 - The free cloth falls under gravity and drapes over the box; no cloth edge is artificially fixed.
 - Sliding friction is `0.6` and restitution is `0.05` for both materials. The cloth's external damping adds `F = -20 m v` and `T = -3.418598284e-8 omega` in SI units; the fixed box receives no damping. CPU, GPU, and hybrid modes use the same formulas.
-- Bonds have zero fracture area and cannot break. The four beam stiffnesses use `E = 1e6 Pa`, `nu = 0.3`, and the smaller sphere diameter, exactly as in the software sample.
+- Bonds have zero cross-sectional area and cannot break. The four beam stiffnesses use `E = 1e6 Pa`, `nu = 0.3`, and the smaller sphere diameter, exactly as in the software sample.
 - The case advances `3.0 s` with a fixed `1e-5 s` DEM time step (300,000 steps) and writes binary VTU output every `0.05 s` (5,000 steps). This is deliberately dissipative, not an energy-conservation test.
 
 ## Tutorial 3: Dam Break Around a Square Column

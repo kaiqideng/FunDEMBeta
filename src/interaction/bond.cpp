@@ -80,7 +80,7 @@ bool bond::calculateForce() noexcept
                                   shearElasticEnergy_,
                                   bendingElasticEnergy_,
                                   torsionalElasticEnergy_,
-                                  fractureArea_,
+                                  crossSectionArea_,
                                   modeICriticalEnergy_,
                                   modeIICriticalEnergy_,
                                   modeMixityExponent_,

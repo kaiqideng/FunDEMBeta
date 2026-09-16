@@ -118,6 +118,12 @@ if(FUNDEM_HAS_CUDA)
     )
 
     fundem_add_cuda_test(
+        fundem_contact_material_test
+        FunDEM.ContactMaterial.GPU
+        ContactMaterialTest.cu
+    )
+
+    fundem_add_cuda_test(
         fundem_host_device_test
         FunDEM.HostAoSDeviceSoA
         HostAoSDeviceSoATest.cu

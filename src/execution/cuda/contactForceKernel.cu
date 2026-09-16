@@ -53,8 +53,12 @@ __global__ void contactForceKernel(contactDeviceView contacts,
             ? materials.torsionalStiffness_[masterMaterialIndex]
             : execution::effectiveStiffness(materials.torsionalStiffness_[masterMaterialIndex], materials.torsionalStiffness_[slaveMaterialIndex], masterInfiniteMass, slaveInfiniteMass);
     const math::Real slidingFrictionCoefficient = execution::harmonicMean(materials.slidingFrictionCoefficient_[masterMaterialIndex], materials.slidingFrictionCoefficient_[slaveMaterialIndex]);
-    const math::Real rollingFrictionCoefficient = execution::harmonicMean(materials.rollingFrictionCoefficient_[masterMaterialIndex], materials.rollingFrictionCoefficient_[slaveMaterialIndex]);
-    const math::Real torsionalFrictionCoefficient = execution::harmonicMean(materials.torsionalFrictionCoefficient_[masterMaterialIndex], materials.torsionalFrictionCoefficient_[slaveMaterialIndex]);
+    const math::Real rollingFrictionCoefficient =
+        sphereLevelSetContact ? materials.rollingFrictionCoefficient_[masterMaterialIndex]
+                             : execution::harmonicMean(materials.rollingFrictionCoefficient_[masterMaterialIndex], materials.rollingFrictionCoefficient_[slaveMaterialIndex]);
+    const math::Real torsionalFrictionCoefficient =
+        sphereLevelSetContact ? materials.torsionalFrictionCoefficient_[masterMaterialIndex]
+                             : execution::harmonicMean(materials.torsionalFrictionCoefficient_[masterMaterialIndex], materials.torsionalFrictionCoefficient_[slaveMaterialIndex]);
     const math::Real restitutionCoefficient = execution::harmonicMean(materials.restitutionCoefficient_[masterMaterialIndex], materials.restitutionCoefficient_[slaveMaterialIndex]);
 
     const math::Vec3 point = contacts.point_[contactIndex];

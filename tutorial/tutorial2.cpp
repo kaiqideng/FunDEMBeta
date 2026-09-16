@@ -169,7 +169,7 @@ int main(int argc, char** argv)
             const Vec3 direction = cloth.positions_[edge[0]] - cloth.positions_[edge[1]];
             const Real equivalentLength = math::norm(direction);
             bond connection{equivalentLength};
-            connection.setFractureArea(0.0);
+            connection.setCrossSectionArea(0.0);
             connection.setModeMixityExponent(1.0);
             connection.setDamageInitiationRatio(1.0);
             if (!connection.setConnection(simulation.spheres(), edge[0], edge[1], math::normalizedOrZero(direction)) ||

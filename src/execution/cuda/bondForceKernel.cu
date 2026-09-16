@@ -115,7 +115,7 @@ __global__ void bondForceKernel(bondDeviceView bonds, bondParticleDeviceView mas
                                                   shearElasticEnergy,
                                                   bendingElasticEnergy,
                                                   torsionalElasticEnergy,
-                                                  bonds.fractureArea_[bondIndex],
+                                                  bonds.crossSectionArea_[bondIndex],
                                                   bonds.modeICriticalEnergy_[bondIndex],
                                                   bonds.modeIICriticalEnergy_[bondIndex],
                                                   bonds.modeMixityExponent_[bondIndex],

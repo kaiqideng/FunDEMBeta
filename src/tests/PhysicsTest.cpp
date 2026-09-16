@@ -9,17 +9,28 @@
 #include "solver/SPHDEM.h"
 #include "solver/SphereDEM.h"
 #include "execution/cpu/particleFunctions.h"
+#include "execution/contactFunctions.h"
 
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace
 {
 
 using namespace fundem;
+
+template <class T, class = void> struct hasRollingFrictionSetter : std::false_type {};
+template <class T> struct hasRollingFrictionSetter<T, std::void_t<decltype(std::declval<T&>().setRollingFrictionCoefficient(0.0))>> : std::true_type {};
+template <class T, class = void> struct hasTorsionalFrictionSetter : std::false_type {};
+template <class T> struct hasTorsionalFrictionSetter<T, std::void_t<decltype(std::declval<T&>().setTorsionalFrictionCoefficient(0.0))>> : std::true_type {};
+
+static_assert(hasRollingFrictionSetter<material>::value && hasTorsionalFrictionSetter<material>::value, "Sphere materials must retain rotational friction settings.");
+static_assert(!hasRollingFrictionSetter<LSMaterial>::value && !hasTorsionalFrictionSetter<LSMaterial>::value, "LSMaterial must not expose rotational friction settings.");
 
 bool nearlyEqual(math::Real first, math::Real second, math::Real tolerance = 1.0e-12) noexcept { return std::abs(first - second) <= tolerance * (1.0 + std::max(std::abs(first), std::abs(second))); }
 
@@ -383,13 +394,12 @@ void testMaterialTypeAndLevelSetAssignment()
 {
     const material standardMaterial = testMaterial();
     LSMaterial levelSetMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0};
-    levelSetMaterial.setRollingFrictionCoefficient(0.3);
-    levelSetMaterial.setTorsionalFrictionCoefficient(0.2);
     require(standardMaterial.type() == materialType::standard, "material must use the standard material type.");
     require(levelSetMaterial.type() == materialType::levelSet, "LSMaterial must preserve its level-set marker when viewed through material.");
-    require(nearlyEqual(levelSetMaterial.slidingFrictionCoefficient(), 0.4) && nearlyEqual(levelSetMaterial.rollingFrictionCoefficient(), 0.3) &&
-                nearlyEqual(levelSetMaterial.torsionalFrictionCoefficient(), 0.2),
-            "LSMaterial must expose all three friction coefficients.");
+    const material& unifiedMaterial = levelSetMaterial;
+    require(nearlyEqual(levelSetMaterial.slidingFrictionCoefficient(), 0.4) && unifiedMaterial.rollingFrictionCoefficient() == 0.0 && unifiedMaterial.torsionalFrictionCoefficient() == 0.0 &&
+                unifiedMaterial.rollingStiffness() == 0.0 && unifiedMaterial.torsionalStiffness() == 0.0,
+            "LSMaterial must expose sliding friction and keep unused rotational properties zero in unified storage.");
 
     materialContainer materials;
     materials.host().push_back(standardMaterial);
@@ -402,44 +412,65 @@ void testMaterialTypeAndLevelSetAssignment()
     require(particle.materialIndex() == 1 && particle.getMaterial().isLevelSet(), "LSParticle must accept a level-set material.");
 }
 
-void testSphereLevelSetContactStiffness()
+void testRotationalContactFriction()
 {
-    materialContainer materials;
-    materials.host().push_back(material{1.0e5, 5.0e4, 2.0e4, 1.0e4, 0.4, 0.3, 0.2, 0.5, 1000.0});
-    LSMaterial levelSetMaterial{2.0e5, 8.0e4, 0.6, 0.5, 1200.0};
-    levelSetMaterial.setRollingFrictionCoefficient(0.7);
-    levelSetMaterial.setTorsionalFrictionCoefficient(0.8);
-    materials.host().push_back(levelSetMaterial);
+    enum class pairKind { sphereLevelSet, sphereSphere, levelSetLevelSet, frictionlessSphereLevelSet };
+    for (const pairKind kind : {pairKind::sphereLevelSet, pairKind::sphereSphere, pairKind::levelSetLevelSet, pairKind::frictionlessSphereLevelSet})
+        for (const bool infiniteMass : {false, true})
+        {
+            const bool nodalContact = kind == pairKind::levelSetLevelSet;
+            const bool mixedContact = kind == pairKind::sphereLevelSet || kind == pairKind::frictionlessSphereLevelSet;
+            const bool frictionlessSphere = kind == pairKind::frictionlessSphereLevelSet;
+            materialContainer materials;
+            const LSMaterial levelSetMaterial{2.0e5, 8.0e4, 0.6, 1.0, 1200.0};
+            materials.host().push_back(nodalContact ? static_cast<material>(levelSetMaterial)
+                                                    : material{1.0e5, 5.0e4, 2.0e4, 1.0e4, 0.4, frictionlessSphere ? 0.0 : 0.3, frictionlessSphere ? 0.0 : 0.2, 1.0, 1000.0});
+            materials.host().push_back(kind == pairKind::sphereSphere ? material{1.0e5, 5.0e4, 2.0e4, 1.0e4, 0.4, 0.9, 0.6, 1.0, 1000.0}
+                                                                     : static_cast<material>(levelSetMaterial));
+            particle master;
+            master.setPosition({0.0, 0.0, 0.0});
+            master.setAngularVelocity({100.0, 0.0, 100.0});
+            master.setRadius(0.1);
+            master.setMaterial(materials, 0);
+            particle slave;
+            slave.setPosition({0.15, 0.0, 0.0});
+            slave.setRadius(0.1);
+            slave.setMaterial(materials, 1);
+            if (infiniteMass)
+                slave.setInfiniteMass();
+            particleContainer masters;
+            particleContainer slaves;
+            masters.host().push_back(master);
+            slaves.host().push_back(slave);
 
-    particle masterSphere;
-    masterSphere.setPosition({0.0, 0.0, 0.0});
-    masterSphere.setAngularVelocity({1.0, 0.0, 1.0});
-    masterSphere.setRadius(0.1);
-    masterSphere.setMaterial(materials, 0);
-    particleContainer masterSpheres;
-    masterSpheres.host().push_back(masterSphere);
-
-    particle slaveLevelSetCopy;
-    slaveLevelSetCopy.setPosition({0.15, 0.0, 0.0});
-    slaveLevelSetCopy.setRadius(0.1);
-    slaveLevelSetCopy.setMaterial(materials, 1);
-    particleContainer slaveLevelSetCopies;
-    slaveLevelSetCopies.host().push_back(slaveLevelSetCopy);
-
-    contact value;
-    require(value.setMasterSlaveParticle(masterSpheres, 0, slaveLevelSetCopies, 0), "A sphere-LS contact must accept separate particle containers.");
-    value.setPoint({0.075, 0.0, 0.0});
-    value.setNormal({-1.0, 0.0, 0.0});
-    value.setOverlap(0.05);
-    value.setArea(2.0);
-    value.setEffectiveMass(1.0);
-    value.setEffectiveRadius(0.1);
-    contactContainer contacts;
-    contacts.host().push_back(value);
-
-    require(contacts.host()[0].calculateForce(1.0e-4), "A configured sphere-LS contact must calculate force.");
-    require(nearlyEqual(contacts.host()[0].normalForceMagnitude(), 5000.0), "Sphere-LS normal stiffness must come directly from the sphere material.");
-    require(math::norm(contacts.host()[0].torque()) > 0.0, "Sphere-LS rolling and torsional stiffness must come directly from the sphere material.");
+            contact value;
+            require(value.setMasterSlaveParticle(masters, 0, slaves, 0), "A contact must accept separate master/slave containers.");
+            value.setPoint({0.075, 0.0, 0.0});
+            value.setNormal({-1.0, 0.0, 0.0});
+            value.setOverlap(0.05);
+            value.setArea(2.0);
+            value.setEffectiveMass(1.0);
+            value.setEffectiveRadius(0.1);
+            value.setRollingSpringDeformation({0.0, 0.1, 0.0});
+            value.setTorsionalSpringDeformation({0.1, 0.0, 0.0});
+            contactContainer contacts;
+            contacts.host().push_back(value);
+            require(contacts.host()[0].calculateForce(1.0), "A configured contact must calculate force.");
+            const contact& evaluated = contacts.host()[0];
+            const math::Real scale = nodalContact ? 2.0 : 1.0;
+            const math::Real expectedStiffness = mixedContact ? materials.host()[0].normalStiffness()
+                : execution::effectiveStiffness(scale * materials.host()[0].normalStiffness(), scale * materials.host()[1].normalStiffness(), false, infiniteMass);
+            const math::Real normalForce = 0.05 * expectedStiffness;
+            require(nearlyEqual(evaluated.normalForceMagnitude(), normalForce), "Normal contact stiffness changed with rotational friction selection.");
+            const math::Real rollingFriction = nodalContact || frictionlessSphere ? 0.0 : mixedContact ? 0.3 : execution::harmonicMean(0.3, 0.9);
+            const math::Real torsionalFriction = nodalContact || frictionlessSphere ? 0.0 : mixedContact ? 0.2 : execution::harmonicMean(0.2, 0.6);
+            require(nearlyEqual(evaluated.torque().x, -0.2 * torsionalFriction * normalForce) && nearlyEqual(evaluated.torque().y, 0.0) &&
+                        nearlyEqual(evaluated.torque().z, -0.1 * rollingFriction * normalForce),
+                    "Sphere-LS rotational friction must use only the sphere; sphere-sphere must retain harmonic combination; LS-LS must have no direct rotational torque.");
+            if (nodalContact || frictionlessSphere)
+                require(evaluated.rollingSpringDeformation() == math::Vec3::zero() && evaluated.torsionalSpringDeformation() == math::Vec3::zero(),
+                        "An inactive rotational friction law must clear both spring histories.");
+        }
 }
 
 void testBondOwnershipAndValidity()
@@ -469,6 +500,21 @@ void testBondOwnershipAndValidity()
     require(value.setStiffness(1.0e5, 5.0e4, 1.0e3, 1.0e3), "Bond stiffness must be configurable again after changing equivalent length.");
     require(value.isValid(), "Reconfiguring length-dependent bond values must restore validity.");
     require(solver.addBond(value) == 0, "A bond referencing the solver sphere container must be accepted.");
+}
+
+void testBondCrossSectionArea()
+{
+    bond connection;
+    require(connection.crossSectionArea() == 0.0, "The default bond cross-sectional area must disable fracture.");
+    require(connection.setCrossSectionArea(0.02) && nearlyEqual(connection.crossSectionArea(), 0.02), "A positive finite cross-sectional area must be accepted.");
+    require(!connection.setCrossSectionArea(-1.0) && !connection.setCrossSectionArea(std::numeric_limits<math::Real>::infinity()) && nearlyEqual(connection.crossSectionArea(), 0.02),
+            "Invalid cross-sectional areas must not overwrite the last valid value.");
+    require(connection.setCrossSectionArea(0.0), "A zero cross-sectional area must remain supported.");
+    math::Real damage = 0.25;
+    math::Real maximumRatio = 0.7;
+    require(!execution::updateBKDamage(damage, maximumRatio, 1.0, 10.0, 10.0, 10.0, 10.0, connection.crossSectionArea(), 1.0, 1.0, 1.75, 0.9) &&
+                damage == 0.25 && maximumRatio == 0.7,
+            "Zero cross-sectional area must disable further fracture without erasing existing damage history.");
 }
 
 void testModeICompressionDoesNotDamageBond()
@@ -638,8 +684,9 @@ int main()
         testParallelContactForceAssembly();
         testParallelGridContactSearch();
         testMaterialTypeAndLevelSetAssignment();
-        testSphereLevelSetContactStiffness();
+        testRotationalContactFriction();
         testBondOwnershipAndValidity();
+        testBondCrossSectionArea();
         testModeICompressionDoesNotDamageBond();
         testMaterialDensityValidation();
         testRotatingFixedWallAcceleration();

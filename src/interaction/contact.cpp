@@ -44,8 +44,10 @@ bool contact::calculateForce(Real timeStep) noexcept
                                         ? masterMaterial.torsionalStiffness()
                                         : execution::effectiveStiffness(masterMaterial.torsionalStiffness(), slaveMaterial.torsionalStiffness(), masterInfiniteMass, slaveInfiniteMass);
     const Real slidingFrictionCoefficient = execution::harmonicMean(masterMaterial.slidingFrictionCoefficient(), slaveMaterial.slidingFrictionCoefficient());
-    const Real rollingFrictionCoefficient = execution::harmonicMean(masterMaterial.rollingFrictionCoefficient(), slaveMaterial.rollingFrictionCoefficient());
-    const Real torsionalFrictionCoefficient = execution::harmonicMean(masterMaterial.torsionalFrictionCoefficient(), slaveMaterial.torsionalFrictionCoefficient());
+    const Real rollingFrictionCoefficient = sphereLevelSetContact ? masterMaterial.rollingFrictionCoefficient()
+                                                                  : execution::harmonicMean(masterMaterial.rollingFrictionCoefficient(), slaveMaterial.rollingFrictionCoefficient());
+    const Real torsionalFrictionCoefficient = sphereLevelSetContact ? masterMaterial.torsionalFrictionCoefficient()
+                                                                   : execution::harmonicMean(masterMaterial.torsionalFrictionCoefficient(), slaveMaterial.torsionalFrictionCoefficient());
     const Real restitutionCoefficient = execution::harmonicMean(masterMaterial.restitutionCoefficient(), slaveMaterial.restitutionCoefficient());
     const Vec3 relativeVelocity =
         execution::relativeVelocityAtContactPoint(master.position(), master.velocity(), master.angularVelocity(), slave.position(), slave.velocity(), slave.angularVelocity(), point_);

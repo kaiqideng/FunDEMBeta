@@ -84,7 +84,7 @@ public:
     const Vec3& slaveEndpointLocalTangent1() const noexcept { return slaveEndpointLocalTangent1_; }
     const Vec3& slaveEndpointLocalTangent2() const noexcept { return slaveEndpointLocalTangent2_; }
     const Vec3& slaveEndpointLocalPosition() const noexcept { return slaveEndpointLocalPosition_; }
-    Real fractureArea() const noexcept { return fractureArea_; }
+    Real crossSectionArea() const noexcept { return crossSectionArea_; }
     Real damageFactor() const noexcept { return damageFactor_; }
     Real modeICriticalEnergy() const noexcept { return modeICriticalEnergy_; }
     Real modeIICriticalEnergy() const noexcept { return modeIICriticalEnergy_; }
@@ -171,7 +171,7 @@ public:
         stiffnessSet_ = true;
         return true;
     }
-    bool setFractureArea(Real value) noexcept { return setNonNegativeFinite(value, fractureArea_); }
+    bool setCrossSectionArea(Real value) noexcept { return setNonNegativeFinite(value, crossSectionArea_); }
     bool setModeICriticalEnergy(Real value) noexcept { return setNonNegativeFinite(value, modeICriticalEnergy_); }
     bool setModeIICriticalEnergy(Real value) noexcept { return setNonNegativeFinite(value, modeIICriticalEnergy_); }
     bool setMaximumEnergyReleaseRatio(Real value) noexcept { return setNonNegativeFinite(value, maximumEnergyReleaseRatio_); }
@@ -326,7 +326,7 @@ public:
     struct slaveEndpointLocalTangent1Field;
     struct slaveEndpointLocalTangent2Field;
     struct slaveEndpointLocalPositionField;
-    struct fractureAreaField;
+    struct crossSectionAreaField;
     struct damageFactorField;
     struct modeICriticalEnergyField;
     struct modeIICriticalEnergyField;
@@ -542,7 +542,7 @@ private:
     Vec3 slaveEndpointLocalTangent1_{Vec3::unitY()};  ///< Slave-frame first tangent.
     Vec3 slaveEndpointLocalTangent2_{Vec3::unitZ()};  ///< Slave-frame second tangent.
     Vec3 slaveEndpointLocalPosition_{Vec3::zero()};   ///< Slave-frame endpoint position.
-    Real fractureArea_{0.0};                          ///< Effective fracture area.
+    Real crossSectionArea_{0.0};                      ///< Nominal cross-sectional area; zero disables fracture.
     Real damageFactor_{0.0};                          ///< Current damage in [0,1].
     Real modeICriticalEnergy_{0.0};                   ///< Mode-I critical energy release rate.
     Real modeIICriticalEnergy_{0.0};                  ///< Mode-II critical energy release rate.
@@ -623,8 +623,8 @@ public:
     struct slaveEndpointLocalPositionField {
         inline static constexpr auto member = &bond::slaveEndpointLocalPosition_;
     };
-    struct fractureAreaField {
-        inline static constexpr auto member = &bond::fractureArea_;
+    struct crossSectionAreaField {
+        inline static constexpr auto member = &bond::crossSectionArea_;
     };
     struct damageFactorField {
         inline static constexpr auto member = &bond::damageFactor_;
@@ -669,7 +669,7 @@ public:
                                       slaveEndpointLocalTangent1Field,
                                       slaveEndpointLocalTangent2Field,
                                       slaveEndpointLocalPositionField,
-                                      fractureAreaField,
+                                      crossSectionAreaField,
                                       damageFactorField,
                                       modeICriticalEnergyField,
                                       modeIICriticalEnergyField,

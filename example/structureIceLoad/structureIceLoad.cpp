@@ -164,13 +164,13 @@ int main(int argc, char** argv)
             simulation.addSphere(iceElement);
         }
 
-        const Real fractureArea = math::pi * ice.elementRadius() * ice.elementRadius();
+        const Real crossSectionArea = math::pi * ice.elementRadius() * ice.elementRadius();
         for (const levelIceConnection& indices : ice.connections())
         {
             const Vec3 direction = ice.particlePositions()[indices.firstParticleIndex_] - ice.particlePositions()[indices.secondParticleIndex_];
             bond connection{math::norm(direction)};
             if (!connection.setConnection(simulation.spheres(), indices.firstParticleIndex_, indices.secondParticleIndex_, math::normalizedOrZero(direction)) ||
-                !connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness) || !connection.setFractureArea(fractureArea) ||
+                !connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness) || !connection.setCrossSectionArea(crossSectionArea) ||
                 !connection.setModeICriticalEnergy(modeICriticalEnergy) || !connection.setModeIICriticalEnergy(2.0 * modeICriticalEnergy))
             {
                 throw std::runtime_error("Failed to create a level-ice bond.");
