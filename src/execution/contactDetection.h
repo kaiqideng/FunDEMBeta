@@ -184,6 +184,12 @@ FUNDEM_MATH_HD inline Vec3 sphereLevelSetContactPoint(const Vec3& spherePosition
     return spherePosition - (sphereRadius - overlap) * normal;
 }
 
+/** Places a sphere/sphere contact halfway between the facing surfaces; negative overlap also supports separated bonds. */
+FUNDEM_MATH_HD inline Vec3 sphereSphereContactPoint(const Vec3& slavePosition, Real slaveRadius, const Vec3& normal, Real overlap) noexcept
+{
+    return slavePosition + (slaveRadius - 0.5 * overlap) * normal;
+}
+
 /** Computes sphere/sphere contact point, slave-to-master normal, overlap, area, and effective radius. */
 FUNDEM_MATH_HD inline bool detectSphereContact(Vec3& point,
                                                Vec3& normal,
@@ -212,7 +218,7 @@ FUNDEM_MATH_HD inline bool detectSphereContact(Vec3& point,
     const Real centerDistance = math::detail::sqrt(centerDistanceSquared);
     normal = centerDifference / centerDistance;
     overlap = radiusSum - centerDistance;
-    point = slavePosition + (slaveRadius - 0.5 * overlap) * normal;
+    point = sphereSphereContactPoint(slavePosition, slaveRadius, normal, overlap);
     contactEffectiveRadius = effectiveRadius(masterRadius, slaveRadius);
     area = sphereContactArea(contactEffectiveRadius, overlap);
     return true;

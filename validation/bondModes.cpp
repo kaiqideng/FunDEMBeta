@@ -52,7 +52,7 @@ response evaluate(const Vec3& masterDisplacement, const Quaternion& masterOrient
     particles.host().push_back(slave);
 
     bond connection{equivalentLength};
-    validation::require(connection.setConnection(particles, 0, 1, -Vec3::unitX()), "Cannot set the bond reference connection.");
+    validation::require(connection.setConnection(particles, 0, 1), "Cannot set the bond reference connection.");
     validation::require(connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness), "Cannot set the bond stiffness.");
 
     bondContainer bonds;

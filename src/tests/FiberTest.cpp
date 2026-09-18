@@ -96,7 +96,7 @@ int main()
         for (int bondIndex = 0; bondIndex < FiberTestSolver::bondCount; ++bondIndex)
         {
             bond connection{initialLength};
-            if (!connection.setConnection(simulation.spheres(), bondIndex, bondIndex + 1, -Vec3::unitX()) ||
+            if (!connection.setConnection(simulation.spheres(), bondIndex, bondIndex + 1) ||
                 !connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness))
             {
                 throw std::runtime_error("Failed to create the bonded fiber.");

@@ -166,13 +166,12 @@ int main(int argc, char** argv)
 
         for (const std::array<int, 2>& edge : cloth.edges_)
         {
-            const Vec3 direction = cloth.positions_[edge[0]] - cloth.positions_[edge[1]];
-            const Real equivalentLength = math::norm(direction);
+            const Real equivalentLength = math::norm(cloth.positions_[edge[0]] - cloth.positions_[edge[1]]);
             bond connection{equivalentLength};
             connection.setCrossSectionArea(0.0);
             connection.setModeMixityExponent(1.0);
             connection.setDamageInitiationRatio(1.0);
-            if (!connection.setConnection(simulation.spheres(), edge[0], edge[1], math::normalizedOrZero(direction)) ||
+            if (!connection.setConnection(simulation.spheres(), edge[0], edge[1]) ||
                 !connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness))
             {
                 throw std::runtime_error("Failed to create the bonded cloth lattice.");

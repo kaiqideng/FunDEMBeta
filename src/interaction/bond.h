@@ -6,6 +6,7 @@
 
 #include "contact.h"
 #include "data/HostAoSDeviceSoA.h"
+#include "execution/contactDetection.h"
 #include "math/Vector3.h"
 #include "particle/LSParticle.h"
 #include "particle/rigidBody.h"
@@ -119,20 +120,21 @@ public:
     }
     /**
      * Configures particle indices, reference point, normal, endpoint frames,
-     * and container ownership. The overloads preserve the required particle
-     * type ordering.
+     * and container ownership. Index-based overloads use bounding-sphere
+     * geometry, including separated pairs; contact-based overloads retain the
+     * supplied point and normal. Particle type ordering is preserved.
      */
-    bool setConnection(const particleContainer& spheres, int masterParticleIndex, int slaveParticleIndex, const Vec3& normal) noexcept
+    bool setConnection(const particleContainer& spheres, int masterParticleIndex, int slaveParticleIndex) noexcept
     {
-        return setConnectionForType(spheres, masterParticleIndex, slaveParticleIndex, normal, bondType::sphereSphere);
+        return setConnectionForType(spheres, masterParticleIndex, slaveParticleIndex, bondType::sphereSphere);
     }
-    bool setConnection(const LSParticleContainer& LSParticles, int masterParticleIndex, int slaveParticleIndex, const Vec3& normal) noexcept
+    bool setConnection(const LSParticleContainer& LSParticles, int masterParticleIndex, int slaveParticleIndex) noexcept
     {
-        return setConnectionForType(LSParticles, masterParticleIndex, slaveParticleIndex, normal, bondType::LSParticleLSParticle);
+        return setConnectionForType(LSParticles, masterParticleIndex, slaveParticleIndex, bondType::LSParticleLSParticle);
     }
-    bool setConnection(const particleContainer& masterSpheres, int masterParticleIndex, const LSParticleContainer& slaveLSParticles, int slaveParticleIndex, const Vec3& normal) noexcept
+    bool setConnection(const particleContainer& masterSpheres, int masterParticleIndex, const LSParticleContainer& slaveLSParticles, int slaveParticleIndex) noexcept
     {
-        return setConnectionForType(masterSpheres, masterParticleIndex, slaveLSParticles, slaveParticleIndex, normal, bondType::sphereLSParticle);
+        return setConnectionForType(masterSpheres, masterParticleIndex, slaveLSParticles, slaveParticleIndex, bondType::sphereLSParticle);
     }
     bool setConnection(const particleContainer& spheres, const contact& singleContact) noexcept { return setConnectionForType(spheres, singleContact, bondType::sphereSphere); }
     bool setConnection(const LSParticleContainer& LSParticles, const contact& singleContact) noexcept { return setConnectionForType(LSParticles, singleContact, bondType::LSParticleLSParticle); }
@@ -388,12 +390,13 @@ private:
     }
 
     /** Establishes a typed same-container connection after validating both endpoints. */
-    template <class ParticleStorage> bool setConnectionForType(const ParticleStorage& particles, int masterParticleIndex, int slaveParticleIndex, const Vec3& normal, bondType type) noexcept
+    template <class ParticleStorage> bool setConnectionForType(const ParticleStorage& particles, int masterParticleIndex, int slaveParticleIndex, bondType type) noexcept
     {
         type_ = bondType::undefined;
         masterParticleContainer_ = nullptr;
         slaveParticleContainer_ = nullptr;
-        if (!setParticleCopies(particles, masterParticleIndex, slaveParticleIndex) || !setReferenceGeometry(0.5 * (masterParticle_.position() + slaveParticle_.position()), normal))
+        if (!setParticleCopies(particles, masterParticleIndex, slaveParticleIndex) ||
+            !setBoundingSphereReferenceGeometry(particles.host()[masterParticleIndex], particles.host()[slaveParticleIndex]))
         {
             particleCopiesUpdated_ = false;
             return false;
@@ -410,14 +413,13 @@ private:
                               int masterParticleIndex,
                               const SlaveParticleStorage& slaveParticles,
                               int slaveParticleIndex,
-                              const Vec3& normal,
                               bondType type) noexcept
     {
         type_ = bondType::undefined;
         masterParticleContainer_ = nullptr;
         slaveParticleContainer_ = nullptr;
         if (!setParticleCopies(masterParticles, masterParticleIndex, slaveParticles, slaveParticleIndex) ||
-            !setReferenceGeometry(0.5 * (masterParticle_.position() + slaveParticle_.position()), normal))
+            !setBoundingSphereReferenceGeometry(masterParticles.host()[masterParticleIndex], slaveParticles.host()[slaveParticleIndex]))
         {
             particleCopiesUpdated_ = false;
             return false;
@@ -476,6 +478,16 @@ private:
         }
         destination = value;
         return true;
+    }
+
+    /** Uses sphere radii (bounding radii for LS particles) to construct the reference contact geometry. */
+    bool setBoundingSphereReferenceGeometry(const particle& master, const particle& slave) noexcept
+    {
+        const Vec3 centerDifference = master.position() - slave.position();
+        const Real centerDistance = math::norm(centerDifference);
+        const Vec3 normal = centerDistance > 0.0 ? centerDifference / centerDistance : Vec3::zero();
+        const Real overlap = master.radius() + slave.radius() - centerDistance;
+        return setReferenceGeometry(execution::sphereSphereContactPoint(slave.position(), slave.radius(), normal, overlap), normal);
     }
 
     /** Builds orthonormal endpoint frames and stores them in body coordinates. */

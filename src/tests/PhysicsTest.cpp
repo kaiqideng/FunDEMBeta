@@ -194,7 +194,7 @@ void testAppendAfterSolve()
 
     bond addedBond;
     require(addedBond.setEquivalentLength(0.15), "An appended bond requires a positive equivalent length.");
-    require(addedBond.setConnection(simulation.spheres(), 0, 1, math::Vec3::unitX()), "An appended bond must reference existing solver particles.");
+    require(addedBond.setConnection(simulation.spheres(), 0, 1), "An appended bond must reference existing solver particles.");
     require(addedBond.setStiffness(1.0e5, 5.0e4, 1.0e3, 1.0e3), "An appended bond requires valid stiffness.");
     require(simulation.addBond(addedBond) == 0, "A bond must be appendable after solve() completes.");
 
@@ -488,7 +488,7 @@ void testBondOwnershipAndValidity()
 
     bond value;
     require(value.setEquivalentLength(0.2), "A positive bond equivalent length must be accepted.");
-    require(value.setConnection(solver.spheres(), 0, 1, {1.0, 0.0, 0.0}), "A valid sphere bond connection must be accepted.");
+    require(value.setConnection(solver.spheres(), 0, 1), "A valid sphere bond connection must be accepted.");
     require(!value.isValid(), "A bond without stiffness must not be valid.");
     require(value.setStiffness(1.0e5, 5.0e4, 1.0e3, 1.0e3), "Finite non-negative bond stiffnesses must be accepted.");
     require(value.isValid(), "A fully configured bond must be valid.");
@@ -496,10 +496,102 @@ void testBondOwnershipAndValidity()
     require(!value.isValid(), "Changing the equivalent length must invalidate dependent bond geometry and stiffness.");
     require(value.coefficientB1() == 0.0 && value.coefficientB2() == 0.0 && value.coefficientB3() == 0.0 && value.coefficientB4() == 0.0,
             "Changing the equivalent length must clear the old bond coefficients.");
-    require(value.setConnection(solver.spheres(), 0, 1, {1.0, 0.0, 0.0}), "Bond geometry must be configurable again after changing equivalent length.");
+    require(value.setConnection(solver.spheres(), 0, 1), "Bond geometry must be configurable again after changing equivalent length.");
     require(value.setStiffness(1.0e5, 5.0e4, 1.0e3, 1.0e3), "Bond stiffness must be configurable again after changing equivalent length.");
     require(value.isValid(), "Reconfiguring length-dependent bond values must restore validity.");
     require(solver.addBond(value) == 0, "A bond referencing the solver sphere container must be accepted.");
+}
+
+void testBondReferenceGeometry()
+{
+    SphereDEM solver;
+    const int sphereMaterial = solver.addMaterial(testMaterial());
+    const int LSMaterialIndex = solver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
+    for (const math::Real radius : {0.5, 1.0})
+    {
+        particle value;
+        value.setRadius(radius);
+        value.setMaterial(solver.materials(), sphereMaterial);
+        solver.addSphere(value);
+    }
+
+    const math::Vec3 origin{1.0, 2.0, 3.0};
+    const math::Vec3 axis{0.6, 0.8, 0.0};
+    solver.setSpherePosition(0, origin);
+    // Distance and expected contact-point offset from the smaller sphere center:
+    // touching, overlapping, and separated unequal-radius spheres.
+    for (const auto& sample : {std::pair<math::Real, math::Real>{1.5, 0.5}, {1.0, 0.25}, {2.0, 0.75}})
+    {
+        solver.setSpherePosition(1, origin + sample.first * axis);
+        bond forward{sample.first};
+        bond reverse{sample.first};
+        require(forward.setConnection(solver.spheres(), 0, 1) && reverse.setConnection(solver.spheres(), 1, 0),
+                "Touching, overlapping, and separated spheres must all support index-based bonds.");
+        require(math::nearlyEqual(forward.point(), origin + sample.second * axis, 1.0e-12, 1.0e-12) &&
+                    math::nearlyEqual(forward.normal(), -axis, 1.0e-12, 1.0e-12),
+                "Unequal-radius bonds must use the sphere-contact point and slave-to-master normal.");
+        require(math::nearlyEqual(reverse.point(), forward.point(), 1.0e-12, 1.0e-12) &&
+                    math::nearlyEqual(reverse.normal(), -forward.normal(), 1.0e-12, 1.0e-12),
+                "Swapping bond endpoints must preserve the reference point and reverse its normal.");
+    }
+
+    for (const math::Real radius : {0.5, 1.0})
+    {
+        levelset::Sphere geometry{radius};
+        geometry.buildSurfaceNode(0);
+        geometry.buildLSGrid(0.25, 2);
+        const int geometryIndex = solver.addGeometry(geometry);
+        LSParticle value;
+        value.setMaterial(solver.materials(), LSMaterialIndex);
+        value.setGeometry(solver.geometries(), geometryIndex);
+        solver.addLSParticle(value);
+    }
+    solver.setLSParticlePosition(0, {4.0, 0.0, 0.0});
+    solver.setLSParticlePosition(1, {4.0, 0.0, 3.0});
+    const math::Real firstLSRadius = solver.LSParticles().host()[0].boundingRadius();
+    const math::Real secondLSRadius = solver.LSParticles().host()[1].boundingRadius();
+    require(secondLSRadius > firstLSRadius && firstLSRadius + secondLSRadius < 3.0,
+            "The LS bond test requires unequal radii and separated bounding spheres.");
+    bond LSConnection{3.0};
+    require(LSConnection.setConnection(solver.LSParticles(), 0, 1), "Separated LS bounding spheres must support a bond.");
+    require(math::nearlyEqual(LSConnection.point(), {4.0, 0.0, 1.5 + 0.5 * (firstLSRadius - secondLSRadius)}, 1.0e-12, 1.0e-12) &&
+                math::nearlyEqual(LSConnection.normal(), -math::Vec3::unitZ(), 1.0e-12, 1.0e-12),
+            "LS-LS bond geometry must use the two LS bounding radii.");
+
+    solver.setSpherePosition(0, {2.0, 0.0, 3.0});
+    bond mixedConnection{2.0};
+    require(mixedConnection.setConnection(solver.spheres(), 0, solver.LSParticles(), 1), "Separated sphere-LS endpoints must support a bond.");
+    require(math::nearlyEqual(mixedConnection.point(), {3.0 + 0.5 * (0.5 - secondLSRadius), 0.0, 3.0}, 1.0e-12, 1.0e-12) &&
+                math::nearlyEqual(mixedConnection.normal(), -math::Vec3::unitX(), 1.0e-12, 1.0e-12),
+            "Mixed bond geometry must combine the sphere radius with the LS bounding radius.");
+
+    contact supplied;
+    supplied.setPoint({0.25, -0.75, 1.0});
+    supplied.setNormal(math::Vec3::unitY());
+    bond fromContact{1.0};
+    const auto preservesContactGeometry = [&]
+    {
+        require(math::nearlyEqual(fromContact.point(), supplied.point(), 1.0e-12, 1.0e-12) &&
+                    math::nearlyEqual(fromContact.normal(), supplied.normal(), 1.0e-12, 1.0e-12),
+                "Contact-based bonds must preserve the supplied off-center point and normal.");
+    };
+    require(supplied.setMasterSlaveParticle(solver.spheres(), 0, 1) && fromContact.setConnection(solver.spheres(), supplied),
+            "The sphere contact-based bond overload must remain available.");
+    preservesContactGeometry();
+    require(supplied.setMasterSlaveParticle(solver.LSParticles(), 0, 1) && fromContact.setConnection(solver.LSParticles(), supplied),
+            "The LS contact-based bond overload must remain available.");
+    preservesContactGeometry();
+    require(supplied.setMasterSlaveParticle(solver.spheres(), 0, solver.LSParticles(), 1) &&
+                fromContact.setConnection(solver.spheres(), solver.LSParticles(), supplied),
+            "The mixed contact-based bond overload must remain available.");
+    preservesContactGeometry();
+
+    solver.setSpherePosition(1, solver.spheres().host()[0].position());
+    require(!mixedConnection.setConnection(solver.spheres(), 0, 1), "Coincident sphere centers must reject an index-based bond.");
+    solver.setLSParticlePosition(0, solver.LSParticles().host()[1].position());
+    require(!LSConnection.setConnection(solver.LSParticles(), 0, 1), "Coincident LS centers must reject an index-based bond.");
+    solver.setSpherePosition(0, solver.LSParticles().host()[1].position());
+    require(!mixedConnection.setConnection(solver.spheres(), 0, solver.LSParticles(), 1), "Coincident mixed centers must reject an index-based bond.");
 }
 
 void testBondCrossSectionArea()
@@ -686,6 +778,7 @@ int main()
         testMaterialTypeAndLevelSetAssignment();
         testRotationalContactFriction();
         testBondOwnershipAndValidity();
+        testBondReferenceGeometry();
         testBondCrossSectionArea();
         testModeICompressionDoesNotDamageBond();
         testMaterialDensityValidation();

@@ -48,6 +48,7 @@ Tutorial2 also matches the software sample's cloth discretization, material prop
 - Exactly 9,951 equal spheres (`93 x 107 x 1`) form a horizontal staggered triangular lattice above a fixed level-set box, with 29,454 nearest-neighbor bonds.
 - Sphere diameter is `0.006417112299465241 m`, density is `1500 kg/m3`, and the cloth is centered over the unchanged `0.24 x 0.24 x 0.24 m` box at `(0.30, 0.30, 0.12) m`. Sphere centers start at `z = 0.38 m`.
 - Horizontal and diagonal nearest neighbors are joined by tensile, shear, bending, and torsional bonds derived from the cloth Young's modulus, Poisson ratio, thickness, and density.
+- Bond connections use particle indices; the API calculates each reference normal from the current slave-to-master center displacement. The equivalent length remains the initial distance between the two centers.
 - The free cloth falls under gravity and drapes over the box; no cloth edge is artificially fixed.
 - Sliding friction is `0.6` and restitution is `0.05` for both materials. The cloth's external damping adds `F = -20 m v` and `T = -3.418598284e-8 omega` in SI units; the fixed box receives no damping. CPU, GPU, and hybrid modes use the same formulas.
 - Bonds have zero cross-sectional area and cannot break. The four beam stiffnesses use `E = 1e6 Pa`, `nu = 0.3`, and the smaller sphere diameter, exactly as in the software sample.

@@ -701,6 +701,10 @@ This keeps sphere–sphere and sphere–LS force evaluation on one complete cont
 
 `bond` supports `sphereSphere`, `sphereLSParticle`, and `LSParticleLSParticle` pairs. Create particles first, construct the bond from solver-owned particle containers, then add it to the solver.
 
+Index-based `setConnection()` takes the particle container or containers and the two endpoint indices; callers do not supply a normal. It uses sphere-contact geometry, taking each sphere's physical radius and each LS particle's bounding radius. For center distance `d`, the slave-to-master normal is `n = (master.position() - slave.position()) / d`, overlap is `masterRadius + slaveRadius - d`, and the reference point is `slave.position() + (slaveRadius - overlap / 2) * n`. Equivalently, the point is the center midpoint plus `(slaveRadius - masterRadius) / 2 * n`; it equals the midpoint only for equal radii.
+
+Separated particles or bounding spheres may still be bonded: negative overlap does not reject the connection. The centers must be finite and distinct; coincident centers fail because they do not define a normal. The overloads that take an existing `contact` instead retain that contact's point and normal.
+
 ### 9.1 Sphere–sphere bond
 
 ```cpp
@@ -709,8 +713,7 @@ bond connection{0.01};
 if (!connection.setConnection(
         simulation.spheres(),
         masterSphereIndex,
-        slaveSphereIndex,
-        {1.0, 0.0, 0.0}) ||
+        slaveSphereIndex) ||
     !connection.setStiffness(
         normalStiffness,
         shearStiffness,
@@ -730,8 +733,7 @@ bond connection{equivalentLength};
 connection.setConnection(
     simulation.LSParticles(),
     masterIndex,
-    slaveIndex,
-    referenceNormal);
+    slaveIndex);
 connection.setStiffness(kn, ks, kb, kt);
 simulation.addBond(connection);
 ```
@@ -746,8 +748,7 @@ connection.setConnection(
     simulation.spheres(),
     sphereIndex,
     simulation.LSParticles(),
-    LSParticleIndex,
-    referenceNormal);
+    LSParticleIndex);
 connection.setStiffness(kn, ks, kb, kt);
 simulation.addBond(connection);
 ```

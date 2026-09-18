@@ -35,11 +35,13 @@ CPU search may parallelize candidate generation and per-contact calculations wit
 Configure a bond in this order:
 
 1. Call `setEquivalentLength()`.
-2. Set connection geometry from two particles or from a contact.
+2. Call `setConnection()` with particle container(s) and endpoint indices, or with a contact.
 3. Call `setCoefficientB()` with the four stiffnesses.
 4. Insert the bond into the solver container matching its particle types.
 
 Changing equivalent length invalidates dependent connection geometry and stiffnesses, which must then be configured again. Each calculation cycle refreshes the master/slave particle copies and clears the previous force and torques before evaluating the bond response.
+
+The index-based overloads use `setConnection(particles, masterIndex, slaveIndex)` for sphere–sphere or LS–LS bonds, and `setConnection(spheres, sphereIndex, LSParticles, LSParticleIndex)` for mixed bonds. No normal argument is accepted. They reuse sphere-contact geometry with sphere radii or LS bounding radii: `n = (master.position() - slave.position()) / distance`, `overlap = masterRadius + slaveRadius - distance`, and `point = slave.position() + (slaveRadius - overlap / 2) * n`. The point is the center midpoint only when the two radii are equal. Separated bounding spheres remain valid bond endpoints; finite, distinct centers are required, and coincident centers fail because no normal can be defined. Contact-based overloads use the supplied contact's point and normal instead.
 
 `setCrossSectionArea()` assigns the nominal cross-sectional area in square metres. BK damage uses this area to convert elastic energy to energy-release rate; zero disables fracture without disabling the bond's elastic response. The matching VTU field is `bondVTUField::crossSectionArea`.
 
