@@ -888,15 +888,13 @@ void TriangleMesh::fineMesh()
     initializeMesh();
 }
 
-std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHeight, Real maximumSurfaceHeight, int subdivisionLevel, std::uint64_t seed)
+namespace
 {
-    const Real minimumRadius = radius + minimumSurfaceHeight;
-    const Real maximumRadius = radius + maximumSurfaceHeight;
-    if (!finitePositive(radius) || !math::isFinite(minimumSurfaceHeight) || !math::isFinite(maximumSurfaceHeight) || minimumSurfaceHeight > maximumSurfaceHeight ||
-        !finitePositive(minimumRadius) || !finitePositive(maximumRadius))
-    {
-        throw std::invalid_argument("Random shape requires a positive finite radius, ordered finite height bounds, and positive finite deformed radii.");
-    }
+
+void validateRandomSurface(Real minimumSurfaceHeight, Real maximumSurfaceHeight, int subdivisionLevel)
+{
+    if (!math::isFinite(minimumSurfaceHeight) || !math::isFinite(maximumSurfaceHeight) || minimumSurfaceHeight > maximumSurfaceHeight)
+        throw std::invalid_argument("Random shape requires ordered finite surface-height bounds.");
     if (subdivisionLevel < 0)
     {
         throw std::invalid_argument("Subdivision level must be non-negative.");
@@ -912,10 +910,20 @@ std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHe
         }
         faceCount *= 4;
     }
+}
 
-    Sphere sphere(1.0);
-    sphere.buildSurfaceNode(subdivisionLevel);
-    std::vector<Vec3> vertices = sphere.surfaceNodePosition();
+std::unique_ptr<TriangleMesh> deformRandomSurface(const LSInfo& base, Real minimumSurfaceHeight, Real maximumSurfaceHeight, std::uint64_t seed)
+{
+    std::vector<Vec3> vertices = base.surfaceNodePosition();
+    std::vector<Vec3> directions;
+    directions.reserve(vertices.size());
+    for (const Vec3& vertex : vertices)
+    {
+        const Real radius = math::norm(vertex);
+        if (!math::isFinite(vertex) || !finitePositive(radius))
+            throw std::invalid_argument("Random shape has an invalid base surface radius.");
+        directions.push_back(vertex / radius);
+    }
 
     // A few low-frequency waves form a continuous correlated field on the unit
     // sphere. Unlike independent vertex noise, refinement preserves smooth lobes.
@@ -942,7 +950,7 @@ std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHe
     {
         for (const surfaceWave& wave : waves)
         {
-            heights[index] += wave.amplitude * std::sin(math::dot(wave.waveVector, vertices[index]) + wave.phase);
+            heights[index] += wave.amplitude * std::sin(math::dot(wave.waveVector, directions[index]) + wave.phase);
         }
     }
     const auto [minimum, maximum] = std::minmax_element(heights.begin(), heights.end());
@@ -950,14 +958,20 @@ std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHe
     for (std::size_t index = 0; index < vertices.size(); ++index)
     {
         const Real fraction = heightRange > 0.0 ? std::clamp((heights[index] - *minimum) / heightRange, 0.0, 1.0) : 0.5;
-        vertices[index] *= minimumRadius + fraction * (maximumRadius - minimumRadius);
+        const Real height = minimumSurfaceHeight == maximumSurfaceHeight
+                                ? minimumSurfaceHeight
+                                : static_cast<Real>((1.0L - fraction) * minimumSurfaceHeight + static_cast<long double>(fraction) * maximumSurfaceHeight);
+        const Real deformedRadius = math::norm(vertices[index]) + height;
+        if (!finitePositive(deformedRadius))
+            throw std::invalid_argument("Random shape surface heights must leave every deformed radius positive and finite.");
+        vertices[index] = directions[index] * deformedRadius;
     }
 
     // Positive radial scaling preserves the icosphere's topology and winding.
     // Reject arithmetic overflow before it can enter mesh acceleration queries;
     // TriangleMesh also checks closure and its existing area/volume tolerances.
     Real signedVolumeTimesSix = 0.0;
-    for (const int3& face : sphere.surfaceNodeConnectivity())
+    for (const int3& face : base.surfaceNodeConnectivity())
     {
         const Vec3& first = vertices[face.x];
         const Vec3& second = vertices[face.y];
@@ -970,7 +984,28 @@ std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHe
             throw std::invalid_argument("Random shape dimensions exceed the numerical range of a non-degenerate triangle mesh.");
         }
     }
-    return std::make_unique<TriangleMesh>(vertices, sphere.surfaceNodeConnectivity());
+    return std::make_unique<TriangleMesh>(vertices, base.surfaceNodeConnectivity());
+}
+
+} // namespace
+
+std::unique_ptr<TriangleMesh> makeRandomShape(Real radius, Real minimumSurfaceHeight, Real maximumSurfaceHeight, int subdivisionLevel, std::uint64_t seed)
+{
+    validateRandomSurface(minimumSurfaceHeight, maximumSurfaceHeight, subdivisionLevel);
+    if (!finitePositive(radius) || !finitePositive(radius + minimumSurfaceHeight) || !finitePositive(radius + maximumSurfaceHeight))
+        throw std::invalid_argument("Random shape requires a positive finite radius and positive finite deformed radii.");
+    Sphere sphere(radius);
+    sphere.buildSurfaceNode(subdivisionLevel);
+    return deformRandomSurface(sphere, minimumSurfaceHeight, maximumSurfaceHeight, seed);
+}
+
+std::unique_ptr<TriangleMesh> makeRandomShape(const Vec3& semiAxes, Real equatorialExponent, Real polarExponent, Real minimumSurfaceHeight,
+                                            Real maximumSurfaceHeight, int subdivisionLevel, std::uint64_t seed)
+{
+    validateRandomSurface(minimumSurfaceHeight, maximumSurfaceHeight, subdivisionLevel);
+    Superellipsoid base(semiAxes.x, semiAxes.y, semiAxes.z, equatorialExponent, polarExponent);
+    base.buildSurfaceNode(subdivisionLevel);
+    return deformRandomSurface(base, minimumSurfaceHeight, maximumSurfaceHeight, seed);
 }
 
 Sphere::Sphere(Real radius) { setParameter(radius); }

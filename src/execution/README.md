@@ -76,7 +76,7 @@ The shared SPH formulas are split intentionally:
 
 CPU loops and CUDA kernels compose these functions in the same order. The physical support remains `2h`, even when the neighbor search radius is enlarged with a displacement buffer. `interaction/SPHNeighborhood` tracks actual displacement so the solver can reuse the search structures across acoustic substeps while the buffer remains valid, rebuilding them earlier when needed.
 
-Finite-duration jets reuse one host/device pipe-membership predicate from `sphJetFunctions.h`. The solver performs the one-time upstream particle allocation and owns each source's stable range and end time; the execution formula owns no source state. For every active acoustic substep, the solver applies the prescribed velocity before optional advection preparation and again after velocity integration. Once the final end time is reached, the solver's `jetsCompleted` fast path stops calling the range checks entirely. The legacy four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
+Finite-duration jets reuse one host/device pipe-membership predicate from `sphJetFunctions.h`. The solver performs the one-time upstream particle allocation and owns each source's stable range and end time in `SPHJetState`; the execution formula owns no source state. For every active acoustic substep, the solver applies the prescribed velocity before optional advection preparation and again after velocity integration. Once the final end time is reached, `SPHJets_.completed_` stops calling the range checks entirely. The legacy four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
 
 ## Review Checklist for a New Formula
 

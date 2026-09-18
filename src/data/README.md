@@ -102,6 +102,16 @@ With `isFixed = true`, grid construction preserves the input local frame and sto
 
 The height bounds are offsets from the base radius, in the same length units as that radius and the rest of the simulation. Sampled vertex radii span `[radius + minimumSurfaceHeight, radius + maximumSurfaceHeight]`; the planar faces interpolate those vertices. The base radius and deformed radii must be positive and finite, and the finite height bounds must be ordered. Equal bounds produce a spherical mesh. A fixed seed reproduces the sampled shape; subdivision controls mesh resolution.
 
+The overload `makeRandomShape(semiAxes, equatorialExponent, polarExponent, minimumSurfaceHeight, maximumSurfaceHeight, subdivisionLevel = 3, seed = 0)` starts from a superellipsoid. Its `Vec3` semi-axes and two dimensionless exponents must be positive and finite. The same smooth height field displaces each sampled base point along its ray from the origin, with sampled offsets spanning the height bounds. Every deformed radius must remain positive and finite. Zero height bounds preserve the superellipsoid base; nonzero bounds produce irregular variants. For example:
+
+```cpp
+auto irregular = fundem::levelset::makeRandomShape(
+    fundem::math::Vec3{0.015, 0.010, 0.008}, 0.8, 1.2, -0.001, 0.002, 3, 42);
+irregular->buildLSGrid(0.001, 2);
+```
+
+Both overloads return native-frame mesh vertices. Movable `buildLSGrid` performs the usual integrated centroid correction; retain native vertices when storing a reusable mesh description so each later grid build starts from that original frame.
+
 The factory builds mesh-distance acceleration data, but does not allocate an LS grid. Build the grid separately at the desired simulation resolution before adding the geometry to a solver:
 
 ```cpp

@@ -34,6 +34,35 @@ void orthogonalBasis(const math::Vec3& unitAxis, math::Vec3& tangent1, math::Vec
     tangent2 = math::cross(unitAxis, tangent1);
 }
 
+/** Creates either an upstream inlet reservoir or a legacy downstream cylindrical column. */
+std::vector<SPHParticle> makeSPHJetParticles(const math::Vec3& center,
+                                             const math::Vec3& direction,
+                                             const math::Vec3& velocity,
+                                             math::Real spacing,
+                                             const execution::SPHJetDiscretization& discretization,
+                                             bool upstream)
+{
+    math::Vec3 tangent1;
+    math::Vec3 tangent2;
+    orthogonalBasis(direction, tangent1, tangent2);
+    std::vector<SPHParticle> particles;
+    particles.reserve(static_cast<std::size_t>(discretization.particleCount_));
+    for (int axialIndex = 0; axialIndex < discretization.axialCount_; ++axialIndex)
+    {
+        const math::Vec3 offset = (math::Real(axialIndex) + 0.5) * spacing * direction;
+        const math::Vec3 axialPosition = upstream ? center - offset : center + offset;
+        for (int y = -discretization.radialIndex_; y <= discretization.radialIndex_; ++y)
+        {
+            for (int x = -discretization.radialIndex_; x <= discretization.radialIndex_; ++x)
+            {
+                if (discretization.contains(x, y))
+                    particles.emplace_back(axialPosition + math::Real(x) * spacing * tangent1 + math::Real(y) * spacing * tangent2, velocity);
+            }
+        }
+    }
+    return particles;
+}
+
 void appendVirtualParticles(std::vector<virtualParticle>& virtualParticles,
                             const SPHParticleContainer& SPHParticles,
                             const LSParticleContainer& LSParticles,
@@ -227,31 +256,7 @@ int SPHDEM::addSPHJet(const Vec3& inletCenter, const Vec3& velocity, Real radius
         throw std::invalid_argument("Invalid SPH jet definition.");
     }
 
-    Vec3 tangent1;
-    Vec3 tangent2;
-    orthogonalBasis(axis, tangent1, tangent2);
-    const int radialIndex = discretization.radialIndex_;
-    const int axialCount = discretization.axialCount_;
-
-    std::vector<SPHParticle> particles;
-    particles.reserve(static_cast<std::size_t>(discretization.particleCount_));
-    for (int axialIndex = 0; axialIndex < axialCount; ++axialIndex)
-    {
-        const Vec3 axialPosition = inletCenter + (Real(axialIndex) + 0.5) * SPHProperties_.spacing_ * axis;
-        for (int y = -radialIndex; y <= radialIndex; ++y)
-        {
-            for (int x = -radialIndex; x <= radialIndex; ++x)
-            {
-                const Real offset1 = x * SPHProperties_.spacing_;
-                const Real offset2 = y * SPHProperties_.spacing_;
-                if (discretization.contains(x, y))
-                {
-                    particles.emplace_back(axialPosition + offset1 * tangent1 + offset2 * tangent2, velocity);
-                }
-            }
-        }
-    }
-    return addSPHParticles(std::move(particles));
+    return addSPHParticles(makeSPHJetParticles(inletCenter, axis, velocity, SPHProperties_.spacing_, discretization, false));
 }
 
 int SPHDEM::addSPHJet(const SPHJet& value)
@@ -277,33 +282,14 @@ int SPHDEM::addSPHJet(const SPHJet& value)
         throw std::invalid_argument("The SPH jet must contain at least one particle layer.");
     }
 
-    Vec3 tangent1;
-    Vec3 tangent2;
-    orthogonalBasis(value.direction(), tangent1, tangent2);
-    const Vec3 velocity = value.velocity();
-    std::vector<SPHParticle> particles;
-    particles.reserve(static_cast<std::size_t>(discretization.particleCount_));
-    for (int axialIndex = 0; axialIndex < discretization.axialCount_; ++axialIndex)
-    {
-        const Vec3 axialPosition = value.outletCenter() - (Real(axialIndex) + 0.5) * SPHProperties_.spacing_ * value.direction();
-        for (int y = -discretization.radialIndex_; y <= discretization.radialIndex_; ++y)
-        {
-            for (int x = -discretization.radialIndex_; x <= discretization.radialIndex_; ++x)
-            {
-                if (discretization.contains(x, y))
-                {
-                    particles.emplace_back(axialPosition + Real(x) * SPHProperties_.spacing_ * tangent1 + Real(y) * SPHProperties_.spacing_ * tangent2, velocity);
-                }
-            }
-        }
-    }
+    auto particles = makeSPHJetParticles(value.outletCenter(), value.direction(), value.velocity(), SPHProperties_.spacing_, discretization, true);
 
-    SPHJets_.reserve(SPHJets_.size() + 1);
+    SPHJets_.constraints_.reserve(SPHJets_.constraints_.size() + 1);
     const int particleCount = static_cast<int>(particles.size());
     const int firstParticleIndex = addSPHParticles(std::move(particles));
-    SPHJets_.push_back({value, pipeLength, endTime, firstParticleIndex, particleCount});
-    SPHStepState_.latestSPHJetEndTime_ = endTime > SPHStepState_.latestSPHJetEndTime_ ? endTime : SPHStepState_.latestSPHJetEndTime_;
-    SPHStepState_.jetsCompleted_ = false;
+    SPHJets_.constraints_.push_back({value, pipeLength, endTime, firstParticleIndex, particleCount});
+    SPHJets_.latestEndTime_ = std::max(endTime, SPHJets_.latestEndTime_);
+    SPHJets_.completed_ = false;
     return firstParticleIndex;
 }
 
@@ -575,15 +561,12 @@ void SPHDEM::initializeSPHState()
     virtualParticles_.host().clear();
     SPHStepState_.pendingDEMSteps_ = 0;
     SPHStepState_.couplingImpulseTime_ = 0.0;
-    SPHStepState_.acousticTimeStepLimit_ = 0.0;
-    SPHStepState_.acousticTimeStep_ = 0.0;
-    SPHStepState_.advectionTimeStepLimit_ = 0.0;
-    SPHStepState_.advectionTimeStep_ = 0.0;
-    SPHStepState_.observedMaximumVelocity_ = 0.0;
-    SPHStepState_.observedMaximumAcceleration_ = 0.0;
+    SPHStepState_.acoustic_ = {};
+    SPHStepState_.advection_ = {};
+    SPHStepState_.statistics_ = {};
     SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_;
     SPHStepState_.representedTime_ = time();
-    SPHStepState_.jetsCompleted_ = SPHJets_.empty() || SPHStepState_.representedTime_ >= SPHStepState_.latestSPHJetEndTime_;
+    SPHJets_.completed_ = SPHJets_.completedAt(SPHStepState_.representedTime_);
     auto& particleHost = SPHParticles_.host();
     for (SPHParticle& value : particleHost)
     {
@@ -594,8 +577,6 @@ void SPHDEM::initializeSPHState()
     {
         SPHStepState_.timeInAdvectionStep_ = 0.0;
     }
-    SPHStepState_.acousticStepInterval_ = 1;
-    SPHStepState_.advectionStepInterval_ = 1;
     for (SPHParticle& value : particleHost)
     {
         value.setPressure(execution::computePressureFromDensity(value.density(), SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_));
@@ -648,15 +629,8 @@ void SPHDEM::initializeSPH(cpu::mode)
         SPHInteractions_ = std::make_unique<cpu::SPHInteraction>();
     }
     const Real supportRadius = SPHProperties_.smoothingLength_ > math::defaultTolerance ? 2.0 * SPHProperties_.smoothingLength_ : math::norm(maximumBoundary() - minimumBoundary());
-    const Real particleMass = SPHProperties_.particleMass();
     const Vec3 boundaryPadding{supportRadius, supportRadius, supportRadius};
-    const cpu::SPHInteractionParameters parameters{SPHProperties_.smoothingLength_,
-                                                   particleMass,
-                                                   SPHProperties_.referenceDensity_,
-                                                   SPHProperties_.latticeKernelSum3D_,
-                                                   SPHProperties_.soundSpeed_,
-                                                   SPHProperties_.dynamicViscosity_,
-                                                   gravity()};
+    const auto parameters = SPHProperties_.interactionParameters(gravity());
 
     SPHStepState_.neighborSearchRadius_ = supportRadius;
     SPHStepState_.timeInAdvectionStep_ = 0.0;
@@ -772,6 +746,7 @@ void SPHDEM::captureSPHState(bool preserveCurrentHost, cudaStream_t stream)
     outputSnapshot_.SPHParticles_ = SPHParticles_.host();
     outputSnapshot_.virtualParticles_ = virtualParticles_.host();
     outputSnapshot_.stepState_ = SPHStepState_;
+    outputSnapshot_.jetsCompleted_ = SPHJets_.completed_;
     outputSnapshot_.couplingState_ = virtualParticleCoupling_.captureState();
     outputSnapshot_.preserveCurrentHost_ = preserveCurrentHost;
     outputSnapshot_.active_ = true;
@@ -794,6 +769,7 @@ void SPHDEM::restoreSPHState(cudaStream_t stream)
     SPHParticles_.host() = std::move(outputSnapshot_.SPHParticles_);
     virtualParticles_.host() = std::move(outputSnapshot_.virtualParticles_);
     SPHStepState_ = outputSnapshot_.stepState_;
+    SPHJets_.completed_ = outputSnapshot_.jetsCompleted_;
     virtualParticleCoupling_.restoreState(std::move(outputSnapshot_.couplingState_));
     // A projected observation may have rebuilt neighbor lists or device grids.
     // Rebuild search structures against restored integration state on demand,
@@ -841,41 +817,26 @@ double SPHDEM::systemDeviceMemoryGB() const noexcept { return LSDEM::systemDevic
 
 void SPHDEM::calculateSPHForceAndTorque(Real DEMTimeStep, cpu::mode)
 {
+    advanceSPHIfReady(DEMTimeStep, nullptr);
+    virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
+}
+
+void SPHDEM::advanceSPHIfReady(Real DEMTimeStep, cudaStream_t stream)
+{
     if (DEMTimeStep > 0.0)
     {
         ++SPHStepState_.pendingDEMSteps_;
-        if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acousticStepInterval_)
+        if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acoustic_.interval_)
         {
-            flushSPHToCurrentTime(nullptr, true);
+            flushSPHToCurrentTime(stream, true);
         }
     }
-    virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
 }
 
 void SPHDEM::prepareSPHAdvectionStep(cpu::mode)
 {
-    const Real particleMass = SPHProperties_.particleMass();
-    const cpu::SPHKinematicsStatistics boundaryStatistics = SPHInteractions_->kinematicsStatistics(virtualParticles_);
-    if (boundaryStatistics.invalidValueCount_ > 0)
-    {
-        throw std::runtime_error("The SPH boundary contains a non-finite velocity or acceleration.");
-    }
-
-    const Real fluidVelocityScale = SPHStepState_.observedMaximumVelocity_ > SPHProperties_.maximumVelocity_ ? SPHStepState_.observedMaximumVelocity_ : SPHProperties_.maximumVelocity_;
-    const Real timeHorizon = SPHStepState_.advectionTimeStep_ > 0.0 ? SPHStepState_.advectionTimeStep_ : SPHStepState_.acousticTimeStep_;
-    const Real fluidSearchBuffer = 2.0 * fluidVelocityScale * timeHorizon + SPHStepState_.observedMaximumAcceleration_ * timeHorizon * timeHorizon;
-    const Real boundarySearchBuffer = (fluidVelocityScale + boundaryStatistics.maximumVelocity_) * timeHorizon +
-                                      0.5 * (SPHStepState_.observedMaximumAcceleration_ + boundaryStatistics.maximumAcceleration_) * timeHorizon * timeHorizon;
-    const Real searchBuffer = fluidSearchBuffer > boundarySearchBuffer ? fluidSearchBuffer : boundarySearchBuffer;
-    SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_ + searchBuffer;
-
-    const cpu::SPHInteractionParameters parameters{SPHProperties_.smoothingLength_,
-                                                   particleMass,
-                                                   SPHProperties_.referenceDensity_,
-                                                   SPHProperties_.latticeKernelSum3D_,
-                                                   SPHProperties_.soundSpeed_,
-                                                   SPHProperties_.dynamicViscosity_,
-                                                   gravity()};
+    updateSPHNeighborSearchRadius(SPHInteractions_->kinematicsStatistics(virtualParticles_));
+    const auto parameters = SPHProperties_.interactionParameters(gravity());
     invalidateSPHNeighborhood();
     ensureSPHNeighborhood(cpu::mode{});
     SPHInteractions_->updateFreeSurface(SPHParticles_, virtualParticles_, parameters);
@@ -883,15 +844,31 @@ void SPHDEM::prepareSPHAdvectionStep(cpu::mode)
     SPHInteractions_->updatePriorForceAndBoundaryForce(SPHParticles_, virtualParticles_, parameters);
 }
 
+void SPHDEM::updateSPHNeighborSearchRadius(const SPHKinematicsStatistics& boundaryStatistics)
+{
+    if (boundaryStatistics.invalidValueCount_ > 0)
+    {
+        throw std::runtime_error("The SPH boundary contains a non-finite velocity or acceleration.");
+    }
+
+    const Real fluidVelocityScale = std::max(SPHStepState_.statistics_.maximumVelocity_, SPHProperties_.maximumVelocity_);
+    const Real timeHorizon = SPHStepState_.advection_.timeStep_ > 0.0 ? SPHStepState_.advection_.timeStep_ : SPHStepState_.acoustic_.timeStep_;
+    const Real fluidSearchBuffer = 2.0 * fluidVelocityScale * timeHorizon + SPHStepState_.statistics_.maximumAcceleration_ * timeHorizon * timeHorizon;
+    const Real boundarySearchBuffer = (fluidVelocityScale + boundaryStatistics.maximumVelocity_) * timeHorizon +
+                                      0.5 * (SPHStepState_.statistics_.maximumAcceleration_ + boundaryStatistics.maximumAcceleration_) * timeHorizon * timeHorizon;
+    const Real searchBuffer = std::max(fluidSearchBuffer, boundarySearchBuffer);
+    SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_ + searchBuffer;
+}
+
 void SPHDEM::applySPHJetVelocity(Real representedTime, cpu::mode)
 {
-    if (SPHStepState_.jetsCompleted_)
+    if (SPHJets_.completed_)
     {
         return;
     }
 
     auto& particleHost = SPHParticles_.host();
-    for (const SPHJetConstraint& constraint : SPHJets_)
+    for (const SPHJetState::constraint& constraint : SPHJets_.constraints_)
     {
         const bool active = representedTime < constraint.endTime_;
         const SPHJet& jet = constraint.value_;
@@ -909,14 +886,6 @@ void SPHDEM::applySPHJetVelocity(Real representedTime, cpu::mode)
                 particle.setVelocity(velocity);
             }
         }
-    }
-}
-
-void SPHDEM::updateSPHJetCompletion() noexcept
-{
-    if (!SPHStepState_.jetsCompleted_ && SPHStepState_.representedTime_ >= SPHStepState_.latestSPHJetEndTime_)
-    {
-        SPHStepState_.jetsCompleted_ = true;
     }
 }
 
@@ -941,14 +910,7 @@ void SPHDEM::advanceSPH(Real timeStep, cpu::mode)
     }
 
     const Real halfTimeStep = 0.5 * timeStep;
-    const Real particleMass = SPHProperties_.particleMass();
-    const cpu::SPHInteractionParameters parameters{SPHProperties_.smoothingLength_,
-                                                   particleMass,
-                                                   SPHProperties_.referenceDensity_,
-                                                   SPHProperties_.latticeKernelSum3D_,
-                                                   SPHProperties_.soundSpeed_,
-                                                   SPHProperties_.dynamicViscosity_,
-                                                   gravity()};
+    const auto parameters = SPHProperties_.interactionParameters(gravity());
     ensureSPHNeighborhood(cpu::mode{});
     SPHInteractions_->updateDensity(SPHParticles_, virtualParticles_, parameters, halfTimeStep);
     SPHInteractions_->integratePosition(SPHParticles_, halfTimeStep);
@@ -963,17 +925,12 @@ void SPHDEM::advanceSPH(Real timeStep, cpu::mode)
     SPHInteractions_->updateDensity(SPHParticles_, virtualParticles_, parameters, halfTimeStep);
 
     SPHStepState_.representedTime_ += timeStep;
-    if (!SPHStepState_.jetsCompleted_ && SPHStepState_.representedTime_ >= SPHStepState_.latestSPHJetEndTime_)
+    if (!SPHJets_.completed_ && SPHStepState_.representedTime_ >= SPHJets_.latestEndTime_)
     {
         applySPHJetVelocity(SPHStepState_.representedTime_, cpu::mode{});
+        SPHJets_.completed_ = true;
     }
-    updateSPHJetCompletion();
-    SPHStepState_.timeInAdvectionStep_ += timeStep;
-    const bool advectionStepCompleted = SPHStepState_.timeInAdvectionStep_ + math::defaultTolerance >= SPHStepState_.advectionTimeStep_;
-    if (advectionStepCompleted)
-    {
-        SPHStepState_.timeInAdvectionStep_ = 0.0;
-    }
+    const bool advectionStepCompleted = SPHStepState_.advanceAdvectionPhase(timeStep);
     updateSPHAcousticTimeStep(cpu::mode{});
     if (advectionStepCompleted)
     {
@@ -994,17 +951,20 @@ void SPHDEM::flushSPH(Real representedTime, cpu::mode)
 
 void SPHDEM::updateSPHAcousticTimeStep(cpu::mode)
 {
+    const auto statistics =
+        SPHParticles_.hostSize() > 0 && SPHProperties_.smoothingLength_ > math::defaultTolerance ? SPHInteractions_->stateStatistics(SPHParticles_, gravity()) : SPHStateStatistics{};
+    updateSPHAcousticTimeStep(statistics);
+}
+
+void SPHDEM::updateSPHAcousticTimeStep(const SPHStateStatistics& statistics)
+{
     if (SPHParticles_.hostSize() == 0 || SPHProperties_.smoothingLength_ <= math::defaultTolerance)
     {
-        SPHStepState_.acousticTimeStepLimit_ = timeStep();
-        SPHStepState_.acousticTimeStep_ = timeStep();
-        SPHStepState_.observedMaximumVelocity_ = 0.0;
-        SPHStepState_.observedMaximumAcceleration_ = 0.0;
-        SPHStepState_.acousticStepInterval_ = 1;
+        SPHStepState_.acoustic_ = {timeStep(), timeStep(), 1};
+        SPHStepState_.statistics_ = {};
         return;
     }
 
-    const cpu::SPHStateStatistics statistics = SPHInteractions_->stateStatistics(SPHParticles_, gravity());
     if (statistics.invalidValueCount_ > 0)
     {
         throw std::runtime_error("The SPH state contains a non-finite velocity, acceleration or density.");
@@ -1016,18 +976,17 @@ void SPHDEM::updateSPHAcousticTimeStep(cpu::mode)
         throw std::runtime_error("The SPH density left the admissible weakly-compressible range. Reduce the time step or increase the sound speed.");
     }
 
-    SPHStepState_.observedMaximumVelocity_ = statistics.maximumVelocity_;
-    SPHStepState_.observedMaximumAcceleration_ = statistics.maximumAcceleration_;
-    SPHStepState_.acousticTimeStepLimit_ = execution::calculateSPHAcousticTimeStep(SPHProperties_.smoothingLength_, SPHProperties_.soundSpeed_, SPHStepState_.observedMaximumVelocity_);
-    if (!math::isFinite(SPHStepState_.acousticTimeStepLimit_) || SPHStepState_.acousticTimeStepLimit_ <= 0.0)
+    SPHStepState_.statistics_ = statistics;
+    SPHStepState_.acoustic_.limit_ = execution::calculateSPHAcousticTimeStep(SPHProperties_.smoothingLength_, SPHProperties_.soundSpeed_, SPHStepState_.statistics_.maximumVelocity_);
+    if (!math::isFinite(SPHStepState_.acoustic_.limit_) || SPHStepState_.acoustic_.limit_ <= 0.0)
     {
         throw std::runtime_error("Failed to calculate a finite positive SPH acoustic time-step limit.");
     }
 
-    Real maximumSPHTimeStep = SPHStepState_.acousticTimeStepLimit_;
+    Real maximumSPHTimeStep = SPHStepState_.acoustic_.limit_;
     if (SPHStepState_.timeInAdvectionStep_ > math::defaultTolerance)
     {
-        const Real remainingAdvectionTime = SPHStepState_.advectionTimeStep_ - SPHStepState_.timeInAdvectionStep_;
+        const Real remainingAdvectionTime = SPHStepState_.advection_.timeStep_ - SPHStepState_.timeInAdvectionStep_;
         maximumSPHTimeStep = remainingAdvectionTime < maximumSPHTimeStep ? remainingAdvectionTime : maximumSPHTimeStep;
     }
     setSPHAcousticTimeStepFromLimit(maximumSPHTimeStep);
@@ -1037,28 +996,28 @@ void SPHDEM::updateSPHAdvectionTimeStep()
 {
     if (SPHParticles_.hostSize() == 0 || SPHProperties_.smoothingLength_ <= math::defaultTolerance)
     {
-        SPHStepState_.advectionTimeStepLimit_ = timeStep();
-        SPHStepState_.advectionTimeStep_ = timeStep();
+        SPHStepState_.advection_.limit_ = timeStep();
+        SPHStepState_.advection_.timeStep_ = timeStep();
         SPHStepState_.timeInAdvectionStep_ = 0.0;
-        SPHStepState_.advectionStepInterval_ = 1;
+        SPHStepState_.advection_.interval_ = 1;
         return;
     }
 
-    SPHStepState_.advectionTimeStepLimit_ = execution::calculateSPHAdvectionTimeStepFromLimits(SPHProperties_.smoothingLength_,
-                                                                                               SPHProperties_.viscousTimeScale_,
-                                                                                               SPHStepState_.observedMaximumVelocity_,
-                                                                                               SPHStepState_.observedMaximumAcceleration_,
-                                                                                               SPHProperties_.maximumVelocity_);
-    if (!math::isFinite(SPHStepState_.advectionTimeStepLimit_) || SPHStepState_.advectionTimeStepLimit_ <= 0.0)
+    SPHStepState_.advection_.limit_ = execution::calculateSPHAdvectionTimeStepFromLimits(SPHProperties_.smoothingLength_,
+                                                                                         SPHProperties_.viscousTimeScale_,
+                                                                                         SPHStepState_.statistics_.maximumVelocity_,
+                                                                                         SPHStepState_.statistics_.maximumAcceleration_,
+                                                                                         SPHProperties_.maximumVelocity_);
+    if (!math::isFinite(SPHStepState_.advection_.limit_) || SPHStepState_.advection_.limit_ <= 0.0)
     {
         throw std::runtime_error("Failed to calculate a finite positive SPH advection time-step limit.");
     }
 
-    const Real maximumSPHTimeStep = SPHStepState_.advectionTimeStepLimit_ < SPHStepState_.acousticTimeStepLimit_ ? SPHStepState_.advectionTimeStepLimit_ : SPHStepState_.acousticTimeStepLimit_;
+    const Real maximumSPHTimeStep = SPHStepState_.advection_.limit_ < SPHStepState_.acoustic_.limit_ ? SPHStepState_.advection_.limit_ : SPHStepState_.acoustic_.limit_;
     setSPHAcousticTimeStepFromLimit(maximumSPHTimeStep);
-    const Real maximumAdvectionStepInterval = std::floor(SPHStepState_.advectionTimeStepLimit_ / SPHStepState_.acousticTimeStep_ + math::defaultTolerance);
-    SPHStepState_.advectionStepInterval_ = static_cast<int>(std::clamp(maximumAdvectionStepInterval, Real{1.0}, Real{std::numeric_limits<int>::max()}));
-    SPHStepState_.advectionTimeStep_ = SPHStepState_.advectionStepInterval_ * SPHStepState_.acousticTimeStep_;
+    const Real maximumAdvectionStepInterval = std::floor(SPHStepState_.advection_.limit_ / SPHStepState_.acoustic_.timeStep_ + math::defaultTolerance);
+    SPHStepState_.advection_.interval_ = static_cast<int>(std::clamp(maximumAdvectionStepInterval, Real{1.0}, Real{std::numeric_limits<int>::max()}));
+    SPHStepState_.advection_.timeStep_ = SPHStepState_.advection_.interval_ * SPHStepState_.acoustic_.timeStep_;
 }
 
 void SPHDEM::setSPHAcousticTimeStepFromLimit(Real maximumTimeStep)
@@ -1070,20 +1029,20 @@ void SPHDEM::setSPHAcousticTimeStepFromLimit(Real maximumTimeStep)
         throw std::runtime_error("The DEM time step exceeds the SPH acoustic or advection stability limit. Reduce the DEM time step.");
     }
     const Real maximumStepInterval = std::floor(maximumTimeStep / DEMTimeStep + math::defaultTolerance);
-    SPHStepState_.acousticStepInterval_ = static_cast<int>(std::clamp(maximumStepInterval, Real{1.0}, Real{std::numeric_limits<int>::max()}));
-    SPHStepState_.acousticTimeStep_ = SPHStepState_.acousticStepInterval_ * DEMTimeStep;
+    SPHStepState_.acoustic_.interval_ = static_cast<int>(std::clamp(maximumStepInterval, Real{1.0}, Real{std::numeric_limits<int>::max()}));
+    SPHStepState_.acoustic_.timeStep_ = SPHStepState_.acoustic_.interval_ * DEMTimeStep;
 }
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
 
 void SPHDEM::applySPHJetVelocity(Real representedTime, gpu::mode, cudaStream_t stream)
 {
-    if (SPHStepState_.jetsCompleted_)
+    if (SPHJets_.completed_)
     {
         return;
     }
 
-    for (const SPHJetConstraint& constraint : SPHJets_)
+    for (const SPHJetState::constraint& constraint : SPHJets_.constraints_)
     {
         const bool active = representedTime < constraint.endTime_;
         const SPHJet& jet = constraint.value_;
@@ -1157,46 +1116,20 @@ void SPHDEM::initializeSPHDevice(cudaStream_t stream)
 
 void SPHDEM::calculateSPHForceAndTorque(Real DEMTimeStep, gpu::mode, cudaStream_t stream)
 {
-    if (DEMTimeStep > 0.0)
-    {
-        ++SPHStepState_.pendingDEMSteps_;
-        if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acousticStepInterval_)
-        {
-            flushSPHToCurrentTime(stream, true);
-        }
-    }
+    advanceSPHIfReady(DEMTimeStep, stream);
     cuda::launchAddVirtualParticleForceAndTorque(mutableLSParticles(), virtualParticles_, stream);
 }
 
 void SPHDEM::calculateSPHForceAndTorque(Real DEMTimeStep, hybrid::mode, cudaStream_t stream)
 {
-    if (DEMTimeStep > 0.0)
-    {
-        ++SPHStepState_.pendingDEMSteps_;
-        if (SPHStepState_.pendingDEMSteps_ >= SPHStepState_.acousticStepInterval_)
-        {
-            flushSPHToCurrentTime(stream, true);
-        }
-    }
+    advanceSPHIfReady(DEMTimeStep, stream);
     virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
 }
 
 void SPHDEM::prepareSPHAdvectionStep(gpu::mode, cudaStream_t stream)
 {
     const Real particleMass = SPHProperties_.particleMass();
-    const cuda::SPHKinematicsStatistics boundaryStatistics = cuda::calculateSPHKinematicsStatistics(virtualParticles_, stream);
-    if (boundaryStatistics.invalidValueCount_ > 0)
-    {
-        throw std::runtime_error("The SPH boundary contains a non-finite velocity or acceleration.");
-    }
-
-    const Real fluidVelocityScale = SPHStepState_.observedMaximumVelocity_ > SPHProperties_.maximumVelocity_ ? SPHStepState_.observedMaximumVelocity_ : SPHProperties_.maximumVelocity_;
-    const Real timeHorizon = SPHStepState_.advectionTimeStep_ > 0.0 ? SPHStepState_.advectionTimeStep_ : SPHStepState_.acousticTimeStep_;
-    const Real fluidSearchBuffer = 2.0 * fluidVelocityScale * timeHorizon + SPHStepState_.observedMaximumAcceleration_ * timeHorizon * timeHorizon;
-    const Real boundarySearchBuffer = (fluidVelocityScale + boundaryStatistics.maximumVelocity_) * timeHorizon +
-                                      0.5 * (SPHStepState_.observedMaximumAcceleration_ + boundaryStatistics.maximumAcceleration_) * timeHorizon * timeHorizon;
-    const Real searchBuffer = fluidSearchBuffer > boundarySearchBuffer ? fluidSearchBuffer : boundarySearchBuffer;
-    SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_ + searchBuffer;
+    updateSPHNeighborSearchRadius(cuda::calculateSPHKinematicsStatistics(virtualParticles_, stream));
 
     invalidateSPHNeighborhood();
     ensureSPHNeighborhood(gpu::mode{}, stream);
@@ -1302,17 +1235,12 @@ void SPHDEM::advanceSPH(Real timeStep, gpu::mode, cudaStream_t stream)
                                  stream);
 
     SPHStepState_.representedTime_ += timeStep;
-    if (!SPHStepState_.jetsCompleted_ && SPHStepState_.representedTime_ >= SPHStepState_.latestSPHJetEndTime_)
+    if (!SPHJets_.completed_ && SPHStepState_.representedTime_ >= SPHJets_.latestEndTime_)
     {
         applySPHJetVelocity(SPHStepState_.representedTime_, gpu::mode{}, stream);
+        SPHJets_.completed_ = true;
     }
-    updateSPHJetCompletion();
-    SPHStepState_.timeInAdvectionStep_ += timeStep;
-    const bool advectionStepCompleted = SPHStepState_.timeInAdvectionStep_ + math::defaultTolerance >= SPHStepState_.advectionTimeStep_;
-    if (advectionStepCompleted)
-    {
-        SPHStepState_.timeInAdvectionStep_ = 0.0;
-    }
+    const bool advectionStepCompleted = SPHStepState_.advanceAdvectionPhase(timeStep);
     updateSPHAcousticTimeStep(gpu::mode{}, stream);
     if (advectionStepCompleted)
     {
@@ -1348,43 +1276,9 @@ void SPHDEM::flushSPH(Real representedTime, hybrid::mode, cudaStream_t stream)
 
 void SPHDEM::updateSPHAcousticTimeStep(gpu::mode, cudaStream_t stream)
 {
-    if (SPHParticles_.hostSize() == 0 || SPHProperties_.smoothingLength_ <= math::defaultTolerance)
-    {
-        SPHStepState_.acousticTimeStepLimit_ = timeStep();
-        SPHStepState_.acousticTimeStep_ = timeStep();
-        SPHStepState_.observedMaximumVelocity_ = 0.0;
-        SPHStepState_.observedMaximumAcceleration_ = 0.0;
-        SPHStepState_.acousticStepInterval_ = 1;
-        return;
-    }
-
-    const cuda::SPHStateStatistics statistics = cuda::calculateSPHStateStatistics(SPHParticles_, gravity(), stream);
-    if (statistics.invalidValueCount_ > 0)
-    {
-        throw std::runtime_error("The SPH state contains a non-finite velocity, acceleration or density.");
-    }
-    const Real minimumDensity = execution::minimumSPHDensityRatio * SPHProperties_.referenceDensity_;
-    const Real maximumDensity = execution::maximumSPHDensityRatio * SPHProperties_.referenceDensity_;
-    if (statistics.minimumDensity_ < minimumDensity || statistics.maximumDensity_ > maximumDensity)
-    {
-        throw std::runtime_error("The SPH density left the admissible weakly-compressible range. Reduce the time step or increase the sound speed.");
-    }
-
-    SPHStepState_.observedMaximumVelocity_ = statistics.maximumVelocity_;
-    SPHStepState_.observedMaximumAcceleration_ = statistics.maximumAcceleration_;
-    SPHStepState_.acousticTimeStepLimit_ = execution::calculateSPHAcousticTimeStep(SPHProperties_.smoothingLength_, SPHProperties_.soundSpeed_, SPHStepState_.observedMaximumVelocity_);
-    if (!math::isFinite(SPHStepState_.acousticTimeStepLimit_) || SPHStepState_.acousticTimeStepLimit_ <= 0.0)
-    {
-        throw std::runtime_error("Failed to calculate a finite positive SPH acoustic time-step limit.");
-    }
-
-    Real maximumSPHTimeStep = SPHStepState_.acousticTimeStepLimit_;
-    if (SPHStepState_.timeInAdvectionStep_ > math::defaultTolerance)
-    {
-        const Real remainingAdvectionTime = SPHStepState_.advectionTimeStep_ - SPHStepState_.timeInAdvectionStep_;
-        maximumSPHTimeStep = remainingAdvectionTime < maximumSPHTimeStep ? remainingAdvectionTime : maximumSPHTimeStep;
-    }
-    setSPHAcousticTimeStepFromLimit(maximumSPHTimeStep);
+    const auto statistics =
+        SPHParticles_.hostSize() > 0 && SPHProperties_.smoothingLength_ > math::defaultTolerance ? cuda::calculateSPHStateStatistics(SPHParticles_, gravity(), stream) : SPHStateStatistics{};
+    updateSPHAcousticTimeStep(statistics);
 }
 
 void SPHDEM::copySPHToHost(cudaStream_t stream)

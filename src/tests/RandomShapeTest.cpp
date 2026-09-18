@@ -116,6 +116,64 @@ void testValidation()
     expectInvalid(std::numeric_limits<math::Real>::max(), 0.0, std::numeric_limits<math::Real>::max());
 }
 
+void testSuperellipsoidPerturbation()
+{
+    const math::Vec3 semiAxes{1.4, 0.8, 1.0};
+    constexpr math::Real equatorialExponent = 0.8;
+    constexpr math::Real polarExponent = 1.2;
+    constexpr math::Real minimumHeight = -0.12;
+    constexpr math::Real maximumHeight = 0.18;
+    levelset::Superellipsoid base(semiAxes.x, semiAxes.y, semiAxes.z, equatorialExponent, polarExponent);
+    base.buildSurfaceNode(2);
+    auto mesh = levelset::makeRandomShape(semiAxes, equatorialExponent, polarExponent, minimumHeight, maximumHeight, 2, 537);
+    const auto repeat = levelset::makeRandomShape(semiAxes, equatorialExponent, polarExponent, minimumHeight, maximumHeight, 2, 537);
+    const auto different = levelset::makeRandomShape(semiAxes, equatorialExponent, polarExponent, minimumHeight, maximumHeight, 2, 538);
+    const auto unperturbed = levelset::makeRandomShape(semiAxes, equatorialExponent, polarExponent, 0.0, 0.0, 2, 537);
+    require(mesh->surfaceNodePosition() == repeat->surfaceNodePosition(), "Superellipsoid perturbations must be reproducible from their seed.");
+    require(mesh->surfaceNodePosition() != different->surfaceNodePosition(), "Superellipsoid perturbations must depend on their seed.");
+    require(mesh->surfaceNodePosition().size() == base.surfaceNodePosition().size(), "Random geometry must retain the requested base subdivision.");
+    math::Real lowestHeight = std::numeric_limits<math::Real>::max();
+    math::Real highestHeight = std::numeric_limits<math::Real>::lowest();
+    for (std::size_t index = 0; index < mesh->surfaceNodePosition().size(); ++index)
+    {
+        const auto& original = base.surfaceNodePosition()[index];
+        const auto& deformed = mesh->surfaceNodePosition()[index];
+        const math::Real height = math::norm(deformed) - math::norm(original);
+        lowestHeight = std::min(lowestHeight, height);
+        highestHeight = std::max(highestHeight, height);
+        require(height >= minimumHeight - 1.0e-12 && height <= maximumHeight + 1.0e-12, "Perturbations must stay within radial height bounds relative to the superellipsoid.");
+        require(math::norm(math::normalizedOrZero(original) - math::normalizedOrZero(deformed)) < 1.0e-12, "Superellipsoid perturbations must be radial.");
+        require(math::norm(unperturbed->surfaceNodePosition()[index] - original) < 1.0e-12, "Zero height must preserve the superellipsoid base, including its exponents.");
+    }
+    require(std::abs(lowestHeight - minimumHeight) < 1.0e-12 && std::abs(highestHeight - maximumHeight) < 1.0e-12, "Superellipsoid offsets must span both requested endpoints.");
+    for (const auto& face : mesh->surfaceNodeConnectivity())
+    {
+        const auto& vertices = mesh->surfaceNodePosition();
+        const auto normal = math::cross(vertices[face.y] - vertices[face.x], vertices[face.z] - vertices[face.x]);
+        require(math::dot(normal, vertices[face.x]) > 0.0, "Superellipsoid deformation must preserve outward winding.");
+    }
+    const auto nativePositions = mesh->surfaceNodePosition();
+    mesh->buildLSGrid(0.16, 2);
+    require(mesh->volume() > 0.0 && mesh->boundingRadius() > 0.0, "Irregular superellipsoids must have integrated volume and a bounding radius.");
+    const auto correctedPositions = mesh->surfaceNodePosition();
+    require(math::norm(nativePositions.front() - correctedPositions.front()) > 1.0e-5, "Asymmetric shapes must use LSInfo centroid correction.");
+    mesh->buildLSGrid(0.16, 2);
+    for (std::size_t index = 0; index < correctedPositions.size(); ++index)
+        require(math::norm(correctedPositions[index] - mesh->surfaceNodePosition()[index]) < 1.0e-12, "Rebuilding must not accumulate centroid corrections.");
+
+    for (const auto& invalid : {math::Vec3{0.0, 1.0, 1.0}, math::Vec3{1.0, -1.0, 1.0}})
+    {
+        bool rejected = false;
+        try { (void)levelset::makeRandomShape(invalid, 1.0, 1.0, -0.1, 0.1, 1); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected, "Invalid superellipsoid semi-axes must be rejected.");
+    }
+    bool rejected = false;
+    try { (void)levelset::makeRandomShape(semiAxes, 1.0, 1.0, -2.0, -2.0, 1); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "Offsets that collapse the base must be rejected.");
+}
+
 } // namespace
 
 int main()
@@ -124,6 +182,7 @@ int main()
     {
         testGeometryAndDistance();
         testValidation();
+        testSuperellipsoidPerturbation();
         std::cout << "Random-shape geometry tests passed.\n";
         return 0;
     }

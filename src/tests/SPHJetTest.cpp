@@ -4,9 +4,12 @@
 #include "particle/SPHJet.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 namespace
 {
@@ -100,6 +103,96 @@ void testGenerationConstraintAndCompletion(executionMode mode)
     require(simulation.SPHJetsCompleted(), "A completed jet must remain permanently marked complete across later solve calls.");
 }
 
+void requireSameState(const SPHDEM& first, const SPHDEM& second)
+{
+    require(first.SPHJetsCompleted() == second.SPHJetsCompleted(), "Jet completion must survive output and solve continuation.");
+    require(first.SPHParticles().hostSize() == second.SPHParticles().hostSize(), "Jet snapshots must preserve the particle count.");
+    for (std::size_t index = 0; index < first.SPHParticles().hostSize(); ++index)
+    {
+        const SPHParticle& a = first.SPHParticles().host()[index];
+        const SPHParticle& b = second.SPHParticles().host()[index];
+        require(math::nearlyEqual(a.position(), b.position()) && math::nearlyEqual(a.velocity(), b.velocity()) &&
+                    nearlyEqual(a.density(), b.density()) && a.isConstrained() == b.isConstrained(),
+                "Jet output or split solve changed the particle continuation state.");
+    }
+}
+
+void testMultipleJetSnapshotContinuation()
+{
+    constexpr math::Real spacing = 1.0e-3;
+    constexpr math::Real timeStep = 1.0e-5;
+    constexpr math::Real lastEndTime = 156.5 * timeStep;
+    testSPHDEM reference;
+    testSPHDEM observed;
+    testSPHDEM split;
+    for (testSPHDEM* simulation : {&reference, &observed, &split})
+    {
+        require(simulation->SPHJetsCompleted(), "A solver without jets must report completion.");
+        simulation->setBoundary({-0.01, -0.01, -0.01}, {0.01, 0.01, 0.01});
+        simulation->setGravity({0.0, 2.0, 0.0});
+        simulation->setTimeStep(timeStep);
+        simulation->setSPHProperties(spacing, 1.3 * spacing, 1000.0, 1.0e-3);
+        simulation->setSPHMaximumVelocity(1.0);
+        // Add the longer jet first: the completion bound must be the maximum,
+        // independent of insertion order.
+        require(simulation->addSPHJet(SPHJet{{0.0, 0.004, 0.0}, math::Vec3::unitX(), 0.5 * spacing, 1.0, lastEndTime}) == 0,
+                "The longer jet must own the first particle.");
+        require(simulation->addSPHJet(SPHJet{{0.0, -0.004, 0.0}, math::Vec3::unitX(), 0.5 * spacing, 1.0, 103.5 * timeStep}) == 1,
+                "The shorter jet must own a separate particle.");
+        // Keep the tail at the upstream pipe boundary so its constraint remains
+        // active in the deferred state immediately before the final jet ends.
+        simulation->particles().host()[0].setPosition({-lastEndTime, 0.004, 0.0});
+    }
+
+    const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const std::filesystem::path outputDirectory = std::filesystem::temp_directory_path() / ("fundem-sph-jet-state-" + std::to_string(stamp));
+    observed.setOutputDirectory((outputDirectory / "observed").string());
+    split.setOutputDirectory((outputDirectory / "split").string());
+    observed.solve(0);
+    for (int step = 1; step <= 200; ++step)
+    {
+        reference.step();
+        observed.step();
+        if (step == 104 || step == 156 || step == 157)
+        {
+            require(observed.SPHJetsCompleted() == (step == 157), "Only the latest jet end may complete all jets at the visible time.");
+            require(observed.SPHParticles().host()[0].isConstrained(), "The final jet must still be constrained in the deferred state at the snapshot boundary.");
+            observed.observeCurrentState([&](const solver&)
+            {
+                require(observed.SPHJetsCompleted() == (step == 157), "A current-state snapshot must report the visible jet completion time.");
+                require(observed.SPHParticles().host()[0].isConstrained() == (step != 157), "A snapshot crossing the final jet end must clear its constraint.");
+            });
+            requireSameState(reference, observed);
+            observed.writeOutput();
+        }
+        requireSameState(reference, observed);
+    }
+    reference.solve(0);
+    observed.solve(0);
+
+    split.solve(104);
+    require(!split.SPHJetsCompleted(), "The shorter jet ending must not complete the longer jet.");
+    split.writeOutput();
+    split.solve(52);
+    require(!split.SPHJetsCompleted(), "The final jet must remain active just before its end.");
+    split.solve(1);
+    require(split.SPHJetsCompleted() && !split.SPHParticles().host()[0].isConstrained(), "Solve completion must expose the cleared constraint after the final jet ends.");
+    split.writeOutput();
+    split.solve(43);
+    requireSameState(reference, observed);
+    requireSameState(reference, split);
+
+    reference.solve(19);
+    observed.solve(19);
+    split.solve(19);
+    requireSameState(reference, observed);
+    requireSameState(reference, split);
+    require(split.SPHJetsCompleted(), "All jets must remain complete after further solve continuation.");
+    for (const SPHParticle& particle : split.SPHParticles().host())
+        require(!particle.isConstrained(), "No completed jet may retain a particle constraint after continuation.");
+    std::filesystem::remove_all(outputDirectory);
+}
+
 } // namespace
 
 int main()
@@ -110,6 +203,7 @@ int main()
         testPipeGeometry();
         testDiscretization();
         testGenerationConstraintAndCompletion(executionMode::CPU);
+        testMultipleJetSnapshotContinuation();
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
         testGenerationConstraintAndCompletion(executionMode::GPU);
 #endif

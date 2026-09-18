@@ -9,6 +9,7 @@
 #include "solver/LSDEM.h"
 #include "particle/SPHJet.h"
 #include "interaction/SPHNeighborhood.h"
+#include "interaction/SPHInteractionTypes.h"
 #include "interaction/virtualParticleCoupling.h"
 
 #include <memory>
@@ -53,19 +54,19 @@ public:
     /** Adds a finite-duration jet backed by an upstream virtual pipe and returns its first particle index. */
     int addSPHJet(const SPHJet& value);
     /** Reports whether every finite-duration jet has ended at the solver's visible time. */
-    bool SPHJetsCompleted() const noexcept { return SPHJets_.empty() || time() >= SPHStepState_.latestSPHJetEndTime_; }
+    bool SPHJetsCompleted() const noexcept { return SPHJets_.completedAt(time()); }
     Real SPHMaximumVelocity() const noexcept { return SPHProperties_.maximumVelocity_; }
     Real SPHSoundSpeed() const noexcept { return SPHProperties_.soundSpeed_; }
     Real SPHSpacing() const noexcept { return SPHProperties_.spacing_; }
     Real SPHSmoothingLength() const noexcept { return SPHProperties_.smoothingLength_; }
     Real SPHReferenceDensity() const noexcept { return SPHProperties_.referenceDensity_; }
     Real SPHDynamicViscosity() const noexcept { return SPHProperties_.dynamicViscosity_; }
-    Real SPHTimeStepLimit() const noexcept { return SPHStepState_.acousticTimeStepLimit_; }
-    Real SPHTimeStep() const noexcept { return SPHStepState_.acousticTimeStep_; }
-    Real SPHAdvectionTimeStepLimit() const noexcept { return SPHStepState_.advectionTimeStepLimit_; }
-    Real SPHAdvectionTimeStep() const noexcept { return SPHStepState_.advectionTimeStep_; }
-    int SPHStepInterval() const noexcept { return SPHStepState_.acousticStepInterval_; }
-    int SPHAdvectionStepInterval() const noexcept { return SPHStepState_.advectionStepInterval_; }
+    Real SPHTimeStepLimit() const noexcept { return SPHStepState_.acoustic_.limit_; }
+    Real SPHTimeStep() const noexcept { return SPHStepState_.acoustic_.timeStep_; }
+    Real SPHAdvectionTimeStepLimit() const noexcept { return SPHStepState_.advection_.limit_; }
+    Real SPHAdvectionTimeStep() const noexcept { return SPHStepState_.advection_.timeStep_; }
+    int SPHStepInterval() const noexcept { return SPHStepState_.acoustic_.interval_; }
+    int SPHAdvectionStepInterval() const noexcept { return SPHStepState_.advection_.interval_; }
 
     /** Sets uniform SPH discretization and fluid properties shared by all SPH particles. */
     void setSPHProperties(Real spacing, Real smoothingLength, Real referenceDensity, Real dynamicViscosity);
@@ -123,6 +124,11 @@ private:
     struct SPHProperties {
         /** Returns the uniform mass represented by one initially spaced particle. */
         Real particleMass() const noexcept { return referenceDensity_ * spacing_ * spacing_ * spacing_; }
+        /** Creates stage inputs from current properties and gravity, without a second cached copy. */
+        SPHInteractionParameters interactionParameters(const Vec3& gravity) const noexcept
+        {
+            return {smoothingLength_, particleMass(), referenceDensity_, latticeKernelSum3D_, soundSpeed_, dynamicViscosity_, gravity};
+        }
 
         Real maximumVelocity_{1.0};    ///< Configured design velocity scale.
         Real soundSpeed_{10.0};        ///< Artificial speed of sound.
@@ -135,24 +141,34 @@ private:
         bool set_{false};              ///< Whether uniform properties were validated.
     };
 
+    /** One stability limit and its integer-quantized integration interval. */
+    struct SPHTimeInterval {
+        Real limit_{0.0};    ///< Unquantized stability limit.
+        Real timeStep_{0.0}; ///< Quantized physical duration.
+        int interval_{1};    ///< DEM steps for acoustics, acoustic steps for advection.
+    };
+
     /** Mutable multirate integration, stability, and neighborhood state. */
     struct SPHStepState {
-        Real acousticTimeStepLimit_{0.0};       ///< Current acoustic stability limit.
-        Real acousticTimeStep_{0.0};            ///< Acoustic step quantized to DEM steps.
-        Real advectionTimeStepLimit_{0.0};      ///< Current advection stability limit.
-        Real advectionTimeStep_{0.0};           ///< Advection step quantized to acoustic steps.
-        Real observedMaximumVelocity_{0.0};     ///< Latest observed fluid speed.
-        Real observedMaximumAcceleration_{0.0}; ///< Latest observed fluid acceleration.
-        Real neighborSearchRadius_{0.0};        ///< Radius valid for the current neighborhood.
-        Real timeInAdvectionStep_{0.0};         ///< Represented time since the last grid rebuild.
-        Real representedTime_{0.0};             ///< Physical time represented by the current fluid state.
-        Real latestSPHJetEndTime_{0.0};         ///< End time of the final configured finite-duration jet.
-        int acousticStepInterval_{1};           ///< DEM steps per acoustic update.
-        int advectionStepInterval_{1};          ///< Acoustic steps per advection update.
-        int pendingDEMSteps_{0};                ///< Deferred DEM steps not yet flushed to SPH.
-        Real couplingImpulseTime_{0.0};        ///< Endpoint matching interval; zero for observation-only flushes.
-        bool jetsCompleted_{true};              ///< Whether all finite-duration inlet constraints have ended.
-        bool resume_{false};                    ///< Resume rather than reinitialize deferred state.
+        SPHTimeInterval acoustic_;       ///< Acoustic stability and DEM-step quantization.
+        SPHTimeInterval advection_;      ///< Advection stability and acoustic-step quantization.
+        SPHStateStatistics statistics_;  ///< Latest backend-independent fluid extrema.
+        Real neighborSearchRadius_{0.0}; ///< Radius valid for the current neighborhood.
+        Real timeInAdvectionStep_{0.0};  ///< Represented time since the last grid rebuild.
+        Real representedTime_{0.0};      ///< Physical time represented by the current fluid state.
+        int pendingDEMSteps_{0};         ///< Deferred DEM steps not yet flushed to SPH.
+        Real couplingImpulseTime_{0.0};  ///< Endpoint matching interval; zero for observation-only flushes.
+        bool resume_{false};             ///< Resume rather than reinitialize deferred state.
+
+        /** Advances the advection phase and reports whether its interval has ended. */
+        bool advanceAdvectionPhase(Real timeStep) noexcept
+        {
+            timeInAdvectionStep_ += timeStep;
+            const bool completed = timeInAdvectionStep_ + math::defaultTolerance >= advection_.timeStep_;
+            if (completed)
+                timeInAdvectionStep_ = 0.0;
+            return completed;
+        }
     };
 
     /** Cached topology and boundary classification from the latest initialization. */
@@ -162,13 +178,22 @@ private:
         bool boundaryStatic_{false};    ///< Whether every LS owner is stationary with infinite mass.
     };
 
-    /** Immutable particle range and timing bound to one finite-duration jet. */
-    struct SPHJetConstraint {
-        SPHJet value_;              ///< User-defined outlet, direction, radius, speed, and duration.
-        Real pipeLength_{0.0};      ///< Axial length of the upstream virtual pipe.
-        Real endTime_{0.0};         ///< Absolute time at which the inlet constraint ends.
-        int particleIndexBegin_{0}; ///< First SPH particle owned by this jet.
-        int particleCount_{0};      ///< Number of particles owned by this jet.
+    /** Finite-jet configuration and its represented-time completion cache, independent of integration state. */
+    struct SPHJetState {
+        /** Immutable particle range and timing bound to one finite-duration jet. */
+        struct constraint {
+            SPHJet value_;              ///< Outlet, direction, radius, speed and duration.
+            Real pipeLength_{0.0};      ///< Axial length of the upstream virtual pipe.
+            Real endTime_{0.0};         ///< Absolute time at which the inlet constraint ends.
+            int particleIndexBegin_{0}; ///< First SPH particle owned by this jet.
+            int particleCount_{0};      ///< Number of particles owned by this jet.
+        };
+
+        bool completedAt(Real time) const noexcept { return constraints_.empty() || time >= latestEndTime_; }
+
+        std::vector<constraint> constraints_; ///< Fixed particle ranges; unchanged during output snapshots.
+        Real latestEndTime_{0.0};             ///< Latest end time among all configured jets.
+        bool completed_{true};                ///< Skip inlet checks after the represented state passes the final end.
     };
 
     /** Complete deferred SPH and coupling state used for non-destructive output snapshots. */
@@ -177,6 +202,7 @@ private:
         virtualParticleContainer::host_container_type virtualParticles_; ///< Saved boundary host state.
         SPHStepState stepState_;                                         ///< Saved multirate integration state.
         virtualParticleCoupling::state couplingState_;                   ///< Saved wall-coupling accumulators.
+        bool jetsCompleted_{true};                                       ///< Saved jet completion; immutable jet configuration is shared.
         bool active_{false};                                             ///< Whether a snapshot is currently held.
         bool preserveCurrentHost_{false};                                ///< Whether snapshot capture retained host results.
     };
@@ -210,6 +236,8 @@ private:
     void calculateSPHForceAndTorque(Real DEMTimeStep, gpu::mode, cudaStream_t stream);
     /** Evaluates one device-fluid/host-solid coupling interval. */
     void calculateSPHForceAndTorque(Real DEMTimeStep, hybrid::mode, cudaStream_t stream);
+    /** Accumulates a DEM interval and flushes fluid work when the acoustic interval is ready. */
+    void advanceSPHIfReady(Real DEMTimeStep, cudaStream_t stream);
     /** Starts a host advection interval by rebuilding neighborhoods and density. */
     void prepareSPHAdvectionStep(cpu::mode);
     /** Starts a device advection interval by rebuilding grids and density. */
@@ -234,6 +262,10 @@ private:
     void updateSPHAcousticTimeStep(cpu::mode);
     /** Updates the acoustic limit from device-reduced state statistics. */
     void updateSPHAcousticTimeStep(gpu::mode, cudaStream_t stream);
+    /** Checks reduced state and computes the common acoustic limit and quantized duration. */
+    void updateSPHAcousticTimeStep(const SPHStateStatistics& statistics);
+    /** Computes the shared advection search radius from fluid and boundary extrema. */
+    void updateSPHNeighborSearchRadius(const SPHKinematicsStatistics& boundaryStatistics);
     /** Updates the advection limit from cached extrema and fluid properties. */
     void updateSPHAdvectionTimeStep();
     /** Quantizes an acoustic limit to an integer multiple of the DEM step. */
@@ -242,8 +274,6 @@ private:
     void applySPHJetVelocity(Real representedTime, cpu::mode);
     /** Enforces active virtual-pipe inlet velocities on device particles. */
     void applySPHJetVelocity(Real representedTime, gpu::mode, cudaStream_t stream);
-    /** Permanently disables jet geometry checks after the last source ends. */
-    void updateSPHJetCompletion() noexcept;
     /** Enqueues current fluid state to the host. */
     void copySPHToHost(cudaStream_t stream);
     /** Writes one SPH-particle VTU frame. */
@@ -254,12 +284,12 @@ private:
     SPHParticleContainer SPHParticles_;                     ///< Fluid particles.
     virtualParticleContainer virtualParticles_;             ///< Generated LS boundary samples.
     spatialGridContainer SPHSpatialGrid_;                   ///< Fluid background grid.
-    SPHNeighborhood SPHNeighborhood_;                     ///< Actual-displacement validity of reused searches.
+    SPHNeighborhood SPHNeighborhood_;                       ///< Actual-displacement validity of reused searches.
     spatialGridContainer virtualParticleSpatialGrid_;       ///< Boundary-sample background grid.
     std::vector<SPHParticleVTUField> SPHParticleVTUFields_; ///< Optional SPH output fields.
     virtualParticleCoupling virtualParticleCoupling_;       ///< Host aggregation by LS owner.
     std::unique_ptr<cpu::SPHInteraction> SPHInteractions_;  ///< CPU neighborhood and interaction engine.
-    std::vector<SPHJetConstraint> SPHJets_;                 ///< Finite-duration virtual-pipe inlet constraints.
+    SPHJetState SPHJets_;                                   ///< Finite-jet definitions and completion cache.
     SPHProperties SPHProperties_;                           ///< Uniform fluid configuration.
     SPHStepState SPHStepState_;                             ///< Mutable multirate integration state.
     SPHInitializationState SPHInitializationState_;         ///< Cached initialized topology state.

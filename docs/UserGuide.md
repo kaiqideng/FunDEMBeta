@@ -1056,7 +1056,7 @@ const int firstJetParticle = simulation.addSPHJet(jet);
 
 The value type normalizes its direction, and this overload pre-fills an upstream virtual pipe of length `jetSpeed * jetDuration` once during setup. It does not inject particles or resize storage while solving. The solver records the jet's stable particle range and constrains only particles from that range that are still inside its pipe, so unrelated fluid and particles that have crossed the outlet remain unconstrained.
 
-At each SPH acoustic substep, the inlet velocity is applied at the substep start before any advection-step preparation and again immediately after velocity integration. A jet active at the substep start remains active through that complete substep, so its end time is rounded upward by at most one acoustic substep. After the final jet ends, the internal `jetsCompleted` fast path bypasses all later pipe checks; `SPHJetsCompleted()` exposes the completion state.
+At each SPH acoustic substep, the inlet velocity is applied at the substep start before any advection-step preparation and again immediately after velocity integration. A jet active at the substep start remains active through that complete substep, so its end time is rounded upward by at most one acoustic substep. After the final jet ends, the completion fast path in `SPHJetState` bypasses all later pipe checks. `SPHJetsCompleted()` reports completion at the solver's visible time, even when internal fluid work is deferred. Output observations restore the internal completion flag along with the saved fluid state and do not end a jet prematurely.
 
 ### 14.4 Level-set walls
 

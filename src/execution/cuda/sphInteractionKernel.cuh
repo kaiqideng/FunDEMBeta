@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "interaction/SPHInteractionTypes.h"
 #include "particle/LSParticle.h"
 #include "particle/SPHParticle.h"
 #include "particle/spatialGrid.h"
@@ -15,27 +16,11 @@
 namespace fundem::cuda
 {
 
+using SPHStateStatistics = fundem::SPHStateStatistics;
+using SPHKinematicsStatistics = fundem::SPHKinematicsStatistics;
+
 /** Reduces actual fluid and boundary displacement from the cached grid reference. */
-math::Real maximumSPHNeighborDisplacementSquared(const SPHParticleContainer& particles,
-                                                 const virtualParticleContainer& boundaries,
-                                                 const SPHNeighborPositionContainer& reference,
-                                                 cudaStream_t stream);
-
-/** Device-reduced fluid extrema and invalid-state count. */
-struct SPHStateStatistics {
-    math::Real maximumVelocity_{0.0};     ///< Largest finite fluid speed.
-    math::Real maximumAcceleration_{0.0}; ///< Largest finite acceleration.
-    math::Real minimumDensity_{0.0};      ///< Smallest finite positive density.
-    math::Real maximumDensity_{0.0};      ///< Largest finite density.
-    int invalidValueCount_{0};            ///< Number of invalid particles.
-};
-
-/** Device-reduced virtual-boundary kinematic extrema. */
-struct SPHKinematicsStatistics {
-    math::Real maximumVelocity_{0.0};     ///< Largest finite boundary speed.
-    math::Real maximumAcceleration_{0.0}; ///< Largest finite boundary acceleration.
-    int invalidValueCount_{0};            ///< Number of invalid boundary samples.
-};
+math::Real maximumSPHNeighborDisplacementSquared(const SPHParticleContainer& particles, const virtualParticleContainer& boundaries, const SPHNeighborPositionContainer& reference, cudaStream_t stream);
 
 /** Initializes all SPH particle state asynchronously on @p stream. */
 void launchInitializeSPHParticles(SPHParticleContainer& particles, math::Real referenceDensity, math::Real soundSpeed, cudaStream_t stream = nullptr);
@@ -44,7 +29,11 @@ void launchUpdateVirtualParticlePositionAndNormal(virtualParticleContainer& virt
 /** Clears sampled velocity, acceleration, force, and normal accumulators. */
 void launchClearVirtualParticleKinematics(virtualParticleContainer& virtualParticles, cudaStream_t stream = nullptr);
 /** Accumulates owner-body kinematics at every virtual boundary sample. */
-void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, math::Real timeStep, cudaStream_t stream = nullptr);
+void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles,
+                                               const LSParticleContainer& LSParticles,
+                                               const math::Vec3& gravity,
+                                               math::Real timeStep,
+                                               cudaStream_t stream = nullptr);
 /** Compatibility overload for instantaneous initialization without a difference interval. */
 inline void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, cudaStream_t stream = nullptr)
 {

@@ -175,6 +175,22 @@ std::unique_ptr<TriangleMesh> makeRandomShape(math::Real radius,
                                             int subdivisionLevel = 3,
                                             std::uint64_t seed = 0);
 
+/**
+ * Creates an irregular mesh by adding smooth radial height offsets to a
+ * superellipsoid with the given semi-axes and equatorial/polar exponents.
+ * Heights are distances measured from the base surface along rays from the
+ * origin, not changes to its semi-axes. Sampled offsets span both height bounds.
+ * All sampled deformed radii must remain positive and finite. The returned mesh
+ * remains in the native frame; buildLSGrid performs movable centroid correction.
+ */
+std::unique_ptr<TriangleMesh> makeRandomShape(const math::Vec3& semiAxes,
+                                            math::Real equatorialExponent,
+                                            math::Real polarExponent,
+                                            math::Real minimumSurfaceHeight,
+                                            math::Real maximumSurfaceHeight,
+                                            int subdivisionLevel = 3,
+                                            std::uint64_t seed = 0);
+
 /** Analytic sphere input geometry centered at the local origin. */
 class Sphere final : public LSInfo
 {

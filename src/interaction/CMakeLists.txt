@@ -19,6 +19,7 @@ target_sources(
             surfaceNodeMapping.h
             interactionContainer.h
             SPHNeighborhood.h
+            SPHInteractionTypes.h
             virtualParticleCoupling.h
 )
 
