@@ -47,6 +47,17 @@ Set `-DFUNDEM_BUILD_VALIDATIONS=OFF` only when a minimal library build is requir
 
 `backendConsistency` always records the CPU result. GPU comparisons are skipped only when CUDA was not built or no CUDA device is present.
 
+## ON-DEM bumpy-wall shear benchmark
+
+[ondemShearFlow](ondemShearFlow/README.md) is an isolated CPU benchmark adaptation
+with X/Y periodic contacts, the author's original particle coordinates, explicit
+normal/tangential dashpots, and MercuryCG-compatible discrete output. It does not
+change the default `SphereDEM` contact law or enable periodic Workbench projects.
+Its small periodic-contact and file-format checks are included in
+`runValidations`; the full 200-million-step simulation is never run implicitly.
+The benchmark notes distinguish published inputs, implementation choices, and
+unresolved reference-data differences from a completed physical validation.
+
 ## Interpreting the LS compression case
 
 Two equal spheres of radius `R` are compressed by `delta`. For the one-sided nodal penalty integral used here, the leading small-overlap force is

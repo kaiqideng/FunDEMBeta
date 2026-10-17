@@ -376,7 +376,7 @@ public:
     void synchronize(cudaStream_t stream = nullptr) const { host_device_detail::synchronize(stream); }
 
 private:
-    /** Refreshes insertion metadata after host-vector growth or relocation. */
+    /** Binds an appended suffix, or the complete vector after storage relocation. */
     void bindHostObjects() const noexcept
     {
         if constexpr (std::is_base_of_v<containerObject, HostObject>)
@@ -385,7 +385,19 @@ private:
             {
                 return;
             }
-            for (std::size_t index = 0; index < host_.size(); ++index)
+            std::size_t firstUnbound = 0;
+            if (host_.front().isBoundToContainerIndex(0))
+            {
+                // Appending without relocation preserves the bound prefix. Walk
+                // only the new suffix; revisiting that prefix makes repeated
+                // host().push_back() quadratic even when capacity is reserved.
+                firstUnbound = host_.size() - 1;
+                while (firstUnbound > 0 && !host_[firstUnbound - 1].isBoundToContainerIndex(static_cast<int>(firstUnbound - 1)))
+                {
+                    --firstUnbound;
+                }
+            }
+            for (std::size_t index = firstUnbound; index < host_.size(); ++index)
             {
                 host_[index].bindToContainer(static_cast<int>(index));
             }

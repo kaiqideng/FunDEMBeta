@@ -85,6 +85,13 @@ protected:
     /** Device counterpart of the external sphere load hook; work must use @p stream. */
     virtual void addSphereExternalForceAndTorque(particle::device_type, cudaStream_t) {}
 
+    /** Optional frontend kinematics before the native sphere contact search. */
+    virtual void beforeSphereContactDetection(cpu::mode) {}
+    virtual void beforeSphereContactDetection(gpu::mode, cudaStream_t) {}
+    /** Evaluates native sphere contacts; frontends may replace only their force law. */
+    virtual void addSphereContactForceAndTorque(Real historyTimeStep, cpu::mode);
+    virtual void addSphereContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream);
+
 private:
     /** Returns one mutable sphere after checked stable-index lookup. */
     particle& mutableSphere(int particleIndex);

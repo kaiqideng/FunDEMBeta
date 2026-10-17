@@ -69,20 +69,22 @@ private:
     Real inverseMass_{0.0};       ///< Reciprocal mass; zero denotes infinite mass.
 
 public:
-    struct positionField {
-        inline static constexpr auto member = &pointMass::position_;
-    };
-    struct velocityField {
-        inline static constexpr auto member = &pointMass::velocity_;
-    };
-    struct forceField {
-        inline static constexpr auto member = &pointMass::force_;
-    };
-    struct inverseMassField {
-        inline static constexpr auto member = &pointMass::inverseMass_;
-    };
-
     using DeviceLayout = deviceLayout<positionField, velocityField, forceField, inverseMassField>;
+};
+
+// Form member pointers only after the polymorphic class is complete; otherwise
+// MSVC can omit its virtual-table pointer from these field offsets.
+struct pointMass::positionField {
+    inline static constexpr auto member = &pointMass::position_;
+};
+struct pointMass::velocityField {
+    inline static constexpr auto member = &pointMass::velocity_;
+};
+struct pointMass::forceField {
+    inline static constexpr auto member = &pointMass::force_;
+};
+struct pointMass::inverseMassField {
+    inline static constexpr auto member = &pointMass::inverseMass_;
 };
 
 } // namespace fundem

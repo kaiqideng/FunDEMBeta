@@ -38,6 +38,10 @@ fundem_add_cpp_test(
 
 fundem_add_cpp_test(fundem_random_shape_test FunDEM.RandomShape RandomShapeTest.cpp)
 
+find_package(Threads REQUIRED)
+fundem_add_cpp_test(fundem_host_container_binding_test FunDEM.HostContainerBinding HostContainerBindingTest.cpp)
+target_link_libraries(fundem_host_container_binding_test PRIVATE Threads::Threads)
+
 fundem_add_cpp_test(fundem_ls_geometry_test FunDEM.LSGeometry LSGeometryTest.cpp)
 set_tests_properties(FunDEM.LSGeometry PROPERTIES ENVIRONMENT "OMP_NUM_THREADS=2" TIMEOUT 120)
 
@@ -72,6 +76,14 @@ fundem_add_cpp_test(
     FiberTest.cpp
 )
 set_tests_properties(FunDEM.Fiber PROPERTIES LABELS "integration;cpu" TIMEOUT 300)
+
+if(TARGET ondemShearFlowCheck)
+    add_test(NAME FunDEM.ONDEM.PeriodicShear COMMAND ondemShearFlowCheck)
+    add_test(NAME FunDEM.ONDEM.ShearIO COMMAND ondemShearFlowIOCheck)
+    add_test(NAME FunDEM.ONDEM.ExternalContactForce COMMAND ondemShearFlowExternalForceCheck)
+    set_tests_properties(FunDEM.ONDEM.PeriodicShear FunDEM.ONDEM.ShearIO FunDEM.ONDEM.ExternalContactForce
+        PROPERTIES LABELS "validation;cpu" TIMEOUT 30 ENVIRONMENT "OMP_NUM_THREADS=2")
+endif()
 
 if(FUNDEM_HAS_CUDA)
     function(fundem_add_cuda_test target test_name source)
