@@ -49,6 +49,9 @@ bool contact::calculateForce(Real timeStep) noexcept
     const Real torsionalFrictionCoefficient = sphereLevelSetContact ? masterMaterial.torsionalFrictionCoefficient()
                                                                    : execution::harmonicMean(masterMaterial.torsionalFrictionCoefficient(), slaveMaterial.torsionalFrictionCoefficient());
     const Real restitutionCoefficient = execution::harmonicMean(masterMaterial.restitutionCoefficient(), slaveMaterial.restitutionCoefficient());
+    const Real dissipation = execution::contactDissipationFactor(restitutionCoefficient);
+    const Real normalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, normalStiffness);
+    const Real slidingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, slidingStiffness);
     const Vec3 relativeVelocity =
         execution::relativeVelocityAtContactPoint(master.position(), master.velocity(), master.angularVelocity(), slave.position(), slave.velocity(), slave.angularVelocity(), point_);
     force_ = execution::calculateLinearContactForce(normalForceMagnitude_,
@@ -60,8 +63,8 @@ bool contact::calculateForce(Real timeStep) noexcept
                                                     normalStiffness,
                                                     slidingStiffness,
                                                     slidingFrictionCoefficient,
-                                                    restitutionCoefficient,
-                                                    effectiveMass_);
+                                                    normalDampingCoefficient,
+                                                    slidingDampingCoefficient);
     normalElasticEnergy_ = overlap_ > 0.0 ? execution::springElasticEnergy(normalStiffness, overlap_) : 0.0;
     slidingElasticEnergy_ = execution::springElasticEnergy(slidingStiffness, slidingSpringDeformation_);
 
@@ -72,6 +75,8 @@ bool contact::calculateForce(Real timeStep) noexcept
         torsionalSpringDeformation_ = Vec3::zero();
         return true;
     }
+    const Real rollingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, rollingStiffness);
+    const Real torsionalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, torsionalStiffness);
     torque_ = execution::calculateSphereRotationalContactTorque(rollingSpringDeformation_,
                                                                 torsionalSpringDeformation_,
                                                                 master.angularVelocity() - slave.angularVelocity(),
@@ -81,8 +86,8 @@ bool contact::calculateForce(Real timeStep) noexcept
                                                                 torsionalStiffness,
                                                                 rollingFrictionCoefficient,
                                                                 torsionalFrictionCoefficient,
-                                                                restitutionCoefficient,
-                                                                effectiveMass_,
+                                                                rollingDampingCoefficient,
+                                                                torsionalDampingCoefficient,
                                                                 effectiveRadius_,
                                                                 normalForceMagnitude_);
     rollingElasticEnergy_ = execution::springElasticEnergy(rollingStiffness, rollingSpringDeformation_);

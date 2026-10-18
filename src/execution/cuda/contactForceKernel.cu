@@ -60,6 +60,10 @@ __global__ void contactForceKernel(contactDeviceView contacts,
         sphereLevelSetContact ? materials.torsionalFrictionCoefficient_[masterMaterialIndex]
                              : execution::harmonicMean(materials.torsionalFrictionCoefficient_[masterMaterialIndex], materials.torsionalFrictionCoefficient_[slaveMaterialIndex]);
     const math::Real restitutionCoefficient = execution::harmonicMean(materials.restitutionCoefficient_[masterMaterialIndex], materials.restitutionCoefficient_[slaveMaterialIndex]);
+    const math::Real dissipation = execution::contactDissipationFactor(restitutionCoefficient);
+    const math::Real effectiveMass = contacts.effectiveMass_[contactIndex];
+    const math::Real normalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, normalStiffness);
+    const math::Real slidingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, slidingStiffness);
 
     const math::Vec3 point = contacts.point_[contactIndex];
     const math::Vec3 normal = contacts.normal_[contactIndex];
@@ -81,8 +85,8 @@ __global__ void contactForceKernel(contactDeviceView contacts,
                                                                     normalStiffness,
                                                                     slidingStiffness,
                                                                     slidingFrictionCoefficient,
-                                                                    restitutionCoefficient,
-                                                                    contacts.effectiveMass_[contactIndex]);
+                                                                    normalDampingCoefficient,
+                                                                    slidingDampingCoefficient);
     contacts.normalForceMagnitude_[contactIndex] = normalForceMagnitude;
     contacts.slidingSpringDeformation_[contactIndex] = slidingSpringDeformation;
     contacts.normalElasticEnergy_[contactIndex] = contacts.overlap_[contactIndex] > 0.0 ? execution::springElasticEnergy(normalStiffness, contacts.overlap_[contactIndex]) : 0.0;
@@ -98,6 +102,8 @@ __global__ void contactForceKernel(contactDeviceView contacts,
     }
     else
     {
+        const math::Real rollingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, rollingStiffness);
+        const math::Real torsionalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, torsionalStiffness);
         math::Vec3 rollingSpringDeformation = contacts.rollingSpringDeformation_[contactIndex];
         math::Vec3 torsionalSpringDeformation = contacts.torsionalSpringDeformation_[contactIndex];
         rotationalTorque = execution::calculateSphereRotationalContactTorque(rollingSpringDeformation,
@@ -109,8 +115,8 @@ __global__ void contactForceKernel(contactDeviceView contacts,
                                                                              torsionalStiffness,
                                                                              rollingFrictionCoefficient,
                                                                              torsionalFrictionCoefficient,
-                                                                             restitutionCoefficient,
-                                                                             contacts.effectiveMass_[contactIndex],
+                                                                             rollingDampingCoefficient,
+                                                                             torsionalDampingCoefficient,
                                                                              effectiveRadius,
                                                                              normalForceMagnitude);
         contacts.rollingSpringDeformation_[contactIndex] = rollingSpringDeformation;

@@ -218,7 +218,7 @@ FUNDEM_MATH_HD inline Vec3 integrateTorsionalSpringForce(Vec3& springDeformation
     return limitDampingWithinCoulombDisk(elasticForce, -dampingCoefficient * springVelocity, frictionLimit);
 }
 
-/** Computes normal and sliding contact force while updating sliding history. */
+/** Computes normal and sliding contact force using caller-supplied damping while updating sliding history. */
 FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitude,
                                                        Vec3& slidingSpringDeformation,
                                                        const Vec3& relativeVelocity,
@@ -228,8 +228,8 @@ FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitud
                                                        Real normalStiffness,
                                                        Real slidingStiffness,
                                                        Real slidingFrictionCoefficient,
-                                                       Real restitutionCoefficient,
-                                                       Real dampingMass) noexcept
+                                                       Real normalDampingCoefficient,
+                                                       Real slidingDampingCoefficient) noexcept
 {
     normalForceMagnitude = 0.0;
     if (overlap <= 0.0)
@@ -238,14 +238,11 @@ FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitud
         return Vec3::zero();
     }
 
-    const Real dissipation = contactDissipationFactor(restitutionCoefficient);
-    const Real normalDampingCoefficient = contactDampingCoefficient(dissipation, dampingMass, normalStiffness);
     const Real normalVelocity = math::dot(relativeVelocity, contactNormal);
     const Vec3 normalRelativeVelocity = normalVelocity * contactNormal;
     const Real trialNormalForceMagnitude = normalStiffness * overlap - normalDampingCoefficient * normalVelocity;
     normalForceMagnitude = trialNormalForceMagnitude > 0.0 ? trialNormalForceMagnitude : 0.0;
 
-    const Real slidingDampingCoefficient = contactDampingCoefficient(dissipation, dampingMass, slidingStiffness);
     const Vec3 slidingForce = integrateTangentialSpringForce(slidingSpringDeformation,
                                                              relativeVelocity - normalRelativeVelocity,
                                                              contactNormal,
@@ -257,7 +254,7 @@ FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitud
     return normalForceMagnitude * contactNormal + slidingForce;
 }
 
-/** Computes rolling and torsional resistance torque while updating both histories. */
+/** Computes rolling and torsional resistance torque using caller-supplied damping while updating both histories. */
 FUNDEM_MATH_HD inline Vec3 calculateSphereRotationalContactTorque(Vec3& rollingSpringDeformation,
                                                                   Vec3& torsionalSpringDeformation,
                                                                   const Vec3& relativeAngularVelocity,
@@ -267,13 +264,11 @@ FUNDEM_MATH_HD inline Vec3 calculateSphereRotationalContactTorque(Vec3& rollingS
                                                                   Real torsionalStiffness,
                                                                   Real rollingFrictionCoefficient,
                                                                   Real torsionalFrictionCoefficient,
-                                                                  Real restitutionCoefficient,
-                                                                  Real effectiveMass,
+                                                                  Real rollingDampingCoefficient,
+                                                                  Real torsionalDampingCoefficient,
                                                                   Real effectiveRadius,
                                                                   Real absoluteNormalForce) noexcept
 {
-    const Real dissipation = contactDissipationFactor(restitutionCoefficient);
-    const Real rollingDampingCoefficient = contactDampingCoefficient(dissipation, effectiveMass, rollingStiffness);
     const Vec3 rollingRelativeVelocity = -effectiveRadius * math::cross(contactNormal, relativeAngularVelocity);
     const Vec3 rollingForce = integrateTangentialSpringForce(rollingSpringDeformation,
                                                              rollingRelativeVelocity,
@@ -284,7 +279,6 @@ FUNDEM_MATH_HD inline Vec3 calculateSphereRotationalContactTorque(Vec3& rollingS
                                                              rollingDampingCoefficient,
                                                              timeStep);
 
-    const Real torsionalDampingCoefficient = contactDampingCoefficient(dissipation, effectiveMass, torsionalStiffness);
     const Real effectiveDiameter = 2.0 * effectiveRadius;
     const Vec3 torsionalRelativeVelocity = effectiveDiameter * math::dot(contactNormal, relativeAngularVelocity) * contactNormal;
     const Vec3 torsionalForce = integrateTorsionalSpringForce(torsionalSpringDeformation,

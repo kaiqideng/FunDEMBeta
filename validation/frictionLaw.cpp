@@ -33,7 +33,7 @@ int main(int argc, char** argv)
         for (int stepIndex = 0; stepIndex < 20; ++stepIndex)
         {
             force =
-                execution::calculateLinearContactForce(normalForce, springDeformation, relativeVelocity, normal, overlap, timeStep, normalStiffness, slidingStiffness, frictionCoefficient, 1.0, 1.0);
+                execution::calculateLinearContactForce(normalForce, springDeformation, relativeVelocity, normal, overlap, timeStep, normalStiffness, slidingStiffness, frictionCoefficient, 0.0, 0.0);
             const Vec3 tangentialForce = force - math::dot(force, normal) * normal;
             maximumDiskViolation = std::max(maximumDiskViolation, std::max(Real{0.0}, math::norm(tangentialForce) - frictionLimit));
             output << stepIndex + 1 << ' ' << springDeformation.x << ' ' << tangentialForce.x << ' ' << normalForce << ' ' << frictionLimit << '\n';
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
         const Real limitError = std::abs(math::norm(finalTangentialForce) - frictionLimit) / frictionLimit;
         const Real deformationError = std::abs(math::norm(springDeformation) - frictionLimit / slidingStiffness) / (frictionLimit / slidingStiffness);
 
-        execution::calculateLinearContactForce(normalForce, springDeformation, relativeVelocity, normal, 0.0, timeStep, normalStiffness, slidingStiffness, frictionCoefficient, 1.0, 1.0);
+        execution::calculateLinearContactForce(normalForce, springDeformation, relativeVelocity, normal, 0.0, timeStep, normalStiffness, slidingStiffness, frictionCoefficient, 0.0, 0.0);
         validation::require(springDeformation == Vec3::zero(), "Tangential history was not cleared when contact opened.");
 
         const Real maximumError = std::max({normalError, limitError, deformationError, maximumDiskViolation});
