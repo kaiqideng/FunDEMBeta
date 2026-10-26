@@ -1,8 +1,8 @@
 /** Compares an identical sphere-level-set contact trajectory across supported backends. */
 #include "data/CudaTypes.h"
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
 #include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "particle/particle.h"
 #include "solver/SphereDEM.h"
@@ -30,8 +30,12 @@ state run(executionMode mode)
 {
     SphereDEM simulation;
     simulation.setExecutionMode(mode);
-    const int sphereMaterialIndex = simulation.addMaterial(material{2.0e5, 8.0e4, 0.0, 0.0, 0.25, 0.0, 0.0, 0.7, 1000.0});
-    const int wallMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.25, 0.7, 1.0});
+    const int sphereMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.7, 1000.0});
+    const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.7, 1.0});
+    materialPair pair{sphereMaterialIndex, wallMaterialIndex};
+    pair.setLinearStiffness(2.0e5, 8.0e4);
+    pair.setFrictionCoefficients(0.25);
+    simulation.setMaterialPair(pair);
 
     particle sphere;
     sphere.setPosition({0.0, 0.0, 0.0495});

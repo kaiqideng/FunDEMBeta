@@ -13,7 +13,7 @@
 | `contactForceKernel.*` | Evaluate contact force/torque and atomically accumulate particle loads |
 | `bondForceKernel.*` | Refresh bond copies, evaluate damage, and accumulate force/torque |
 | `sphInteractionKernel.*` | Query SPH background grids and evaluate density, fluid–fluid, and fluid–wall interactions |
-| `sphJetKernel.*` | Restore prescribed velocity inside one finite-duration jet's particle range and upstream pipe |
+| `sphJetKernel.*` | Impose inlet velocity/reference density on active layers of a short finite-duration jet buffer |
 
 ## Key Rules
 
@@ -80,7 +80,11 @@ Before each density or pressure stage, the solver checks actual fluid/boundary d
 
 Wall reaction uses atomic additions because many fluid particles may contribute to one virtual boundary point. Each fluid thread writes only its own density, pressure, prior force, and total force.
 
-Finite-duration jet particles are allocated once on the host before device initialization. `launchApplySPHJetVelocity()` receives one source's stable `[begin, begin + count)` range and cannot modify unrelated particles; its kernel also checks that each ranged particle is still inside the upstream pipe and updates the particle's internal `constrained` marker. Density reinitialization and continuity integration kernels skip marked particles. Both applications use the solver stream and the same substep-start activity decision. The marker is cleared when a particle leaves the pipe or when the source ends. After the final source ends, the `jetsCompleted` fast path suppresses all later jet launches. The legacy four-argument `addSPHJet` overload is only a static downstream column and never launches this kernel.
+Finite-duration jets initially create only a short upstream buffer. Later source layers append actual particles at common acoustic starts; device capacity growth preserves the already integrated prefix and uploads only new tail fields on the solver stream. The particle grid is resized and neighbor references invalidated before the new layer is used. Sources retain stable append-only membership, so layers from different sources can be interleaved in the global container.
+
+`launchApplySPHJetVelocity()` receives the stable `[begin, begin + count)` range of one currently eligible inlet layer and cannot modify unrelated particles. The kernel combines the source's timed activity with its short-pipe geometry, writes the `constrained` marker, and imposes velocity, reference density, zero equation-of-state pressure, and zero density rate while active. Density reinitialization and continuity integration skip marked particles. Constraint activity is evaluated at the acoustic start, after velocity integration at the midpoint, and at the endpoint; it is not frozen to one start-time decision for the whole interval. Released layers form a permanent prefix and are not visited by subsequent inlet launches. Once every source ends, the completion fast path suppresses later launches. The four-argument `addSPHJet` overload remains a static downstream column and never launches this kernel.
+
+Inlet openings affect only virtual-wall quadrature. The mask launcher uses the finite upstream buffer cylinder plus half-spacing clearance, setting volume to zero inside and restoring nominal volume outside. Changed samples have force, viscous prior force, and cached coupling torque cleared; the solver removes the old owner reaction before this launch and refreshes advection preparation when the mask changes. No signed-distance grid, triangle surface, or downstream jet path is altered. GPU/Hybrid update moving sample positions before evaluating the mask on the same solver stream; output uses a temporary host mask without changing device quadrature.
 
 ## CUDA Error and Stream Rules
 

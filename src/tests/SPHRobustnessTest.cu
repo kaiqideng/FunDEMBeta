@@ -88,7 +88,7 @@ void testInvalidComputedDensityParity()
     const auto update = [&]
     {
         interaction.updateDensity(cpuParticles, boundaries, parameters, 1.0e-5);
-        cuda::launchUpdateSPHDensity(deviceParticles, boundaries, fluidGrid.device(), wallGrid.device(), 0.03, 0.08, 1.0, 1000.0, 10.0, 1.0e-5, Vec3::zero());
+        cuda::launchUpdateSPHDensity(deviceParticles, boundaries, fluidGrid.device(), wallGrid.device(), parameters, 0.08, 1.0e-5);
         deviceParticles.copyDeviceToHostAsync();
         host_device_detail::synchronize(nullptr);
         require(!math::isFinite(cpuParticles.host()[0].densityRate()) && !math::isFinite(deviceParticles.host()[0].densityRate()), "Computed invalid density rates must survive on CPU and device");

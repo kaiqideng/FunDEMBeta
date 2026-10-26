@@ -6,8 +6,8 @@
 
 #include "data/myLSObject.h"
 #include "interaction/bond.h"
-#include "material/LSMaterial.h"
 #include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "particle/particle.h"
 
@@ -147,7 +147,16 @@ int main(int argc, char** argv)
         const Real bendingStiffness = ice.bendingStiffness(iceYoungsModulus);
         const Real torsionalStiffness = ice.torsionalStiffness(iceYoungsModulus, icePoissonRatio);
         const Real modeICriticalEnergy = ice.modeICriticalEnergyReleaseRate(iceFlexuralStrength, iceYoungsModulus);
-        const int iceMaterialIndex = simulation.addMaterial(material{normalStiffness, shearStiffness, 0.0, 0.0, 0.1, 0.0, 0.0, 0.8, iceDensity});
+        const int iceMaterialIndex = simulation.addMaterial(material{iceYoungsModulus, icePoissonRatio, 0.8, iceDensity});
+        const int fixedIceMaterialIndex = simulation.addMaterial(material{iceYoungsModulus, icePoissonRatio, 0.8, iceDensity});
+        materialPair icePair{iceMaterialIndex, iceMaterialIndex};
+        icePair.setLinearStiffness(0.5 * normalStiffness, 0.5 * shearStiffness);
+        icePair.setFrictionCoefficients(0.1);
+        simulation.setMaterialPair(icePair);
+        materialPair fixedIcePair{iceMaterialIndex, fixedIceMaterialIndex};
+        fixedIcePair.setLinearStiffness(normalStiffness, shearStiffness);
+        fixedIcePair.setFrictionCoefficients(0.1);
+        simulation.setMaterialPair(fixedIcePair);
 
         const Real fixedBoundaryWidth = 2.0 * ice.elementRadius();
         for (const Vec3& position : ice.particlePositions())
@@ -159,6 +168,7 @@ int main(int argc, char** argv)
             iceElement.setMaterial(simulation.materials(), iceMaterialIndex);
             if (position.x < ice.minimumBoundary().x + fixedBoundaryWidth || position.y < ice.minimumBoundary().y + fixedBoundaryWidth || position.y > ice.maximumBoundary().y - fixedBoundaryWidth)
             {
+                iceElement.setMaterial(simulation.materials(), fixedIceMaterialIndex);
                 iceElement.setInfiniteMass();
             }
             simulation.addSphere(iceElement);
@@ -180,7 +190,11 @@ int main(int argc, char** argv)
         levelset::ConeWall structureGeometry{{0.0, 0.0, -structureRadius}, {0.0, 0.0, structureRadius}, 1.5 * structureRadius, 0.5 * structureRadius};
         structureGeometry.buildLSGrid(0.25 * iceThickness, 3, true);
         const int structureGeometryIndex = simulation.addGeometry(structureGeometry);
-        const int structureMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.1, 1.0, 1.0});
+        const int structureMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, 1.0});
+        materialPair structurePair{iceMaterialIndex, structureMaterialIndex};
+        structurePair.setLinearStiffness(normalStiffness, shearStiffness);
+        structurePair.setFrictionCoefficients(0.1);
+        simulation.setMaterialPair(structurePair);
 
         const Real structureCenterX = ice.maximumBoundary().x + structureRadius + ice.elementRadius();
         LSParticle structure;

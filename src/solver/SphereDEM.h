@@ -32,9 +32,6 @@ public:
     const interactionContainer& sphereInteractions() const noexcept { return sphereInteractions_; }
     const interactionContainer& sphereLSInteractions() const noexcept { return sphereLSInteractions_; }
 
-    using LSDEM::addMaterial;
-    /** Appends an ordinary sphere material and returns its stable index. */
-    int addMaterial(const material& value) { return appendMaterial(value); }
     /** Appends a valid spherical particle and returns its stable index. */
     int addSphere(const particle& value);
     /** Replaces one sphere position before or between solve calls. */
@@ -61,6 +58,8 @@ protected:
     void validateExecutionMode(executionMode value) const override;
     /** Updates sphere and LS storage selection after a mode change. */
     void executionModeChanged(executionMode value) override;
+    /** Refreshes sphere material snapshots as well as the inherited LS particles. */
+    void refreshParticleMaterial(int materialIndex) noexcept override;
     /** Initializes both sphere and inherited LS host state. */
     void initialize(cpu::mode) override;
     /** Initializes both sphere and inherited LS device state. */

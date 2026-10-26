@@ -1,6 +1,7 @@
 /** Verifies a damped linear two-sphere collision against its analytical restitution and duration. */
 #include "execution/contactFunctions.h"
 #include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/particle.h"
 #include "solver/SphereDEM.h"
 #include "validationCommon.h"
@@ -24,7 +25,10 @@ int main(int argc, char** argv)
         constexpr Real impactSpeed = 1.0;
 
         SphereDEM simulation;
-        const int materialIndex = simulation.addMaterial(material{particleNormalStiffness, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, targetRestitution, density});
+        const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, targetRestitution, density});
+        materialPair pair{materialIndex, materialIndex};
+        pair.setLinearStiffness(0.5 * particleNormalStiffness, 0.0);
+        simulation.setMaterialPair(pair);
         for (int particleIndex = 0; particleIndex < 2; ++particleIndex)
         {
             particle sphere;

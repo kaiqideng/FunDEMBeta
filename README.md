@@ -11,7 +11,7 @@ Create a parent directory named `workplace` and open a terminal there before fol
 ## Program framework
 
 ```text
-Materials + geometries + particles
+Bulk materials + material pairs + geometries + particles
                 │
                 ▼
         Host AoS containers ─────────► CPU / OpenMP execution
@@ -43,7 +43,7 @@ The core library and its tests live under [`src/`](src/README.md). The repositor
 | --- | --- |
 | [`src/math/`](src/math/README.md) | CPU/CUDA mathematical types and functions |
 | [`src/data/`](src/data/README.md) | Host/device containers and VTU/DAT output |
-| [`src/material/`](src/material/README.md) | Standard and level-set materials |
+| [`src/material/`](src/material/README.md) | Unified bulk materials and symmetric contact-pair coefficients |
 | [`src/geometry/`](src/geometry/README.md) | Reusable level-set geometry storage |
 | [`src/particle/`](src/particle/README.md) | DEM, level-set, SPH, virtual particles, SPH source descriptors, and spatial grids |
 | [`src/interaction/`](src/interaction/README.md) | Contacts, bonds, searches, SPH neighborhoods, and wall-coupling state |

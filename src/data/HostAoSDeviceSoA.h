@@ -172,8 +172,8 @@ template <class Field> struct deviceSlot {
  * logical Device size and grow capacity when required. Full Device-to-Host
  * copies resize the Host vector to the logical Device size.
  *
- * Reallocation intentionally discards old Device values because it is only
- * performed immediately before a full Host-to-Device overwrite.
+ * Ordinary reallocation discards old Device values before a full overwrite.
+ * The explicit append operation instead preserves the evolving Device prefix.
  */
 template <class HostObject, class Layout = typename HostObject::DeviceLayout> class hostAoSDeviceSoA;
 
@@ -316,6 +316,56 @@ public:
     }
 
     /**
+     * Appends only the new Host suffix, preserving every existing Device field.
+     * Capacity grows geometrically without uploading the possibly stale Host
+     * prefix. Work is ordered on @p stream, which is synchronized before return
+     * so subsequent Host-vector appends may safely relocate their storage.
+     * Other streams must not access this storage concurrently.
+     * @throws std::logic_error if Host storage is shorter than the Device prefix.
+     */
+    void appendHostToDevice(cudaStream_t stream = nullptr)
+    {
+        const std::size_t first = deviceSize_;
+        const std::size_t count = host_.size();
+        if (count < first)
+            throw std::logic_error("appendHostToDevice() requires hostSize() >= deviceSize().");
+        if (count == first)
+            return;
+
+#if FUNDEM_HAS_CUDA
+        DeviceTuple replacement;
+        DeviceTuple* destination = &device_;
+        std::size_t capacity = deviceCapacity_;
+        if (count > capacity)
+        {
+            capacity = count;
+            if (deviceCapacity_ <= std::numeric_limits<std::size_t>::max() / 2 && 2 * deviceCapacity_ > capacity)
+                capacity = 2 * deviceCapacity_;
+            (std::get<Slot<Fields>>(replacement).array.allocate(capacity), ...);
+            if (first > 0)
+                (host_device_detail::checkCuda(cudaMemcpyAsync(std::get<Slot<Fields>>(replacement).array.data(),
+                                                               fieldArray<Fields>().data(),
+                                                               first * sizeof(host_device_detail::fieldValueT<Fields>),
+                                                               cudaMemcpyDeviceToDevice,
+                                                               stream),
+                                              "cudaMemcpyAsync preserved Device prefix"), ...);
+            destination = &replacement;
+        }
+        (copyOneHostRangeToDeviceAsync<Fields>(std::get<Slot<Fields>>(*destination).array.data(), first, count - first, stream), ...);
+        synchronize(stream);
+        if (destination == &replacement)
+        {
+            device_ = std::move(replacement);
+            deviceCapacity_ = capacity;
+        }
+        deviceSize_ = count;
+#else
+        (void)stream;
+        host_device_detail::throwCUDAUnavailable();
+#endif
+    }
+
+    /**
      * Enqueues a complete device-SoA to host-AoS copy.
      * The host vector is resized to the logical device size before the copy.
      * @param stream CUDA stream receiving the copy operations.
@@ -438,18 +488,25 @@ private:
     /** Enqueues the strided AoS-to-contiguous-SoA transfer for one field. */
     template <class Field> void copyOneHostToDeviceAsync(std::size_t count, cudaStream_t stream)
     {
+        copyOneHostRangeToDeviceAsync<Field>(fieldArray<Field>().data(), 0, count, stream);
+    }
+
+    /** Enqueues one Host field range without touching the Device prefix. */
+    template <class Field> void copyOneHostRangeToDeviceAsync(host_device_detail::fieldValueT<Field>* destination, std::size_t first, std::size_t count, cudaStream_t stream)
+    {
         if (count == 0)
         {
             return;
         }
 
         using Value = host_device_detail::fieldValueT<Field>;
-        const Value* source = std::addressof(host_.front().*(Field::member));
+        const Value* source = std::addressof(host_[first].*(Field::member));
 
 #if FUNDEM_HAS_CUDA
-        host_device_detail::checkCuda(cudaMemcpy2DAsync(fieldArray<Field>().data(), sizeof(Value), source, sizeof(HostObject), sizeof(Value), count, cudaMemcpyHostToDevice, stream),
+        host_device_detail::checkCuda(cudaMemcpy2DAsync(destination + first, sizeof(Value), source, sizeof(HostObject), sizeof(Value), count, cudaMemcpyHostToDevice, stream),
                                       "cudaMemcpy2DAsync Host AoS -> Device SoA");
 #else
+        (void)destination;
         (void)source;
         (void)stream;
         host_device_detail::throwCUDAUnavailable();

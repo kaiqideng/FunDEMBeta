@@ -25,9 +25,11 @@ sequence is retained. It does not call the native nonperiodic contact search
 and then run another periodic search: only the external component evaluates
 contacts. This avoids both duplicate force assembly and duplicate searches.
 
-The sphere material now supplies **density and mass/inertia only**, with zero
-native contact stiffness/friction. Setting native material stiffness to zero
-does not disable the external component. Periodic wrapping, stable pair
+The sphere material supplies **density and mass/inertia only** to this adapter.
+Its nominal positive elastic modulus and Poisson ratio are unused because the
+adapter overrides native contact evaluation; the external component owns all
+five spring, dashpot and friction coefficients. There is no material-type flag
+or zero-material-stiffness trick selecting that law. Periodic wrapping, stable pair
 history, fixed-wall roles, source IDs, and the scientific contact output remain
 unchanged. This is an in-process C++ case component, not a DLL module or a
 new Workbench model selector. It implements the same declared benchmark law;
@@ -86,8 +88,9 @@ calibrated real-world material values.
 
 Wall grains retain the same radius/material description, but their velocities
 are prescribed and their accelerations are disabled. Wall-wall contacts do not
-contribute. Every mobile contact uses the tabulated **pair** coefficients;
-native series-combination rules are deliberately not applied a second time.
+contribute. The independent adapter applies the tabulated **pair** coefficients
+directly; they are not read from native bulk materials or the native
+`materialPair` table.
 
 ## Build and check
 

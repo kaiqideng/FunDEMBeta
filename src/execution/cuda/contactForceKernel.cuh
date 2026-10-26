@@ -5,7 +5,10 @@
 #pragma once
 
 #include "interaction/contact.h"
+#include "execution/contactMaterialFunctions.h"
 #include "material/material.h"
+#include "material/materialPair.h"
+#include "particle/LSParticle.h"
 
 #include <cuda_runtime_api.h>
 
@@ -47,17 +50,30 @@ struct contactParticleDeviceView {
     const int* materialIndex_{nullptr};          ///< Material-container indices.
 };
 
-/** Read-only material arrays consumed by the unified contact law. */
+/** Read-only elastic material arrays; contact coefficients belong to material pairs. */
 struct contactMaterialDeviceView {
-    const math::Real* normalStiffness_{nullptr};              ///< Normal stiffness values.
-    const math::Real* slidingStiffness_{nullptr};             ///< Sliding/shear stiffness values.
-    const math::Real* rollingStiffness_{nullptr};             ///< Rolling stiffness values.
-    const math::Real* torsionalStiffness_{nullptr};           ///< Torsional stiffness values.
-    const math::Real* slidingFrictionCoefficient_{nullptr};   ///< Sliding friction coefficients.
-    const math::Real* rollingFrictionCoefficient_{nullptr};   ///< Rolling friction coefficients.
-    const math::Real* torsionalFrictionCoefficient_{nullptr}; ///< Torsional friction coefficients.
-    const math::Real* restitutionCoefficient_{nullptr};       ///< Normal restitution coefficients.
-    const materialType* type_{nullptr};                       ///< Runtime stiffness conventions.
+    const math::Real* youngModulus_{nullptr};           ///< Young's moduli.
+    const math::Real* poissonRatio_{nullptr};           ///< Poisson ratios.
+    const math::Real* restitutionCoefficient_{nullptr}; ///< Restitution inputs for default damping.
+};
+
+/** Read-only symmetric-pair arrays and their two grouped override switches. */
+struct contactMaterialPairDeviceView {
+    const math::Real* normalStiffnessPerUnitArea_{nullptr};   ///< Nodal normal stiffness per area.
+    const math::Real* slidingStiffnessPerUnitArea_{nullptr};  ///< Nodal sliding stiffness per area.
+    const math::Real* normalStiffness_{nullptr};              ///< Explicit normal stiffness.
+    const math::Real* slidingStiffness_{nullptr};             ///< Explicit sliding stiffness.
+    const math::Real* rollingStiffness_{nullptr};             ///< Explicit rolling stiffness.
+    const math::Real* torsionalStiffness_{nullptr};           ///< Explicit torsional stiffness.
+    const math::Real* slidingFrictionCoefficient_{nullptr};   ///< Pair sliding friction.
+    const math::Real* rollingFrictionCoefficient_{nullptr};   ///< Pair rolling friction.
+    const math::Real* torsionalFrictionCoefficient_{nullptr}; ///< Pair torsional friction.
+    const math::Real* normalDampingCoefficient_{nullptr};     ///< Explicit normal damping.
+    const math::Real* slidingDampingCoefficient_{nullptr};    ///< Explicit sliding damping.
+    const math::Real* rollingDampingCoefficient_{nullptr};    ///< Explicit rolling damping.
+    const math::Real* torsionalDampingCoefficient_{nullptr};  ///< Explicit torsional damping.
+    const bool* linearStiffnessEnabled_{nullptr};             ///< Enables all four ordinary stiffness overrides.
+    const bool* dampingEnabled_{nullptr};                     ///< Enables all four explicit dashpot coefficients.
 };
 
 /** Launches one contact-force kernel without synchronizing @p stream. */
@@ -65,6 +81,8 @@ void launchContactForce(contactDeviceView contacts,
                         contactParticleDeviceView masterParticles,
                         contactParticleDeviceView slaveParticles,
                         contactMaterialDeviceView materials,
+                        contactMaterialPairDeviceView materialPairs,
+                        execution::contactType type,
                         math::Real timeStep,
                         int contactCount,
                         cudaStream_t stream);
@@ -109,15 +127,30 @@ template <class ParticleStorage> contactParticleDeviceView makeContactParticleDe
 inline contactMaterialDeviceView makeContactMaterialDeviceView(const materialContainer& materials) noexcept
 {
     contactMaterialDeviceView view;
-    view.normalStiffness_ = materials.device<material::normalStiffnessField>();
-    view.slidingStiffness_ = materials.device<material::slidingStiffnessField>();
-    view.rollingStiffness_ = materials.device<material::rollingStiffnessField>();
-    view.torsionalStiffness_ = materials.device<material::torsionalStiffnessField>();
-    view.slidingFrictionCoefficient_ = materials.device<material::slidingFrictionCoefficientField>();
-    view.rollingFrictionCoefficient_ = materials.device<material::rollingFrictionCoefficientField>();
-    view.torsionalFrictionCoefficient_ = materials.device<material::torsionalFrictionCoefficientField>();
+    view.youngModulus_ = materials.device<material::youngModulusField>();
+    view.poissonRatio_ = materials.device<material::poissonRatioField>();
     view.restitutionCoefficient_ = materials.device<material::restitutionCoefficientField>();
-    view.type_ = materials.device<material::typeField>();
+    return view;
+}
+
+inline contactMaterialPairDeviceView makeContactMaterialPairDeviceView(const materialPairContainer& pairs) noexcept
+{
+    contactMaterialPairDeviceView view;
+    view.normalStiffnessPerUnitArea_ = pairs.device<materialPair::normalStiffnessPerUnitAreaField>();
+    view.slidingStiffnessPerUnitArea_ = pairs.device<materialPair::slidingStiffnessPerUnitAreaField>();
+    view.normalStiffness_ = pairs.device<materialPair::normalStiffnessField>();
+    view.slidingStiffness_ = pairs.device<materialPair::slidingStiffnessField>();
+    view.rollingStiffness_ = pairs.device<materialPair::rollingStiffnessField>();
+    view.torsionalStiffness_ = pairs.device<materialPair::torsionalStiffnessField>();
+    view.slidingFrictionCoefficient_ = pairs.device<materialPair::slidingFrictionCoefficientField>();
+    view.rollingFrictionCoefficient_ = pairs.device<materialPair::rollingFrictionCoefficientField>();
+    view.torsionalFrictionCoefficient_ = pairs.device<materialPair::torsionalFrictionCoefficientField>();
+    view.normalDampingCoefficient_ = pairs.device<materialPair::normalDampingCoefficientField>();
+    view.slidingDampingCoefficient_ = pairs.device<materialPair::slidingDampingCoefficientField>();
+    view.rollingDampingCoefficient_ = pairs.device<materialPair::rollingDampingCoefficientField>();
+    view.torsionalDampingCoefficient_ = pairs.device<materialPair::torsionalDampingCoefficientField>();
+    view.linearStiffnessEnabled_ = pairs.device<materialPair::linearStiffnessEnabledField>();
+    view.dampingEnabled_ = pairs.device<materialPair::dampingEnabledField>();
     return view;
 }
 
@@ -132,22 +165,32 @@ void launchContactForce(contactContainer& contacts,
                         MasterParticleStorage& masterParticles,
                         SlaveParticleStorage& slaveParticles,
                         const materialContainer& materials,
+                        const materialPairContainer& materialPairs,
                         math::Real timeStep,
                         cudaStream_t stream = nullptr)
 {
+    constexpr execution::contactType type = execution::contactTypeFor<typename MasterParticleStorage::host_type, typename SlaveParticleStorage::host_type>();
     detail::launchContactForce(detail::makeContactDeviceView(contacts),
                                detail::makeContactParticleDeviceView(masterParticles),
                                detail::makeContactParticleDeviceView(slaveParticles),
                                detail::makeContactMaterialDeviceView(materials),
+                               detail::makeContactMaterialPairDeviceView(materialPairs),
+                               type,
                                timeStep,
                                static_cast<int>(contacts.deviceSize()),
                                stream);
 }
 
 /** Same-container convenience wrapper for `launchContactForce`. */
-template <class ParticleStorage> void launchContactForce(contactContainer& contacts, ParticleStorage& particles, const materialContainer& materials, math::Real timeStep, cudaStream_t stream = nullptr)
+template <class ParticleStorage>
+void launchContactForce(contactContainer& contacts,
+                        ParticleStorage& particles,
+                        const materialContainer& materials,
+                        const materialPairContainer& materialPairs,
+                        math::Real timeStep,
+                        cudaStream_t stream = nullptr)
 {
-    launchContactForce(contacts, particles, particles, materials, timeStep, stream);
+    launchContactForce(contacts, particles, particles, materials, materialPairs, timeStep, stream);
 }
 
 } // namespace fundem::cuda

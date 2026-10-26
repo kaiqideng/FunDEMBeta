@@ -1,52 +1,88 @@
 # `src/material/`
 
-> **Purpose:** Define sphere and level-set contact materials with a unified `DeviceLayout`.
+Bulk material properties and contact-pair coefficients are separate. The same
+`material` can be assigned to spheres and level-set particles; particle geometry,
+not a material marker, selects the contact family.
 
-## Core Contents
+## Bulk properties
 
-| Type | Responsibility |
-| --- | --- |
-| `material` | Store normal, sliding, rolling, and torsional contact parameters together with density |
-| `LSMaterial` | Reuse `material` storage while exposing level-set stiffness-per-area interfaces |
-| `materialContainer` | Store materials in Host AoS/Device SoA form |
+`material(youngModulus, poissonRatio, restitutionCoefficient, density)` stores:
 
-## Key Rules
-
-- Stiffnesses and friction coefficients must be finite and nonnegative.
-- Restitution coefficients must lie in `[0, 1]`.
-- Density must be finite and strictly positive; a material becomes valid only after density is set.
-- Infinite mass is represented by fixed level-set geometry or rigid-body mass state, not by zero density.
-- `materialType::standard` is the default; every `LSMaterial` is permanently marked as `materialType::levelSet`.
-- `LSMaterial` exposes only sliding friction; its rolling/torsional friction interfaces are hidden and those storage values remain zero.
-- LS–LS node contacts scale `LSMaterial` stiffness by nodal area.
-- Sphere–LS contacts use all four stiffnesses and both rolling/torsional friction coefficients directly from the sphere material. Only sliding friction and restitution combine both materials.
-
-## Extension Guide
-
-`LSMaterial` must add no data members and must preserve `sizeof(LSMaterial) == sizeof(material)`, allowing one `materialContainer` to serve both CPU and GPU paths.
-
-## Parameter Meaning
-
-| Property | Ordinary `material` | `LSMaterial` |
+| Property | Unit | Accepted values |
 | --- | --- | --- |
-| Normal stiffness | Force per overlap | Stiffness per nodal contact area |
-| Sliding stiffness | Tangential force per displacement | Shear stiffness per nodal contact area |
-| Rolling/torsional stiffness | Explicit stored values | Hidden and initialized to zero |
-| Friction | Sliding, rolling, and torsional values | Only sliding friction is configurable |
-| Restitution | Dimensionless value in `[0, 1]` | Same storage and validation |
-| Density | Used to construct particle mass | Used with integrated LS volume |
+| Young's modulus | Pa | Finite and positive |
+| Poisson ratio | Dimensionless | Finite, strictly between -1 and 0.5 |
+| Restitution coefficient | Dimensionless | Finite, within [0, 1] |
+| Density | kg/m^3 | Finite and positive |
 
-The level-set subclass changes names and access restrictions, not layout. This allows a single `materialContainer` and one device view to serve all contact kernels while the `materialType` marker selects area-scaled LS contact behavior.
+A default material is incomplete until its modulus and density are assigned.
+Setters validate before changing data; `setProperties()` validates the entire
+definition before replacing any value. `materialContainer` uses host AoS/device
+SoA storage with exactly these four fields. There is no separate `LSMaterial`
+class, material-kind marker, stiffness, or friction in this class.
 
-## Contact Combination Rules
+## Contact-pair properties
 
-- Sphere-sphere response uses the ordinary material properties of both spheres.
-- Sphere-LS stiffness and rolling/torsional friction come directly from the sphere material; sliding friction and restitution combine both materials using their harmonic mean.
-- LS-LS stiffness is area-scaled using the level-set material marker and the sampled surface-node area.
-- `effectiveRadius` remains a physical lever arm and never selects the model.
+`materialPair(firstMaterialIndex, secondMaterialIndex)` represents an unordered
+pair, including two particles using the same material. It canonicalizes its
+indices so that the smaller index is first.
 
-Material insertion copies the value into solver-owned storage and binds its container identity. A particle must reference the material container owned by the solver that receives it. Do not copy a particle configured against one solver into another solver without assigning its material again.
+| Setter | Parameters | Unit |
+| --- | --- | --- |
+| `setLevelSetStiffness()` | Normal and sliding stiffness per nodal area | N/m^3 |
+| `setLinearStiffness()` | Normal, sliding, rolling, torsional stiffness | N/m |
+| `setFrictionCoefficients()` | Sliding, rolling, torsional friction | Dimensionless |
+| `setDampingCoefficients()` | Normal, sliding, rolling, torsional dashpots | N s/m |
 
-## Validation and Diagnostics
+Each pair has exactly two Boolean switches, both initially false:
 
-The default-constructed base material is invalid until a positive density is set. Setters validate before changing storage, so a rejected value does not partially update the material. If `addMaterial()` or particle insertion fails, check type compatibility (`material` for spheres and `LSMaterial` for LS particles), density, coefficient finiteness, and restitution bounds.
+- `linearStiffnessEnabled()`: selects all four ordinary contact stiffnesses
+  together, only for sphere-sphere and sphere-level-set contacts. When false,
+  Hertz normal and Mindlin sliding response are used, and the length-scaled
+  rolling and torsional stiffnesses each equal that sliding stiffness.
+- `dampingEnabled()`: selects all four explicit dashpots together. When false,
+  damping is calculated from the material restitution coefficients. When true,
+  the stored coefficients are used, including explicitly configured zeros.
+
+Use `setLinearStiffnessEnabled(bool)` and `setDampingEnabled(bool)` to switch
+groups without erasing their values. Group value setters and individual ordinary
+stiffness or dashpot value setters automatically enable the corresponding whole
+group; they do not create per-direction switches. Friction has no switch.
+
+LS normal and sliding stiffnesses per area are independent of both switches and
+must both be configured for LS-LS contacts. Their initial `-1` values mean
+unset; `hasLevelSetStiffness()` is true when both are nonnegative. Explicit zero
+is valid. All other coefficients initially equal zero, and public coefficient
+setters accept only finite nonnegative values. The ordinary linear-stiffness
+switch has no effect on LS-LS response. With explicit damping enabled, LS nodes
+receive their area-weighted shares of the normal/sliding dashpots; rotational
+dashpots are ignored for LS-LS contacts.
+
+Rolling and torsional histories use length-scaled displacements, so their
+coefficients are not direct angular stiffnesses or angular dashpots.
+Using the default sliding stiffness for both rotational springs is FunDEM's
+prescribed extension, not a classical Hertz-Mindlin rolling or torsional law.
+There is no independent rotational-stiffness override while the linear group
+is off; enabling it selects all four stored stiffnesses together.
+`materialPairCoefficients` is a plain aggregate of 13 scalar coefficients and
+the two Boolean switches, with no bitmask or directional activation flags.
+`materialPair::coefficients()` creates this aggregate without pair identity.
+Device storage contains 17 fields: these 15 values plus the two material IDs.
+
+## Stable pair storage
+
+`materialPairContainer(materialCount)` owns all `n * (n + 1) / 2` unordered pairs.
+`at(i, j)` and `at(j, i)` access the same record.
+`resizeForMaterials(newCount)` appends records when materials are added, retaining
+existing overrides and pair indices; shrinking is rejected. The stable slot is:
+
+```cpp
+max(i, j) * (max(i, j) + 1) / 2 + min(i, j)
+```
+
+Host configuration uses checked `at()` access. Kernels use the host/device
+`index()` function with validated material IDs. Uploads, capacity management, and
+stream synchronization follow the standard `hostAoSDeviceSoA` interface.
+Adding materials or changing coefficients requires refreshing the device table
+before evaluating contacts. Pair values are effective interaction coefficients;
+they are not combined a second time as separate particle-side stiffnesses.

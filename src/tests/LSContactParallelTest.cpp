@@ -2,7 +2,8 @@
 #include "execution/contactDetection.h"
 #include "execution/cpu/particleFunctions.h"
 #include "interaction/contactSearch.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
+#include "material/materialPair.h"
 #include "solver/LSDEM.h"
 
 #include <algorithm>
@@ -91,7 +92,19 @@ struct Fixture {
     LSDEM definitions;
     LSParticleContainer particles;
 
-    Fixture() { definitions.addMaterial(LSMaterial{2.0e5, 7.0e4, 0.6, 0.45, 1200.0}); }
+    Fixture()
+    {
+        definitions.addMaterial(material{1.0e9, 0.25, 0.45, 1200.0});
+        definitions.addMaterial(material{1.0e9, 0.25, 0.45, 1200.0});
+        materialPair mobilePair{0, 0};
+        mobilePair.setLevelSetStiffness(1.0e5, 3.5e4);
+        mobilePair.setFrictionCoefficients(0.6);
+        definitions.setMaterialPair(mobilePair);
+        materialPair wallPair{0, 1};
+        wallPair.setLevelSetStiffness(2.0e5, 7.0e4);
+        wallPair.setFrictionCoefficients(0.6);
+        definitions.setMaterialPair(wallPair);
+    }
 
     int sphere(int subdivision, Real radius)
     {
@@ -127,6 +140,7 @@ struct Fixture {
         geometry.buildLSGrid(0.15, 3, true);
         const int index = definitions.addGeometry(geometry);
         add(index, {0.13, -0.17, 0.025}, 0.07);
+        particles.host().back().setMaterial(definitions.materials(), 1);
         require(particles.host().back().inverseMass() == 0.0, "Wall fixture must have infinite mass.");
     }
 
@@ -254,12 +268,12 @@ void checkPairMasses(const contactContainer& contacts, const LSParticleContainer
 
 struct Loads { Vec3 force{Vec3::zero()}; Vec3 torque{Vec3::zero()}; };
 
-std::vector<Loads> referenceLoads(contactContainer& contacts, const LSParticleContainer& particles)
+std::vector<Loads> referenceLoads(contactContainer& contacts, const LSParticleContainer& particles, const materialPairContainer& materialPairs)
 {
     std::vector<Loads> loads(particles.hostSize());
     for (auto& value : contacts.host())
     {
-        require(value.calculateForce(1.0e-5), "Reference force must consume a valid freshly refreshed contact.");
+        require(value.calculateForce(1.0e-5, materialPairs, execution::contactType::levelSetLevelSet), "Reference force must consume a valid freshly refreshed contact.");
         const int master = value.masterParticleIndex();
         const int slave = value.slaveParticleIndex();
         loads[master].force += value.force();
@@ -270,11 +284,11 @@ std::vector<Loads> referenceLoads(contactContainer& contacts, const LSParticleCo
     return loads;
 }
 
-void compareLoads(contactContainer& contacts, LSParticleContainer& particles, const std::vector<Loads>& expected, int threads)
+void compareLoads(contactContainer& contacts, LSParticleContainer& particles, const materialPairContainer& materialPairs, const std::vector<Loads>& expected, int threads)
 {
     setThreads(threads);
     cpu::clearForceAndTorque(particles);
-    cpu::addContactForceAndTorque(contacts, particles, particles, 1.0e-5);
+    cpu::addContactForceAndTorque(contacts, particles, particles, materialPairs, 1.0e-5);
     Vec3 totalForce = Vec3::zero();
     for (std::size_t index = 0; index < particles.hostSize(); ++index)
     {
@@ -364,9 +378,9 @@ void exercise(Fixture& fixture, const std::string& name)
                 retained += history.count(key(value));
             }
             require(retained > 0 && retained < serial.hostSize() && retained < history.size(), "Moving fixture must retain, create, and remove contact-history keys.");
-            const auto loads = referenceLoads(reference, fixture.particles);
-            compareLoads(serial, fixture.particles, loads, 1);
-            compareLoads(parallel, fixture.particles, loads, 4);
+            const auto loads = referenceLoads(reference, fixture.particles, fixture.definitions.materialPairs());
+            compareLoads(serial, fixture.particles, fixture.definitions.materialPairs(), loads, 1);
+            compareLoads(parallel, fixture.particles, fixture.definitions.materialPairs(), loads, 4);
             compareContacts(serial, reference, name + " serial response", true);
             compareContacts(parallel, reference, name + " parallel response", true);
         }

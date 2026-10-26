@@ -8,8 +8,8 @@ target_sources(
         TYPE HEADERS
         BASE_DIRS "${FUNDEM_SOURCE_DIR}"
         FILES
-            LSMaterial.h
             material.h
+            materialPair.h
 )
 
 target_include_directories(

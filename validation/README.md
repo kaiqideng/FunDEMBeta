@@ -47,6 +47,23 @@ Set `-DFUNDEM_BUILD_VALIDATIONS=OFF` only when a minimal library build is requir
 
 `backendConsistency` always records the CPU result. GPU comparisons are skipped only when CUDA was not built or no CUDA device is present.
 
+## Material and Pair Configuration
+
+Solid materials now contain only `E`, `nu`, restitution and density. The linear
+verification cases install explicit final `materialPair` coefficients, so their
+analytical force laws do not change when the bulk material interface changes.
+`normalCollision` uses its original pair stiffness, not an additional series
+combination; `backendConsistency` explicitly preserves its sphere-wall linear
+response. Other sphere contacts without linear overrides use Hertz-Mindlin.
+
+`LSCentralCompression` supplies `setLevelSetStiffness(k_n, 0)` for its finite/fixed
+pair. Those coefficients are in N/m^3 and are multiplied by nodal area in the
+force law. They cannot be replaced by a Young's modulus in Pa without choosing
+an additional physical model. Nominal elastic constants in these penalty-law
+fixtures are not inferred material measurements. Bond-only cases retain
+independent beam coefficients and do not acquire an unintended native contact
+law.
+
 ## ON-DEM bumpy-wall shear benchmark
 
 [ondemShearFlow](ondemShearFlow/README.md) is an isolated CPU benchmark adaptation
@@ -66,7 +83,7 @@ Two equal spheres of radius `R` are compressed by `delta`. For the one-sided nod
 P = (pi / 2) R k_n delta^2,
 ```
 
-where `k_n` is stiffness per unit area. The DAT file contains the numerical force, this continuum reference, relative error, and active nodal-contact count for four icosphere surface resolutions. It is a discretization check, not a Hertz-material calibration.
+where `k_n` is stiffness per unit area. The DAT file contains the numerical force, this continuum reference, relative error, and active nodal-contact count for three icosphere surface resolutions. It is a discretization check, not a Hertz-material calibration.
 
 ## Required next layer
 

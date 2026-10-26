@@ -27,7 +27,24 @@ The default calculation durations and requested VTU output intervals match the c
 | `tutorial2` | `clothBoxDrop.fundem.json` | 3 s | 0.05 s |
 | `tutorial3` | `damBreakSquareColumn.fundem.json` | 3 s | 0.05 s |
 
-Tutorial2 also matches the software sample's cloth discretization, material properties, and external damping. Its damping is implemented through the solver's ordinary external-force hooks, so no Workbench force-module library is required. Tutorial3 retains column-force recording, which the software sample omits. Tutorials retain their own output-field selection and explicit spatial-search boundaries; these are not copies of the software's presentation settings or automatic domain calculation.
+Tutorial2 retains the software sample's cloth discretization, effective linear contact coefficients, beam properties, and external damping. Its damping is implemented through the solver's ordinary external-force hooks, so no Workbench force-module library is required. Tutorial3 retains column-force recording, which the software sample omits. Tutorials retain their own output-field selection and explicit spatial-search boundaries; these are not copies of the software's presentation settings or automatic domain calculation.
+
+## Materials and Contact Pairs
+
+All solid particles use `material{E, nu, restitution, density}`. Sphere and LS
+particles may share a physical material; a material does not identify geometry
+or contain friction and contact-penalty coefficients. Configure those values
+with `materialPair` and install the pair using `simulation.setMaterialPair()`.
+Pairs are symmetric and their coefficients are final, not mixed again during
+force calculation.
+
+These tutorials explicitly preserve their earlier linear contact response:
+`setLinearStiffness()` supplies sphere/sphere-LS coefficients in N/m, while
+`setLevelSetStiffness()` supplies LS-LS nodal coefficients in N/m^3, before
+multiplication by surface-node area. Without a linear override, sphere contacts
+use the bulk elastic Hertz-Mindlin default; the two modes are not interchangeable.
+Any nominal `E = 1e9 Pa`, `nu = 0.25` values used only with explicit penalty
+coefficients are not a calibration recovered from those coefficients.
 
 ## Tutorial 0: Gömböc Self-Righting
 
@@ -41,6 +58,7 @@ Tutorial2 also matches the software sample's cloth discretization, material prop
 - Eleven links begin horizontally along the X axis with alternating `0°` and `90°` orientations and a `0.07 m` pitch.
 - Adjacent links are topologically interlocked with an initial surface clearance; no bond interaction is used.
 - The leftmost and rightmost links have infinite mass, while the nine interior links sag under gravity.
+- Fixed links use an otherwise identical material entry so explicit finite/fixed pair stiffness can retain the former rigid-end compliance; finite/finite pairs use the former series-combined value. This is pair configuration, not a material-type flag.
 - The CPU solver advances `3 s` with a `2e-5 s` time step and writes binary VTU output every `0.05 s`.
 
 ## Tutorial 2: Bonded-Particle Cloth Falling onto a Box
@@ -50,7 +68,7 @@ Tutorial2 also matches the software sample's cloth discretization, material prop
 - Horizontal and diagonal nearest neighbors are joined by tensile, shear, bending, and torsional bonds derived from the cloth Young's modulus, Poisson ratio, thickness, and density.
 - Bond connections use particle indices; the API calculates each reference normal from the current slave-to-master center displacement. The equivalent length remains the initial distance between the two centers.
 - The free cloth falls under gravity and drapes over the box; no cloth edge is artificially fixed.
-- Sliding friction is `0.6` and restitution is `0.05` for both materials. The cloth's external damping adds `F = -20 m v` and `T = -3.418598284e-8 omega` in SI units; the fixed box receives no damping. CPU, GPU, and hybrid modes use the same formulas.
+- Sliding friction is `0.6` in the configured contact pairs, and material restitution is `0.05`. The cloth's external damping adds `F = -20 m v` and `T = -3.418598284e-8 omega` in SI units; the fixed box receives no damping. CPU, GPU, and hybrid modes use the same formulas.
 - Bonds have zero cross-sectional area and cannot break. The four beam stiffnesses use `E = 1e6 Pa`, `nu = 0.3`, and the smaller sphere diameter, exactly as in the software sample.
 - The case advances `3.0 s` with a fixed `1e-5 s` DEM time step (300,000 steps) and writes binary VTU output every `0.05 s` (5,000 steps). This is deliberately dissipative, not an energy-conservation test.
 

@@ -38,8 +38,6 @@ public:
     const Vec3& acceleration() const noexcept { return acceleration_; }
     const Vec3& priorForce() const noexcept { return priorForce_; }
     const Vec3& couplingTorque() const noexcept { return couplingTorque_; }
-    const Vec3& couplingForceIncrement() const noexcept { return couplingForceIncrement_; }
-    const Vec3& couplingTorqueIncrement() const noexcept { return couplingTorqueIncrement_; }
     const Vec3& previousKinematicsVelocity() const noexcept { return previousKinematicsVelocity_; }
 
     /**
@@ -78,8 +76,6 @@ public:
     void setAcceleration(const Vec3& value) noexcept { acceleration_ = value; }
     void setPriorForce(const Vec3& value) noexcept { priorForce_ = value; }
     void setCouplingTorque(const Vec3& value) noexcept { couplingTorque_ = value; }
-    void setCouplingForceIncrement(const Vec3& value) noexcept { couplingForceIncrement_ = value; }
-    void setCouplingTorqueIncrement(const Vec3& value) noexcept { couplingTorqueIncrement_ = value; }
     void setPreviousKinematicsVelocity(const Vec3& value) noexcept { previousKinematicsVelocity_ = value; }
 
     struct localPositionField;
@@ -90,8 +86,6 @@ public:
     struct accelerationField;
     struct priorForceField;
     struct couplingTorqueField;
-    struct couplingForceIncrementField;
-    struct couplingTorqueIncrementField;
     struct previousKinematicsVelocityField;
 
     /** Mutable device view of generated wall-sample state. */
@@ -102,10 +96,8 @@ public:
         int* ownerLSParticleIndex_{nullptr}; ///< Owner rigid-body indices.
         Vec3* normal_{nullptr};              ///< Current world outward normals.
         Vec3* acceleration_{nullptr};        ///< Current wall accelerations.
-        Vec3* priorForce_{nullptr};          ///< Previous fluid reaction forces.
+        Vec3* priorForce_{nullptr};          ///< Viscous reaction retained for the advection interval.
         Vec3* couplingTorque_{nullptr};     ///< World torque held until the next acoustic update.
-        Vec3* couplingForceIncrement_{nullptr}; ///< New minus held wall force for endpoint matching.
-        Vec3* couplingTorqueIncrement_{nullptr}; ///< New minus held world torque for endpoint matching.
         Vec3* previousKinematicsVelocity_{nullptr}; ///< Previous sampled world velocity for prescribed motion.
     };
 
@@ -117,14 +109,12 @@ private:
 
     Vec3 localPosition_{Vec3::zero()}; ///< Body-frame sample position.
     Vec3 localNormal_{Vec3::zero()};   ///< Body-frame outward unit normal.
-    Real volume_{0.0};                 ///< Boundary quadrature volume.
+    Real volume_{0.0};                 ///< Effective quadrature volume; zero inside a virtual inlet opening.
     int ownerLSParticleIndex_{-1};     ///< Stable owner rigid-body index.
     Vec3 normal_{Vec3::zero()};        ///< Current world outward unit normal.
     Vec3 acceleration_{Vec3::zero()};  ///< Current wall-point acceleration.
-    Vec3 priorForce_{Vec3::zero()};    ///< Previous fluid reaction force.
+    Vec3 priorForce_{Vec3::zero()};    ///< Viscous reaction retained for the advection interval.
     Vec3 couplingTorque_{Vec3::zero()}; ///< Cached world moment at the fluid evaluation pose.
-    Vec3 couplingForceIncrement_{Vec3::zero()}; ///< Device impulse-matching force difference.
-    Vec3 couplingTorqueIncrement_{Vec3::zero()}; ///< Device impulse-matching torque difference.
     Vec3 previousKinematicsVelocity_{Vec3::zero()}; ///< Device prescribed-motion difference reference.
 
 public:
@@ -152,19 +142,13 @@ public:
     struct couplingTorqueField {
         inline static constexpr auto member = &virtualParticle::couplingTorque_;
     };
-    struct couplingForceIncrementField {
-        inline static constexpr auto member = &virtualParticle::couplingForceIncrement_;
-    };
-    struct couplingTorqueIncrementField {
-        inline static constexpr auto member = &virtualParticle::couplingTorqueIncrement_;
-    };
     struct previousKinematicsVelocityField {
         inline static constexpr auto member = &virtualParticle::previousKinematicsVelocity_;
     };
 
     using DeviceLayout =
         concatDeviceLayoutsT<pointMass::DeviceLayout, deviceLayout<localPositionField, localNormalField, volumeField, ownerLSParticleIndexField, normalField, accelerationField, priorForceField,
-                                                                couplingTorqueField, couplingForceIncrementField, couplingTorqueIncrementField, previousKinematicsVelocityField>>;
+                                                                couplingTorqueField, previousKinematicsVelocityField>>;
 };
 
 using virtualParticleContainer = hostAoSDeviceSoA<virtualParticle, virtualParticle::DeviceLayout>;
@@ -185,8 +169,6 @@ inline virtualParticle::device_type deviceFields(virtualParticleContainer& parti
     result.acceleration_ = particles.device<virtualParticle::accelerationField>();
     result.priorForce_ = particles.device<virtualParticle::priorForceField>();
     result.couplingTorque_ = particles.device<virtualParticle::couplingTorqueField>();
-    result.couplingForceIncrement_ = particles.device<virtualParticle::couplingForceIncrementField>();
-    result.couplingTorqueIncrement_ = particles.device<virtualParticle::couplingTorqueIncrementField>();
     result.previousKinematicsVelocity_ = particles.device<virtualParticle::previousKinematicsVelocityField>();
     result.size_ = static_cast<int>(particles.deviceSize());
     return result;

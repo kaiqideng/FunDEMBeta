@@ -1,5 +1,6 @@
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "solver/SPHDEM.h"
 
@@ -128,8 +129,20 @@ int main(int argc, char** argv)
                                       static_cast<int>(std::ceil(initialWaterDepth / spacing))};
         simulation.addSPHBlock({-upstreamLength, 0.0, 0.0}, waterParticleCount);
 
-        const int wallMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, flumeFrictionCoefficient, restitutionCoefficient, 1.0});
-        const int cubeMaterialIndex = simulation.addMaterial(LSMaterial{normalStiffnessPerUnitArea, shearStiffnessPerUnitArea, cubeFrictionCoefficient, restitutionCoefficient, cubeDensity});
+        const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, restitutionCoefficient, 1.0});
+        const int cubeMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, restitutionCoefficient, cubeDensity});
+        // Preserve the legacy linear nodal coefficients; nominal E/nu do not
+        // replace stiffness-per-area measurements in this demonstration.
+        materialPair cubePair{cubeMaterialIndex, cubeMaterialIndex};
+        cubePair.setLevelSetStiffness(0.5 * normalStiffnessPerUnitArea, 0.5 * shearStiffnessPerUnitArea);
+        cubePair.setFrictionCoefficients(cubeFrictionCoefficient);
+        simulation.setMaterialPair(cubePair);
+        materialPair wallPair{cubeMaterialIndex, wallMaterialIndex};
+        wallPair.setLevelSetStiffness(normalStiffnessPerUnitArea, shearStiffnessPerUnitArea);
+        wallPair.setFrictionCoefficients(flumeFrictionCoefficient > 0.0 && cubeFrictionCoefficient > 0.0
+                                             ? 2.0 * flumeFrictionCoefficient * cubeFrictionCoefficient / (flumeFrictionCoefficient + cubeFrictionCoefficient)
+                                             : 0.0);
+        simulation.setMaterialPair(wallPair);
 
         levelset::BoxWall flumeWall{{flumeLength, flumeWidth, flumeHeight}};
         flumeWall.buildLSGrid(spacing, 3, true);

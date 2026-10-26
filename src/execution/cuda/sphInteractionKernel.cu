@@ -13,6 +13,7 @@
 #include <thrust/transform_reduce.h>
 
 #include <limits>
+#include <stdexcept>
 
 namespace fundem::cuda
 {
@@ -100,18 +101,7 @@ struct combineSPHKinematicsStatistics {
     }
 };
 
-struct SPHParticleDeviceView {
-    math::Vec3* position_{nullptr};
-    math::Vec3* velocity_{nullptr};
-    math::Vec3* force_{nullptr};
-    math::Vec3* priorForce_{nullptr};
-    const math::Real* inverseMass_{nullptr};
-    math::Real* density_{nullptr};
-    math::Real* pressure_{nullptr};
-    math::Real* densityRate_{nullptr};
-    int* freeSurface_{nullptr};
-    int* constrained_{nullptr};
-};
+using SPHParticleDeviceView = SPHParticle::device_type;
 
 struct VirtualParticleDeviceView {
     const math::Vec3* localPosition_{nullptr};
@@ -125,14 +115,10 @@ struct VirtualParticleDeviceView {
     math::Vec3* force_{nullptr};
     math::Vec3* priorForce_{nullptr};
     math::Vec3* couplingTorque_{nullptr};
-    math::Vec3* couplingForceIncrement_{nullptr};
-    math::Vec3* couplingTorqueIncrement_{nullptr};
     math::Vec3* previousKinematicsVelocity_{nullptr};
 };
 
 struct ConstVirtualParticleDeviceView {
-    const math::Vec3* localPosition_{nullptr};
-    const math::Vec3* localNormal_{nullptr};
     const math::Real* volume_{nullptr};
     const int* ownerLSParticleIndex_{nullptr};
     const math::Vec3* position_{nullptr};
@@ -140,23 +126,12 @@ struct ConstVirtualParticleDeviceView {
     const math::Vec3* velocity_{nullptr};
     const math::Vec3* acceleration_{nullptr};
     const math::Vec3* force_{nullptr};
-    const math::Vec3* priorForce_{nullptr};
     const math::Vec3* couplingTorque_{nullptr};
-    const math::Vec3* couplingForceIncrement_{nullptr};
-    const math::Vec3* couplingTorqueIncrement_{nullptr};
-    const math::Vec3* previousKinematicsVelocity_{nullptr};
 };
 
 struct LSParticleDeviceView {
-    const math::Vec3* position_{nullptr};
-    const math::Quaternion* orientation_{nullptr};
-    math::Vec3* velocity_{nullptr};
-    math::Vec3* angularVelocity_{nullptr};
     math::Vec3* force_{nullptr};
     math::Vec3* torque_{nullptr};
-    const math::Real* inverseMass_{nullptr};
-    const math::Mat3* inertiaTensor_{nullptr};
-    const math::Mat3* inverseInertiaTensor_{nullptr};
 };
 
 struct ConstLSParticleDeviceView {
@@ -171,20 +146,6 @@ struct ConstLSParticleDeviceView {
     const math::Mat3* inverseInertiaTensor_{nullptr};
 };
 
-SPHParticleDeviceView makeSPHParticleDeviceView(SPHParticleContainer& particles) noexcept
-{
-    return {particles.device<pointMass::positionField>(),
-            particles.device<pointMass::velocityField>(),
-            particles.device<pointMass::forceField>(),
-            particles.device<SPHParticle::priorForceField>(),
-            particles.device<pointMass::inverseMassField>(),
-            particles.device<SPHParticle::densityField>(),
-            particles.device<SPHParticle::pressureField>(),
-            particles.device<SPHParticle::densityRateField>(),
-            particles.device<SPHParticle::freeSurfaceField>(),
-            particles.device<SPHParticle::constrainedField>()};
-}
-
 VirtualParticleDeviceView makeVirtualParticleDeviceView(virtualParticleContainer& particles) noexcept
 {
     return {particles.device<virtualParticle::localPositionField>(),
@@ -198,40 +159,24 @@ VirtualParticleDeviceView makeVirtualParticleDeviceView(virtualParticleContainer
             particles.device<pointMass::forceField>(),
             particles.device<virtualParticle::priorForceField>(),
             particles.device<virtualParticle::couplingTorqueField>(),
-            particles.device<virtualParticle::couplingForceIncrementField>(),
-            particles.device<virtualParticle::couplingTorqueIncrementField>(),
             particles.device<virtualParticle::previousKinematicsVelocityField>()};
 }
 
 ConstVirtualParticleDeviceView makeVirtualParticleDeviceView(const virtualParticleContainer& particles) noexcept
 {
-    return {particles.device<virtualParticle::localPositionField>(),
-            particles.device<virtualParticle::localNormalField>(),
-            particles.device<virtualParticle::volumeField>(),
+    return {particles.device<virtualParticle::volumeField>(),
             particles.device<virtualParticle::ownerLSParticleIndexField>(),
             particles.device<pointMass::positionField>(),
             particles.device<virtualParticle::normalField>(),
             particles.device<pointMass::velocityField>(),
             particles.device<virtualParticle::accelerationField>(),
             particles.device<pointMass::forceField>(),
-            particles.device<virtualParticle::priorForceField>(),
-            particles.device<virtualParticle::couplingTorqueField>(),
-            particles.device<virtualParticle::couplingForceIncrementField>(),
-            particles.device<virtualParticle::couplingTorqueIncrementField>(),
-            particles.device<virtualParticle::previousKinematicsVelocityField>()};
+            particles.device<virtualParticle::couplingTorqueField>()};
 }
 
 LSParticleDeviceView makeLSParticleDeviceView(LSParticleContainer& particles) noexcept
 {
-    return {particles.device<rigidBody::positionField>(),
-            particles.device<rigidBody::orientationField>(),
-            particles.device<rigidBody::velocityField>(),
-            particles.device<rigidBody::angularVelocityField>(),
-            particles.device<rigidBody::forceField>(),
-            particles.device<rigidBody::torqueField>(),
-            particles.device<rigidBody::inverseMassField>(),
-            particles.device<rigidBody::inertiaTensorField>(),
-            particles.device<rigidBody::inverseInertiaTensorField>()};
+    return {particles.device<rigidBody::forceField>(), particles.device<rigidBody::torqueField>()};
 }
 
 ConstLSParticleDeviceView makeLSParticleDeviceView(const LSParticleContainer& particles) noexcept
@@ -407,7 +352,7 @@ __global__ void resetVirtualParticleKinematicsReferenceKernel(VirtualParticleDev
     virtualParticles.previousKinematicsVelocity_[index] = LSParticles.velocity_[owner] + math::cross(LSParticles.angularVelocity_[owner], math::rotateUnit(LSParticles.orientation_[owner], virtualParticles.localPosition_[index]));
 }
 
-__global__ void averageVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Real inverseSampleCount, int virtualParticleCount)
+__global__ void prepareVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Vec3 gravity, int sampleCount, int virtualParticleCount)
 {
     const int virtualParticleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
     if (virtualParticleIndex >= virtualParticleCount)
@@ -421,11 +366,24 @@ __global__ void averageVirtualParticleKinematicsKernel(VirtualParticleDeviceView
                                                          virtualParticles.localNormal_[virtualParticleIndex],
                                                          LSParticles.position_[ownerIndex],
                                                          LSParticles.orientation_[ownerIndex]);
-    virtualParticles.velocity_[virtualParticleIndex] *= inverseSampleCount;
-    virtualParticles.acceleration_[virtualParticleIndex] *= inverseSampleCount;
+    if (sampleCount > 0)
+    {
+        const math::Real inverseSampleCount = 1.0 / math::Real(sampleCount);
+        virtualParticles.velocity_[virtualParticleIndex] *= inverseSampleCount;
+        virtualParticles.acceleration_[virtualParticleIndex] *= inverseSampleCount;
+    }
+    else
+    {
+        virtualParticles.velocity_[virtualParticleIndex] = math::Vec3::zero();
+        virtualParticles.acceleration_[virtualParticleIndex] = math::Vec3::zero();
+        execution::accumulateVirtualParticleVelocityAndAcceleration(virtualParticles.velocity_[virtualParticleIndex], virtualParticles.acceleration_[virtualParticleIndex],
+                                                                    virtualParticles.localPosition_[virtualParticleIndex], LSParticles.orientation_[ownerIndex], LSParticles.velocity_[ownerIndex],
+                                                                    LSParticles.angularVelocity_[ownerIndex], LSParticles.force_[ownerIndex], LSParticles.torque_[ownerIndex],
+                                                                    LSParticles.inverseMass_[ownerIndex], LSParticles.inertiaTensor_[ownerIndex], LSParticles.inverseInertiaTensor_[ownerIndex], gravity);
+    }
 }
 
-__global__ void addVirtualParticleForceAndTorqueKernel(LSParticleDeviceView LSParticles, ConstVirtualParticleDeviceView virtualParticles, int virtualParticleCount)
+__global__ void addVirtualParticleForceAndTorqueKernel(LSParticleDeviceView LSParticles, ConstVirtualParticleDeviceView virtualParticles, math::Real scale, int virtualParticleCount)
 {
     const int virtualParticleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
     if (virtualParticleIndex >= virtualParticleCount)
@@ -434,8 +392,8 @@ __global__ void addVirtualParticleForceAndTorqueKernel(LSParticleDeviceView LSPa
     }
     const int ownerIndex = virtualParticles.ownerLSParticleIndex_[virtualParticleIndex];
     // Both backends hold world force AND world torque between fluid updates.
-    detail::atomicAddVec3(LSParticles.force_, ownerIndex, virtualParticles.force_[virtualParticleIndex]);
-    detail::atomicAddVec3(LSParticles.torque_, ownerIndex, virtualParticles.couplingTorque_[virtualParticleIndex]);
+    detail::atomicAddVec3(LSParticles.force_, ownerIndex, scale * virtualParticles.force_[virtualParticleIndex]);
+    detail::atomicAddVec3(LSParticles.torque_, ownerIndex, scale * virtualParticles.couplingTorque_[virtualParticleIndex]);
 }
 
 __global__ void refreshVirtualParticleCouplingLoadsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, int virtualParticleCount)
@@ -445,24 +403,7 @@ __global__ void refreshVirtualParticleCouplingLoadsKernel(VirtualParticleDeviceV
         return;
     const int owner = virtualParticles.ownerLSParticleIndex_[index];
     const math::Vec3 torque = math::cross(math::rotateUnit(LSParticles.orientation_[owner], virtualParticles.localPosition_[index]), virtualParticles.force_[index]);
-    virtualParticles.couplingForceIncrement_[index] = virtualParticles.force_[index] - virtualParticles.couplingForceIncrement_[index];
-    virtualParticles.couplingTorqueIncrement_[index] = torque - virtualParticles.couplingTorque_[index];
     virtualParticles.couplingTorque_[index] = torque;
-}
-
-__global__ void applyVirtualParticleImpulseCorrectionKernel(LSParticleDeviceView LSParticles, ConstVirtualParticleDeviceView virtualParticles, math::Real correctionTime, int virtualParticleCount)
-{
-    const int index = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-    if (index >= virtualParticleCount)
-        return;
-    const int owner = virtualParticles.ownerLSParticleIndex_[index];
-    math::Vec3 velocityCorrection;
-    math::Vec3 angularVelocityCorrection;
-    execution::calculateSPHCouplingVelocityCorrection(velocityCorrection, angularVelocityCorrection,
-                                                     virtualParticles.couplingForceIncrement_[index], virtualParticles.couplingTorqueIncrement_[index],
-                                                     LSParticles.orientation_[owner], LSParticles.inverseMass_[owner], LSParticles.inverseInertiaTensor_[owner], correctionTime);
-    detail::atomicAddVec3(LSParticles.velocity_, owner, velocityCorrection);
-    detail::atomicAddVec3(LSParticles.angularVelocity_, owner, angularVelocityCorrection);
 }
 
 __global__ void updateSPHFreeSurfaceKernel(SPHParticleDeviceView particles,
@@ -796,7 +737,7 @@ void launchInitializeSPHParticles(SPHParticleContainer& particles, math::Real re
     {
         return;
     }
-    initializeSPHParticlesKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles), referenceDensity, soundSpeed, count);
+    initializeSPHParticlesKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles), referenceDensity, soundSpeed, count);
     host_device_detail::checkCuda(cudaGetLastError(), "initializeSPHParticlesKernel launch");
 }
 
@@ -842,38 +783,30 @@ void launchResetVirtualParticleKinematicsReference(virtualParticleContainer& vir
     host_device_detail::checkCuda(cudaGetLastError(), "resetVirtualParticleKinematicsReferenceKernel launch");
 }
 
-void launchAverageVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, math::Real inverseSampleCount, cudaStream_t stream)
+void launchPrepareVirtualParticleKinematics(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const math::Vec3& gravity, int sampleCount, cudaStream_t stream)
 {
+    if (sampleCount < 0)
+    {
+        throw std::invalid_argument("The virtual-particle kinematics sample count must not be negative.");
+    }
     const int count = static_cast<int>(virtualParticles.deviceSize());
     if (count <= 0)
     {
         return;
     }
-    averageVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles),
-                                                                                        makeLSParticleDeviceView(LSParticles),
-                                                                                        inverseSampleCount,
-                                                                                        count);
-    host_device_detail::checkCuda(cudaGetLastError(), "averageVirtualParticleKinematicsKernel launch");
+    prepareVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), gravity, sampleCount, count);
+    host_device_detail::checkCuda(cudaGetLastError(), "prepareVirtualParticleKinematicsKernel launch");
 }
 
-void launchAddVirtualParticleForceAndTorque(LSParticleContainer& LSParticles, const virtualParticleContainer& virtualParticles, cudaStream_t stream)
+void launchAddVirtualParticleForceAndTorque(LSParticleContainer& LSParticles, const virtualParticleContainer& virtualParticles, math::Real scale, cudaStream_t stream)
 {
     const int count = static_cast<int>(virtualParticles.deviceSize());
     if (count <= 0)
     {
         return;
     }
-    addVirtualParticleForceAndTorqueKernel<<<blockCount(count), blockSize, 0, stream>>>(makeLSParticleDeviceView(LSParticles), makeVirtualParticleDeviceView(virtualParticles), count);
+    addVirtualParticleForceAndTorqueKernel<<<blockCount(count), blockSize, 0, stream>>>(makeLSParticleDeviceView(LSParticles), makeVirtualParticleDeviceView(virtualParticles), scale, count);
     host_device_detail::checkCuda(cudaGetLastError(), "addVirtualParticleForceAndTorqueKernel launch");
-}
-
-void launchCacheVirtualParticleCouplingForce(virtualParticleContainer& virtualParticles, cudaStream_t stream)
-{
-    const auto count = virtualParticles.deviceSize();
-    if (count == 0)
-        return;
-    host_device_detail::checkCuda(cudaMemcpyAsync(virtualParticles.device<virtualParticle::couplingForceIncrementField>(), virtualParticles.device<pointMass::forceField>(),
-                                                count * sizeof(math::Vec3), cudaMemcpyDeviceToDevice, stream), "cache virtual-particle coupling force");
 }
 
 void launchRefreshVirtualParticleCouplingLoads(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, cudaStream_t stream)
@@ -885,22 +818,12 @@ void launchRefreshVirtualParticleCouplingLoads(virtualParticleContainer& virtual
     host_device_detail::checkCuda(cudaGetLastError(), "refreshVirtualParticleCouplingLoadsKernel launch");
 }
 
-void launchApplyVirtualParticleImpulseCorrection(LSParticleContainer& LSParticles, const virtualParticleContainer& virtualParticles, math::Real correctionTime, cudaStream_t stream)
-{
-    const int count = static_cast<int>(virtualParticles.deviceSize());
-    if (count <= 0 || correctionTime <= 0.0)
-        return;
-    applyVirtualParticleImpulseCorrectionKernel<<<blockCount(count), blockSize, 0, stream>>>(makeLSParticleDeviceView(LSParticles), makeVirtualParticleDeviceView(virtualParticles), correctionTime, count);
-    host_device_detail::checkCuda(cudaGetLastError(), "applyVirtualParticleImpulseCorrectionKernel launch");
-}
-
 void launchUpdateSPHFreeSurface(SPHParticleContainer& particles,
                                 const virtualParticleContainer& virtualParticles,
                                 const spatialGridContainer::const_device_type& particleSpatialGrid,
                                 const spatialGridContainer::const_device_type& virtualParticleSpatialGrid,
-                                math::Real smoothingLength,
+                                const SPHInteractionParameters& parameters,
                                 math::Real neighborSearchRadius,
-                                math::Real particleMass,
                                 cudaStream_t stream)
 {
     const int count = static_cast<int>(particles.deviceSize());
@@ -908,13 +831,13 @@ void launchUpdateSPHFreeSurface(SPHParticleContainer& particles,
     {
         return;
     }
-    updateSPHFreeSurfaceKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles),
+    updateSPHFreeSurfaceKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles),
                                                                             makeVirtualParticleDeviceView(virtualParticles),
                                                                             particleSpatialGrid,
                                                                             virtualParticleSpatialGrid,
-                                                                            smoothingLength,
+                                                                            parameters.smoothingLength_,
                                                                             neighborSearchRadius,
-                                                                            particleMass,
+                                                                            parameters.particleMass_,
                                                                             count);
     host_device_detail::checkCuda(cudaGetLastError(), "updateSPHFreeSurfaceKernel launch");
 }
@@ -923,12 +846,8 @@ void launchReinitializeSPHDensity(SPHParticleContainer& particles,
                                   const virtualParticleContainer& virtualParticles,
                                   const spatialGridContainer::const_device_type& particleSpatialGrid,
                                   const spatialGridContainer::const_device_type& virtualParticleSpatialGrid,
-                                  math::Real smoothingLength,
+                                  const SPHInteractionParameters& parameters,
                                   math::Real neighborSearchRadius,
-                                  math::Real particleMass,
-                                  math::Real referenceDensity,
-                                  math::Real latticeKernelSum3D,
-                                  math::Real soundSpeed,
                                   cudaStream_t stream)
 {
     const int count = static_cast<int>(particles.deviceSize());
@@ -936,16 +855,16 @@ void launchReinitializeSPHDensity(SPHParticleContainer& particles,
     {
         return;
     }
-    reinitializeSPHDensityKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles),
+    reinitializeSPHDensityKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles),
                                                                               makeVirtualParticleDeviceView(virtualParticles),
                                                                               particleSpatialGrid,
                                                                               virtualParticleSpatialGrid,
-                                                                              smoothingLength,
+                                                                              parameters.smoothingLength_,
                                                                               neighborSearchRadius,
-                                                                              particleMass,
-                                                                              referenceDensity,
-                                                                              latticeKernelSum3D,
-                                                                              soundSpeed,
+                                                                              parameters.particleMass_,
+                                                                              parameters.referenceDensity_,
+                                                                              parameters.latticeKernelSum3D_,
+                                                                              parameters.soundSpeed_,
                                                                               count);
     host_device_detail::checkCuda(cudaGetLastError(), "reinitializeSPHDensityKernel launch");
 }
@@ -954,13 +873,9 @@ void launchUpdateSPHDensity(SPHParticleContainer& particles,
                             const virtualParticleContainer& virtualParticles,
                             const spatialGridContainer::const_device_type& particleSpatialGrid,
                             const spatialGridContainer::const_device_type& virtualParticleSpatialGrid,
-                            math::Real smoothingLength,
+                            const SPHInteractionParameters& parameters,
                             math::Real neighborSearchRadius,
-                            math::Real particleMass,
-                            math::Real referenceDensity,
-                            math::Real soundSpeed,
                             math::Real timeStep,
-                            const math::Vec3& gravity,
                             cudaStream_t stream)
 {
     const int count = static_cast<int>(particles.deviceSize());
@@ -968,19 +883,19 @@ void launchUpdateSPHDensity(SPHParticleContainer& particles,
     {
         return;
     }
-    computeSPHDensityRateKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles),
+    computeSPHDensityRateKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles),
                                                                              makeVirtualParticleDeviceView(virtualParticles),
                                                                              particleSpatialGrid,
                                                                              virtualParticleSpatialGrid,
-                                                                             smoothingLength,
+                                                                             parameters.smoothingLength_,
                                                                              neighborSearchRadius,
-                                                                             particleMass,
-                                                                             referenceDensity,
-                                                                             soundSpeed,
-                                                                             gravity,
+                                                                             parameters.particleMass_,
+                                                                             parameters.referenceDensity_,
+                                                                             parameters.soundSpeed_,
+                                                                             parameters.gravity_,
                                                                              count);
     host_device_detail::checkCuda(cudaGetLastError(), "computeSPHDensityRateKernel launch");
-    integrateSPHDensityKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles), referenceDensity, soundSpeed, timeStep, count);
+    integrateSPHDensityKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles), parameters.referenceDensity_, parameters.soundSpeed_, timeStep, count);
     host_device_detail::checkCuda(cudaGetLastError(), "integrateSPHDensityKernel launch");
 }
 
@@ -988,10 +903,8 @@ void launchUpdateSPHPriorForceAndBoundaryForce(SPHParticleContainer& particles,
                                                virtualParticleContainer& virtualParticles,
                                                const spatialGridContainer::const_device_type& particleSpatialGrid,
                                                const spatialGridContainer::const_device_type& virtualParticleSpatialGrid,
-                                               math::Real smoothingLength,
+                                               const SPHInteractionParameters& parameters,
                                                math::Real neighborSearchRadius,
-                                               math::Real particleMass,
-                                               math::Real dynamicViscosity,
                                                cudaStream_t stream)
 {
     const int count = static_cast<int>(particles.deviceSize());
@@ -1004,14 +917,14 @@ void launchUpdateSPHPriorForceAndBoundaryForce(SPHParticleContainer& particles,
     {
         host_device_detail::checkCuda(cudaMemsetAsync(virtualParticles.device<virtualParticle::priorForceField>(), 0, virtualForceBytes, stream), "cudaMemsetAsync virtual-particle prior force");
     }
-    updateSPHPriorForceAndBoundaryForceKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles),
+    updateSPHPriorForceAndBoundaryForceKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles),
                                                                                            makeVirtualParticleDeviceView(virtualParticles),
                                                                                            particleSpatialGrid,
                                                                                            virtualParticleSpatialGrid,
-                                                                                           smoothingLength,
+                                                                                           parameters.smoothingLength_,
                                                                                            neighborSearchRadius,
-                                                                                           particleMass,
-                                                                                           dynamicViscosity,
+                                                                                           parameters.particleMass_,
+                                                                                           parameters.dynamicViscosity_,
                                                                                            count);
     host_device_detail::checkCuda(cudaGetLastError(), "updateSPHPriorForceAndBoundaryForceKernel launch");
 }
@@ -1020,12 +933,8 @@ void launchUpdateSPHPressureForceAndBoundaryForce(SPHParticleContainer& particle
                                                   virtualParticleContainer& virtualParticles,
                                                   const spatialGridContainer::const_device_type& particleSpatialGrid,
                                                   const spatialGridContainer::const_device_type& virtualParticleSpatialGrid,
-                                                  math::Real smoothingLength,
+                                                  const SPHInteractionParameters& parameters,
                                                   math::Real neighborSearchRadius,
-                                                  math::Real particleMass,
-                                                  math::Real referenceDensity,
-                                                  math::Real soundSpeed,
-                                                  const math::Vec3& gravity,
                                                   cudaStream_t stream)
 {
     const int count = static_cast<int>(particles.deviceSize());
@@ -1040,16 +949,16 @@ void launchUpdateSPHPressureForceAndBoundaryForce(SPHParticleContainer& particle
             cudaMemcpyAsync(virtualParticles.device<pointMass::forceField>(), virtualParticles.device<virtualParticle::priorForceField>(), virtualForceBytes, cudaMemcpyDeviceToDevice, stream),
             "cudaMemcpyAsync virtual-particle prior force");
     }
-    updateSPHPressureForceAndBoundaryForceKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles),
+    updateSPHPressureForceAndBoundaryForceKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles),
                                                                                               makeVirtualParticleDeviceView(virtualParticles),
                                                                                               particleSpatialGrid,
                                                                                               virtualParticleSpatialGrid,
-                                                                                              smoothingLength,
+                                                                                              parameters.smoothingLength_,
                                                                                               neighborSearchRadius,
-                                                                                              particleMass,
-                                                                                              referenceDensity,
-                                                                                              soundSpeed,
-                                                                                              gravity,
+                                                                                              parameters.particleMass_,
+                                                                                              parameters.referenceDensity_,
+                                                                                              parameters.soundSpeed_,
+                                                                                              parameters.gravity_,
                                                                                               count);
     host_device_detail::checkCuda(cudaGetLastError(), "updateSPHPressureForceAndBoundaryForceKernel launch");
 }
@@ -1061,7 +970,7 @@ void launchIntegrateSPHVelocity(SPHParticleContainer& particles, const math::Vec
     {
         return;
     }
-    integrateSPHVelocityKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles), gravity, timeStep, count);
+    integrateSPHVelocityKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles), gravity, timeStep, count);
     host_device_detail::checkCuda(cudaGetLastError(), "integrateSPHVelocityKernel launch");
 }
 
@@ -1072,7 +981,7 @@ void launchIntegrateSPHPosition(SPHParticleContainer& particles, math::Real time
     {
         return;
     }
-    integrateSPHPositionKernel<<<blockCount(count), blockSize, 0, stream>>>(makeSPHParticleDeviceView(particles), timeStep, count);
+    integrateSPHPositionKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles), timeStep, count);
     host_device_detail::checkCuda(cudaGetLastError(), "integrateSPHPositionKernel launch");
 }
 

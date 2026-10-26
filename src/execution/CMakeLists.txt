@@ -11,6 +11,7 @@ target_sources(
             motionIntegration.h
             contactDetection.h
             contactFunctions.h
+            contactMaterialFunctions.h
             bondFunctions.h
             sphFunctions.h
             sphCouplingFunctions.h
@@ -28,7 +29,7 @@ target_include_directories(
 )
 
 target_compile_features(FunDEM_execution INTERFACE cxx_std_17)
-target_link_libraries(FunDEM_execution INTERFACE FunDEM::math FunDEM::data)
+target_link_libraries(FunDEM_execution INTERFACE FunDEM::math FunDEM::data FunDEM::material)
 set_target_properties(FunDEM_execution PROPERTIES EXPORT_NAME execution)
 
 if(FUNDEM_INSTALL)

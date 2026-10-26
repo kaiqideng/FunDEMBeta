@@ -59,7 +59,7 @@ struct pairFixture {
 
     pairFixture()
     {
-        materials_.host().emplace_back(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0);
+        materials_.host().emplace_back(1.0e9, 0.25, 1.0, 1.0);
         for (const Vec3& position : {Vec3{0.2, 3.0, 3.0}, Vec3{9.3, 3.0, 3.0}})
         {
             particle sphere;
@@ -113,7 +113,7 @@ void additiveContactLoads()
     const Vec3 separation = contactForce.minimumImage(host[1].position() - host[0].position());
     const Vec3 momentBalance = host[0].torque() - firstMoment + host[1].torque() - secondMoment + math::cross(separation, host[1].force() - secondLoad);
     near(momentBalance, Vec3::zero(), 1.0e-10, "External periodic contact violates angular momentum balance.");
-    near(host[0].getMaterial().normalStiffness(), 0.0, 0.0, "The external law unexpectedly changed material properties.");
+    near(host[0].getMaterial().youngModulus(), 1.0e9, 0.0, "The external law unexpectedly changed the unused nominal elastic modulus.");
 }
 
 /** Checks that a separating dashpot never creates attraction. */
@@ -393,9 +393,8 @@ void solverExternalHook()
     require(model.externalCalls() == 1, "Initialization did not call the external-force hook exactly once.");
     const auto& materials = model.materials().host();
     require(materials.size() == 1, "The adapter unexpectedly created multiple mass-only materials.");
-    near(materials.front().normalStiffness(), 0.0, 0.0, "Ordinary normal stiffness was not disabled.");
-    near(materials.front().slidingStiffness(), 0.0, 0.0, "Ordinary tangential stiffness was not disabled.");
-    near(materials.front().slidingFrictionCoefficient(), 0.0, 0.0, "Ordinary contact friction was not disabled.");
+    near(materials.front().youngModulus(), 1.0e9, 0.0, "The independent force-law adapter changed its unused nominal modulus.");
+    near(materials.front().density(), 1.0, 0.0, "The independent force-law adapter changed the benchmark mass density.");
     near(model.contacts().front().normalForce_, 1014.0, 1.0e-8, "The adapter did not use the direct external normal law.");
     near(model.spheres().host()[0].force(), {1014.0, -1.5, 0.0}, 1.0e-8, "Initialization duplicated or omitted the external contact force.");
     near(model.contacts().front().tangentialSpring_, Vec3::zero(), 1.0e-14, "Initialization incorrectly advanced tangential history.");

@@ -1,10 +1,11 @@
 #include "execution/bondFunctions.h"
+#include "execution/contactMaterialFunctions.h"
 #include "execution/sphFunctions.h"
 #include "interaction/contact.h"
 #include "interaction/contactSearch.h"
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
 #include "material/material.h"
+#include "material/materialPair.h"
 #include "solver/LSDEM.h"
 #include "solver/SPHDEM.h"
 #include "solver/SphereDEM.h"
@@ -29,8 +30,7 @@ template <class T> struct hasRollingFrictionSetter<T, std::void_t<decltype(std::
 template <class T, class = void> struct hasTorsionalFrictionSetter : std::false_type {};
 template <class T> struct hasTorsionalFrictionSetter<T, std::void_t<decltype(std::declval<T&>().setTorsionalFrictionCoefficient(0.0))>> : std::true_type {};
 
-static_assert(hasRollingFrictionSetter<material>::value && hasTorsionalFrictionSetter<material>::value, "Sphere materials must retain rotational friction settings.");
-static_assert(!hasRollingFrictionSetter<LSMaterial>::value && !hasTorsionalFrictionSetter<LSMaterial>::value, "LSMaterial must not expose rotational friction settings.");
+static_assert(!hasRollingFrictionSetter<material>::value && !hasTorsionalFrictionSetter<material>::value, "Contact friction belongs to material pairs, not physical materials.");
 
 bool nearlyEqual(math::Real first, math::Real second, math::Real tolerance = 1.0e-12) noexcept { return std::abs(first - second) <= tolerance * (1.0 + std::max(std::abs(first), std::abs(second))); }
 
@@ -42,7 +42,13 @@ void require(bool condition, const char* message)
     }
 }
 
-material testMaterial() { return {1.0e5, 5.0e4, 0.0, 0.0, 0.4, 0.0, 0.0, 0.5, 1000.0}; }
+material testMaterial() { return {1.0e9, 0.25, 0.5, 1000.0}; }
+
+void configureLinearPair(materialPair& pair)
+{
+    pair.setLinearStiffness(5.0e4, 2.5e4);
+    pair.setFrictionCoefficients(0.4);
+}
 
 void testSphereDEMExecutionModes()
 {
@@ -115,27 +121,17 @@ void testContainerOwnership()
     }
     require(rejected, "A sphere referencing another solver material container must be rejected.");
 
-    SphereDEM materialTypeSolver;
-    materialTypeSolver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
-    particle sphereWithLevelSetMaterial;
-    sphereWithLevelSetMaterial.setPosition({0.0, 0.0, 0.0});
-    sphereWithLevelSetMaterial.setRadius(0.1);
-    sphereWithLevelSetMaterial.setMaterial(materialTypeSolver.materials(), 0);
-    rejected = false;
-    try
-    {
-        materialTypeSolver.addSphere(sphereWithLevelSetMaterial);
-    }
-    catch (const std::invalid_argument&)
-    {
-        rejected = true;
-    }
-    require(rejected, "A sphere must reject LSMaterial so the material marker cannot misclassify a sphere-sphere contact as nodal contact.");
+    LSParticle levelSet;
+    levelSet.setMaterial(firstSolver.materials(), 0);
+    require(levelSet.materialIndex() == 0 && levelSet.materialBelongsTo(firstSolver.materials()), "The same physical material must bind to spheres and LS particles.");
 }
 
 void configureContinuationTest(SphereDEM& simulation)
 {
     simulation.addMaterial(testMaterial());
+    materialPair pair{0, 0};
+    configureLinearPair(pair);
+    simulation.setMaterialPair(pair);
     for (int index = 0; index < 2; ++index)
     {
         particle value;
@@ -175,7 +171,17 @@ void testAppendAfterSolve()
     simulation.solve(1);
 
     const int addedMaterialIndex = simulation.addMaterial(testMaterial());
-    const int addedLSMaterialIndex = simulation.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
+    const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.5, 1000.0});
+    for (const int masterMaterialIndex : {0, addedMaterialIndex})
+    {
+        materialPair spherePair{masterMaterialIndex, addedMaterialIndex};
+        configureLinearPair(spherePair);
+        simulation.setMaterialPair(spherePair);
+        materialPair wallPair{masterMaterialIndex, wallMaterialIndex};
+        wallPair.setLinearStiffness(1.0e5, 5.0e4);
+        wallPair.setFrictionCoefficients(0.4);
+        simulation.setMaterialPair(wallPair);
+    }
 
     particle addedSphere;
     addedSphere.setPosition({0.4, 0.0, 0.0});
@@ -188,7 +194,7 @@ void testAppendAfterSolve()
     const int geometryIndex = simulation.addGeometry(wall);
     LSParticle fixedWall;
     fixedWall.setPosition({0.0, 0.0, -0.4});
-    fixedWall.setMaterial(simulation.materials(), addedLSMaterialIndex);
+    fixedWall.setMaterial(simulation.materials(), wallMaterialIndex);
     fixedWall.setGeometry(simulation.geometries(), geometryIndex);
     require(simulation.addLSParticle(fixedWall) == 0, "An LSParticle must be appendable after solve() completes.");
 
@@ -211,8 +217,8 @@ void testLevelSetContainerOwnership()
 {
     LSDEM firstSolver;
     LSDEM secondSolver;
-    firstSolver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
-    secondSolver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
+    firstSolver.addMaterial(material{1.0e9, 0.25, 0.5, 1000.0});
+    secondSolver.addMaterial(material{1.0e9, 0.25, 0.5, 1000.0});
     levelset::PlaneWall wall{{0.0, 0.0, 1.0}, 1.0};
     wall.buildLSGrid(0.1, 2, true);
     firstSolver.addGeometry(wall);
@@ -239,7 +245,7 @@ void testLSParticleMotionReset(executionMode mode)
 {
     LSDEM simulation;
     simulation.setExecutionMode(mode);
-    simulation.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
+    simulation.addMaterial(material{1.0e9, 0.25, 0.5, 1000.0});
     levelset::PlaneWall wall{{0.0, 0.0, 1.0}, 1.0};
     wall.buildLSGrid(0.1, 2, true);
     simulation.addGeometry(wall);
@@ -283,6 +289,8 @@ void testContactCalculationGate()
 {
     materialContainer materials;
     materials.host().push_back(testMaterial());
+    materialPairContainer materialPairs(1);
+    configureLinearPair(materialPairs.at(0, 0));
     particleContainer particles;
     for (int index = 0; index < 2; ++index)
     {
@@ -301,14 +309,14 @@ void testContactCalculationGate()
     value.setArea(2.0);
     value.setEffectiveMass(1.0);
     value.setEffectiveRadius(0.0);
-    require(!value.calculateForce(1.0e-4), "A contact outside a container must not calculate force.");
+    require(!value.calculateForce(1.0e-4, materialPairs, execution::contactType::sphereSphere), "A contact outside a container must not calculate force.");
 
     require(value.setMasterSlaveParticle(particles, 0, 1), "Contact particle copies must be refreshable.");
     contactContainer contacts;
     contacts.host().push_back(value);
-    require(contacts.host()[0].calculateForce(1.0e-4), "A bound contact with refreshed particle copies must calculate force.");
-    require(nearlyEqual(contacts.host()[0].normalForceMagnitude(), 2500.0), "A standard material must select the spherical stiffness model independently of effective radius.");
-    require(!contacts.host()[0].calculateForce(1.0e-4), "A second contact calculation without refreshing particle copies must be rejected.");
+    require(contacts.host()[0].calculateForce(1.0e-4, materialPairs, execution::contactType::sphereSphere), "A bound contact with refreshed particle copies must calculate force.");
+    require(nearlyEqual(contacts.host()[0].normalForceMagnitude(), 2500.0), "An explicit spherical pair must use final stiffness independently of effective radius.");
+    require(!contacts.host()[0].calculateForce(1.0e-4, materialPairs, execution::contactType::sphereSphere), "A second contact calculation without refreshing particle copies must be rejected.");
 }
 
 void testParallelContactForceAssembly()
@@ -316,6 +324,8 @@ void testParallelContactForceAssembly()
     constexpr int contactCount = 512;
     materialContainer materials;
     materials.host().push_back(testMaterial());
+    materialPairContainer materialPairs(1);
+    configureLinearPair(materialPairs.at(0, 0));
     particleContainer particles;
     for (int index = 0; index < 2; ++index)
     {
@@ -341,7 +351,7 @@ void testParallelContactForceAssembly()
         contacts.host().push_back(value);
     }
 
-    cpu::addContactForceAndTorque(contacts, particles, particles, 1.0e-4);
+    cpu::addContactForceAndTorque(contacts, particles, particles, materialPairs, 1.0e-4);
     const math::Vec3 expectedMasterForce = math::Real(contactCount) * contacts.host().front().force();
     require(math::norm(particles.host()[0].force() - expectedMasterForce) <= 1.0e-10 * math::norm(expectedMasterForce), "Parallel contact force gathering must retain every master contribution.");
     require(math::norm(particles.host()[1].force() + expectedMasterForce) <= 1.0e-10 * math::norm(expectedMasterForce), "Parallel contact force gathering must retain every slave contribution.");
@@ -390,26 +400,21 @@ void testParallelGridContactSearch()
     require(gridSearch.occupiedCellCount() > 0, "The CPU spatial grid must contain occupied cells.");
 }
 
-void testMaterialTypeAndLevelSetAssignment()
+void testUnifiedMaterialAssignment()
 {
-    const material standardMaterial = testMaterial();
-    LSMaterial levelSetMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0};
-    require(standardMaterial.type() == materialType::standard, "material must use the standard material type.");
-    require(levelSetMaterial.type() == materialType::levelSet, "LSMaterial must preserve its level-set marker when viewed through material.");
-    const material& unifiedMaterial = levelSetMaterial;
-    require(nearlyEqual(levelSetMaterial.slidingFrictionCoefficient(), 0.4) && unifiedMaterial.rollingFrictionCoefficient() == 0.0 && unifiedMaterial.torsionalFrictionCoefficient() == 0.0 &&
-                unifiedMaterial.rollingStiffness() == 0.0 && unifiedMaterial.torsionalStiffness() == 0.0,
-            "LSMaterial must expose sliding friction and keep unused rotational properties zero in unified storage.");
-
+    const material physicalMaterial = testMaterial();
+    require(nearlyEqual(physicalMaterial.youngModulus(), 1.0e9) && nearlyEqual(physicalMaterial.poissonRatio(), 0.25) &&
+                nearlyEqual(physicalMaterial.restitutionCoefficient(), 0.5) && nearlyEqual(physicalMaterial.density(), 1000.0),
+            "Unified material storage must retain E, nu, restitution and density.");
     materialContainer materials;
-    materials.host().push_back(standardMaterial);
-    materials.host().push_back(levelSetMaterial);
-
-    LSParticle particle;
-    particle.setMaterial(materials, 0);
-    require(particle.materialIndex() == -1, "LSParticle must reject a non-level-set material.");
-    particle.setMaterial(materials, 1);
-    require(particle.materialIndex() == 1 && particle.getMaterial().isLevelSet(), "LSParticle must accept a level-set material.");
+    materials.host().push_back(physicalMaterial);
+    particle sphere;
+    LSParticle levelSet;
+    sphere.setMaterial(materials, 0);
+    levelSet.setMaterial(materials, 0);
+    require(sphere.materialIndex() == 0 && levelSet.materialIndex() == 0 &&
+                nearlyEqual(sphere.getMaterial().youngModulus(), levelSet.getMaterial().youngModulus()),
+            "Sphere and LS particle families must accept the same physical material without a material type marker.");
 }
 
 void testRotationalContactFriction()
@@ -422,11 +427,21 @@ void testRotationalContactFriction()
             const bool mixedContact = kind == pairKind::sphereLevelSet || kind == pairKind::frictionlessSphereLevelSet;
             const bool frictionlessSphere = kind == pairKind::frictionlessSphereLevelSet;
             materialContainer materials;
-            const LSMaterial levelSetMaterial{2.0e5, 8.0e4, 0.6, 1.0, 1200.0};
-            materials.host().push_back(nodalContact ? static_cast<material>(levelSetMaterial)
-                                                    : material{1.0e5, 5.0e4, 2.0e4, 1.0e4, 0.4, frictionlessSphere ? 0.0 : 0.3, frictionlessSphere ? 0.0 : 0.2, 1.0, 1000.0});
-            materials.host().push_back(kind == pairKind::sphereSphere ? material{1.0e5, 5.0e4, 2.0e4, 1.0e4, 0.4, 0.9, 0.6, 1.0, 1000.0}
-                                                                     : static_cast<material>(levelSetMaterial));
+            materials.host().push_back(material{1.0e9, 0.25, 1.0, nodalContact ? 1200.0 : 1000.0});
+            materials.host().push_back(material{1.0e9, 0.25, 1.0, kind == pairKind::sphereSphere ? 1000.0 : 1200.0});
+            materialPairContainer materialPairs(2);
+            materialPair& pair = materialPairs.at(0, 1);
+            const math::Real normalStiffness = nodalContact ? (infiniteMass ? 2.0e5 : 1.0e5) : mixedContact || infiniteMass ? 1.0e5 : 5.0e4;
+            if (nodalContact)
+                pair.setLevelSetStiffness(normalStiffness, infiniteMass ? 8.0e4 : 4.0e4);
+            else
+                pair.setLinearStiffness(normalStiffness, mixedContact || infiniteMass ? 5.0e4 : 2.5e4,
+                                        mixedContact || infiniteMass ? 2.0e4 : 1.0e4, mixedContact || infiniteMass ? 1.0e4 : 5.0e3);
+            const math::Real rollingFriction = nodalContact || frictionlessSphere ? 0.0 : mixedContact ? 0.3 : 0.45;
+            const math::Real torsionalFriction = nodalContact || frictionlessSphere ? 0.0 : mixedContact ? 0.2 : 0.3;
+            pair.setFrictionCoefficients(nodalContact ? 0.6 : mixedContact ? 0.48 : 0.4, rollingFriction, torsionalFriction);
+            const execution::contactType contactKind = nodalContact ? execution::contactType::levelSetLevelSet
+                                                      : mixedContact ? execution::contactType::sphereLevelSet : execution::contactType::sphereSphere;
             particle master;
             master.setPosition({0.0, 0.0, 0.0});
             master.setAngularVelocity({100.0, 0.0, 100.0});
@@ -455,18 +470,15 @@ void testRotationalContactFriction()
             value.setTorsionalSpringDeformation({0.1, 0.0, 0.0});
             contactContainer contacts;
             contacts.host().push_back(value);
-            require(contacts.host()[0].calculateForce(1.0), "A configured contact must calculate force.");
+            require(contacts.host()[0].calculateForce(1.0, materialPairs, contactKind), "A configured contact must calculate force.");
             const contact& evaluated = contacts.host()[0];
             const math::Real scale = nodalContact ? 2.0 : 1.0;
-            const math::Real expectedStiffness = mixedContact ? materials.host()[0].normalStiffness()
-                : execution::effectiveStiffness(scale * materials.host()[0].normalStiffness(), scale * materials.host()[1].normalStiffness(), false, infiniteMass);
+            const math::Real expectedStiffness = scale * normalStiffness;
             const math::Real normalForce = 0.05 * expectedStiffness;
             require(nearlyEqual(evaluated.normalForceMagnitude(), normalForce), "Normal contact stiffness changed with rotational friction selection.");
-            const math::Real rollingFriction = nodalContact || frictionlessSphere ? 0.0 : mixedContact ? 0.3 : execution::harmonicMean(0.3, 0.9);
-            const math::Real torsionalFriction = nodalContact || frictionlessSphere ? 0.0 : mixedContact ? 0.2 : execution::harmonicMean(0.2, 0.6);
             require(nearlyEqual(evaluated.torque().x, -0.2 * torsionalFriction * normalForce) && nearlyEqual(evaluated.torque().y, 0.0) &&
                         nearlyEqual(evaluated.torque().z, -0.1 * rollingFriction * normalForce),
-                    "Sphere-LS rotational friction must use only the sphere; sphere-sphere must retain harmonic combination; LS-LS must have no direct rotational torque.");
+                    "Final pair rotational coefficients must control sphere contacts; LS-LS must have no direct rotational torque.");
             if (nodalContact || frictionlessSphere)
                 require(evaluated.rollingSpringDeformation() == math::Vec3::zero() && evaluated.torsionalSpringDeformation() == math::Vec3::zero(),
                         "An inactive rotational friction law must clear both spring histories.");
@@ -506,7 +518,7 @@ void testBondReferenceGeometry()
 {
     SphereDEM solver;
     const int sphereMaterial = solver.addMaterial(testMaterial());
-    const int LSMaterialIndex = solver.addMaterial(LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
+    const int otherMaterialIndex = solver.addMaterial(material{1.0e9, 0.25, 0.5, 1000.0});
     for (const math::Real radius : {0.5, 1.0})
     {
         particle value;
@@ -542,7 +554,7 @@ void testBondReferenceGeometry()
         geometry.buildLSGrid(0.25, 2);
         const int geometryIndex = solver.addGeometry(geometry);
         LSParticle value;
-        value.setMaterial(solver.materials(), LSMaterialIndex);
+        value.setMaterial(solver.materials(), otherMaterialIndex);
         value.setGeometry(solver.geometries(), geometryIndex);
         solver.addLSParticle(value);
     }
@@ -673,7 +685,7 @@ void testSPHWallReaction(executionMode mode)
     simulation.setSPHProperties(spacing, 1.3 * spacing, 1000.0, 1.0e-3);
     simulation.addSPHParticle(SPHParticle{{0.0, 0.0, 0.015}});
 
-    const int materialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.0, 1.0, 1.0});
+    const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, 1.0});
     levelset::PlaneWall plane{math::Vec3::unitZ(), 0.2};
     plane.buildLSGrid(spacing, 3, true);
     const int geometryIndex = simulation.addGeometry(plane);
@@ -775,7 +787,7 @@ int main()
         testContactCalculationGate();
         testParallelContactForceAssembly();
         testParallelGridContactSearch();
-        testMaterialTypeAndLevelSetAssignment();
+        testUnifiedMaterialAssignment();
         testRotationalContactFriction();
         testBondOwnershipAndValidity();
         testBondReferenceGeometry();

@@ -76,8 +76,10 @@ triangulations.
 
 For each resolution:
 
-1. Fix Grain 0 and give Grain 1 the deformable LS material with
-   `normalStiffnessPerUnitArea = 1.0e12`.
+1. Fix Grain 0 and retain finite mass for Grain 1. Assign unified bulk materials,
+   then configure their final `materialPair` with
+   `setLevelSetStiffness(1.0e12, 0.0)` and zero friction. No material-side
+   stiffness mixing or fixed-body compliance adjustment is applied.
 2. Move Grain 1 from \(\delta=0\) to \(0.1\ \mathrm{mm}\) in small,
    uniform displacement increments.
 3. At every increment, clear stale force and contact history, perform contact
@@ -87,7 +89,7 @@ For each resolution:
    spacing, and backend to a DAT or CSV file.
 
 The moving particle must remain finite-mass while its pose is prescribed:
-FunDEM intentionally gives two infinite-mass bodies zero effective stiffness.
+FunDEM excludes contact detection between two infinite-mass bodies.
 A validation fixture should therefore impose Grain 1's position kinematically
 rather than mark both particles as fixed.
 
@@ -103,9 +105,15 @@ At \(R=5\ \mathrm{mm}\) and \(\delta=0.1\ \mathrm{mm}\), this is about
 reference because the exact discrete response also contains finite-curvature
 and grid-interpolation effects.
 
-## Acceptance checks
+## Current check and extended validation targets
 
-The future executable should fail clearly unless all of these hold:
+`validation/LSCentralCompression.cpp` checks subdivision levels 2 through 5 at
+three prescribed penetrations, using a 60-cell grid across the largest extent.
+It requires the maximum error against the small-penetration approximation to
+decrease at each refinement and to remain below 10% at the finest surface.
+This is a quadrature regression, not a completed reproduction of the paper data.
+
+A more complete validation study should additionally require:
 
 - the two finest surface-discretization curves differ by less than a declared
   tolerance, initially 2% over \(0.02\leq\delta\leq0.1\ \mathrm{mm}\);

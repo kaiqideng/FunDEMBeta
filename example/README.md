@@ -20,6 +20,7 @@ These examples demonstrate application-specific solver derivation, bonded level 
 - Relative output directories are resolved from the executable directory.
 - VTU output is binary by default; `--ascii` selects ASCII.
 - The Canelas case uses roughly 645,000 fluid particles at its reference spacing and is intentionally much larger than a tutorial.
+- Solid `material` entries contain only Young's modulus, Poisson ratio, restitution and density. Contact stiffness/friction belongs to symmetric `materialPair` entries. The examples retain explicit linear pair coefficients instead of silently replacing a calibrated penalty law with Hertz-Mindlin contact.
 
 ## Build
 
@@ -88,6 +89,7 @@ The two SPH examples follow this sequence:
 - Uses exact spherical-cap buoyancy and quadratic translational/rotational water drag.
 - Supports `CPU`, `GPU`, and `Hybrid`; Hybrid runs ice spheres on the GPU and LS structures on the CPU.
 - Writes one interval-averaged force vector per LS structure component to `structureIceLoad.dat` in MN.
+- Finite and prescribed ice use identical bulk properties but separate material identities, allowing explicit pair coefficients to retain the earlier finite/finite and finite/fixed compliance. Bond beam stiffness and fracture properties remain independently configured on each bond.
 - See the [case-specific README](structureIceLoad/README.md) for its file ownership and parameter flow.
 
 ### Zhang 2017 obstacle impact
@@ -102,6 +104,7 @@ The two SPH examples follow this sequence:
 - Derives the DEM time step from the selected contact frequency.
 - Exercises SPH pressure/viscosity, fluid-solid reaction, LS rigid-body motion, and cube contact together.
 - Uses a much larger fluid count and should be treated as a performance/validation workload rather than a smoke test.
+- Cube/cube and cube/wall pairs explicitly define the final LS nodal penalty stiffness (N/m^3) and friction. Nominal elastic values used with these overrides are not inferred PVC calibration data.
 
 ## Reproducible Runs
 

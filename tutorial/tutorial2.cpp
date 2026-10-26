@@ -5,8 +5,8 @@
 #include "data/myLSObject.h"
 #include "execution/cpu/parallelPolicy.h"
 #include "interaction/bond.h"
-#include "material/LSMaterial.h"
 #include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "particle/particle.h"
 #include "solver/SphereDEM.h"
@@ -151,7 +151,11 @@ int main(int argc, char** argv)
 
         const tutorial::TutorialOptions run = tutorial::parseTutorialOptions(argc, argv, "tutorial2_files");
         ClothSimulation simulation(run.mode_, run.device_, velocityDampingRate, rotationalDragCoefficient);
-        const int clothMaterialIndex = simulation.addMaterial(material{normalStiffness, shearStiffness, 0.0, 0.0, frictionCoefficient, 0.0, 0.0, restitutionCoefficient, clothDensity});
+        const int clothMaterialIndex = simulation.addMaterial(material{youngsModulus, poissonRatio, restitutionCoefficient, clothDensity});
+        materialPair clothPair{clothMaterialIndex, clothMaterialIndex};
+        clothPair.setLinearStiffness(0.5 * normalStiffness, 0.5 * shearStiffness);
+        clothPair.setFrictionCoefficients(frictionCoefficient);
+        simulation.setMaterialPair(clothPair);
 
         const Vec3 clothOrigin{particleRadius, 0.5 * (clothSideLength - (clothRowCount - 1) * std::sqrt(3.0) * particleRadius), clothHeight};
         const ClothMesh cloth = makeClothMesh(clothOrigin, clothColumnCount, clothRowCount, particleDiameter);
@@ -179,7 +183,11 @@ int main(int argc, char** argv)
             simulation.addBond(connection);
         }
 
-        const int boxMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, frictionCoefficient, restitutionCoefficient, 1.0});
+        const int boxMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, restitutionCoefficient, 1.0});
+        materialPair boxPair{clothMaterialIndex, boxMaterialIndex};
+        boxPair.setLinearStiffness(normalStiffness, shearStiffness);
+        boxPair.setFrictionCoefficients(frictionCoefficient);
+        simulation.setMaterialPair(boxPair);
         levelset::BoxWall box{boxSize};
         box.buildLSGrid(particleDiameter, 3, true);
         const int boxGeometryIndex = simulation.addGeometry(box);

@@ -1,7 +1,7 @@
 #include "data/HostAoSDeviceSoA.h"
 #include "interaction/contact.h"
 #include "interaction/surfaceNodeMapping.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
 #include "particle/LSParticle.h"
 #include "TestSupport.h"
 
@@ -48,10 +48,67 @@ __global__ void advance(float* positions, float* velocities, int* identifiers, s
     }
 }
 
+void testAppendPreservesDeviceState()
+{
+    fundem::hostAoSDeviceSoA<record> storage;
+    cudaStream_t stream = nullptr;
+    FUNDEM_TEST_REQUIRE_CUDA(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+    storage.appendHostToDevice(stream);
+    FUNDEM_TEST_REQUIRE(storage.deviceSize() == 0 && storage.deviceCapacity() == 0);
+    for (int index = 0; index < 4; ++index)
+    {
+        // A running GPU owns the prefix; these Host values are deliberately stale.
+        for (auto& value : storage.host())
+        {
+            value.position = -1000.0F;
+            value.velocity = -1000.0F;
+            value.identifier = -1000;
+        }
+        record value;
+        value.position = 10.0F * index;
+        value.velocity = static_cast<float>(index + 1);
+        value.identifier = index;
+        storage.host().push_back(value);
+        storage.appendHostToDevice(stream);
+        FUNDEM_TEST_REQUIRE(storage.deviceSize() == static_cast<std::size_t>(index + 1));
+        // Immediate Host reallocation is safe after the suffix transfer returns.
+        storage.host().reserve(storage.host().capacity() + 1);
+        if (index < 3)
+        {
+            advance<<<1, 32, 0, stream>>>(storage.device<baseRecord::positionField>(), storage.device<record::velocityField>(), storage.device<record::identifierField>(), storage.deviceSize());
+            FUNDEM_TEST_REQUIRE_CUDA(cudaGetLastError());
+        }
+    }
+    FUNDEM_TEST_REQUIRE(storage.deviceCapacity() == 4);
+    storage.appendHostToDevice(stream); // Empty suffix must not re-upload stale values.
+    storage.copyDeviceToHost(stream);
+    const float positions[]{3.0F, 14.0F, 23.0F, 30.0F};
+    const int identifiers[]{30, 21, 12, 3};
+    for (int index = 0; index < 4; ++index)
+    {
+        FUNDEM_TEST_REQUIRE(storage.host()[index].position == positions[index]);
+        FUNDEM_TEST_REQUIRE(storage.host()[index].velocity == static_cast<float>(index + 1));
+        FUNDEM_TEST_REQUIRE(storage.host()[index].identifier == identifiers[index]);
+    }
+    storage.host().pop_back();
+    bool rejectedShortHost = false;
+    try
+    {
+        storage.appendHostToDevice(stream);
+    }
+    catch (const std::logic_error&)
+    {
+        rejectedShortHost = true;
+    }
+    FUNDEM_TEST_REQUIRE(rejectedShortHost && storage.deviceSize() == 4);
+    FUNDEM_TEST_REQUIRE_CUDA(cudaStreamDestroy(stream));
+}
+
 } // namespace
 
 int main()
 {
+    testAppendPreservesDeviceState();
     using Storage = fundem::hostAoSDeviceSoA<record>;
 
     Storage storage;
@@ -134,11 +191,19 @@ int main()
     FUNDEM_TEST_REQUIRE(mappings.host()[0].particleSurfaceNodeIndex_ == 7);
 
     fundem::materialContainer materials;
-    materials.host().push_back(fundem::material{1.0e5, 5.0e4, 0.0, 0.0, 0.4, 0.0, 0.0, 0.5, 1000.0});
-    materials.host().push_back(fundem::LSMaterial{1.0e5, 5.0e4, 0.4, 0.5, 1000.0});
+    materials.host().push_back(fundem::material{1.0e9, 0.25, 0.5, 1000.0});
+    materials.host().push_back(fundem::material{2.0e9, 0.30, 0.8, 1200.0});
     materials.copyHostToDevice();
-    fundem::materialType deviceMaterialTypes[2]{};
-    FUNDEM_TEST_REQUIRE_CUDA(cudaMemcpy(deviceMaterialTypes, materials.device<fundem::material::typeField>(), sizeof(deviceMaterialTypes), cudaMemcpyDeviceToHost));
-    FUNDEM_TEST_REQUIRE(deviceMaterialTypes[0] == fundem::materialType::standard);
-    FUNDEM_TEST_REQUIRE(deviceMaterialTypes[1] == fundem::materialType::levelSet);
+    fundem::math::Real deviceYoungModuli[2]{};
+    fundem::math::Real devicePoissonRatios[2]{};
+    fundem::math::Real deviceRestitution[2]{};
+    fundem::math::Real deviceDensity[2]{};
+    FUNDEM_TEST_REQUIRE_CUDA(cudaMemcpy(deviceYoungModuli, materials.device<fundem::material::youngModulusField>(), sizeof(deviceYoungModuli), cudaMemcpyDeviceToHost));
+    FUNDEM_TEST_REQUIRE_CUDA(cudaMemcpy(devicePoissonRatios, materials.device<fundem::material::poissonRatioField>(), sizeof(devicePoissonRatios), cudaMemcpyDeviceToHost));
+    FUNDEM_TEST_REQUIRE_CUDA(cudaMemcpy(deviceRestitution, materials.device<fundem::material::restitutionCoefficientField>(), sizeof(deviceRestitution), cudaMemcpyDeviceToHost));
+    FUNDEM_TEST_REQUIRE_CUDA(cudaMemcpy(deviceDensity, materials.device<fundem::material::densityField>(), sizeof(deviceDensity), cudaMemcpyDeviceToHost));
+    FUNDEM_TEST_REQUIRE(deviceYoungModuli[0] == 1.0e9 && deviceYoungModuli[1] == 2.0e9);
+    FUNDEM_TEST_REQUIRE(devicePoissonRatios[0] == 0.25 && devicePoissonRatios[1] == 0.30);
+    FUNDEM_TEST_REQUIRE(deviceRestitution[0] == 0.5 && deviceRestitution[1] == 0.8);
+    FUNDEM_TEST_REQUIRE(deviceDensity[0] == 1000.0 && deviceDensity[1] == 1200.0);
 }

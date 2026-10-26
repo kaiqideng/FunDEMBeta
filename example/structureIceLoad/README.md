@@ -68,7 +68,7 @@ Use `--mode cpu`, `--mode gpu`, or `--mode hybrid`. `--steps N` limits a diagnos
 2. Set ice thickness and density through `simulation.ice()`.
 3. Call `levelIce::build()` to generate buoyancy-equilibrium sphere centers and unique bond edges.
 4. Add all spheres before creating bonds so generated indices remain stable.
-5. Convert the physical ice elastic/fracture parameters with the `levelIce` stiffness helpers.
+5. Convert the physical ice elastic/fracture parameters with the `levelIce` stiffness helpers. Install final linear contact coefficients and friction through `materialPair`; assign beam stiffness and fracture parameters separately to bonds.
 6. Add one or more LS geometries and LSParticles for the structure.
 7. Configure the global boundary, gravity, DEM time step, and output schedule.
 8. Call `solve()`.

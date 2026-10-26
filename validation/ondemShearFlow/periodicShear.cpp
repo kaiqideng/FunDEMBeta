@@ -42,7 +42,8 @@ periodicShear::periodicShear(const std::vector<initialSphere>& initial, const Ve
 
     // Material supplies rho_p = 1 and the sphere mass/inertia only. The
     // external-force component owns every spring, dashpot and friction value.
-    const material grainMaterial(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0);
+    // Elastic constants are unused by the independent benchmark force law.
+    const material grainMaterial(1.0e9, 0.25, 1.0, 1.0);
     const int materialIndex = addMaterial(grainMaterial);
     std::unordered_set<int> sourceIds;
     sourceIds.reserve(initial.size());

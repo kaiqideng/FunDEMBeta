@@ -1,5 +1,5 @@
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
 #include "particle/LSParticle.h"
 #include "solver/SPHDEM.h"
 
@@ -106,7 +106,7 @@ int main(int argc, char** argv)
         const int3 waterParticleCount{static_cast<int>(waterLength / spacing), static_cast<int>(tankWidth / spacing), static_cast<int>(waterHeight / spacing)};
         simulation.addSPHBlock(Vec3::zero(), waterParticleCount);
 
-        const int wallMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.0, 1.0, 1.0});
+        const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, 1.0});
 
         levelset::BoxWall tankWall{{tankLength, tankWidth, tankHeight}};
         tankWall.buildLSGrid(spacing, 3, true);

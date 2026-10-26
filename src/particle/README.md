@@ -100,7 +100,7 @@ An `LSParticle` has two intentionally different geometry access paths:
 
 SPH material properties are uniform solver configuration. A user-created `SPHParticle` supplies position and velocity; insertion assigns mass and reference density. CPU and GPU interaction stages update density, pressure, density rate, force, and free-surface state.
 
-`SPHJet.h` defines a validated source value type with outlet center, direction, radius, speed, and duration. It does not derive from a particle or own emitted particles. `SPHDEM::addSPHJet()` uses those values to allocate the upstream particle range; the solver owns source timing and applies the prescribed inlet velocity during its acoustic stages.
+`SPHJet.h` defines a validated source value type with outlet center, direction, radius, speed, and duration. It does not derive from a particle or own emitted particles. The product `speed * duration` determines the finite nominal stroke and layer count, not a long preloaded pipe. `SPHDEM::addSPHJet()` initially fills a short upstream buffer, then appends particles at scheduled layer births. The solver owns stable source membership and the active buffer indices, applies inlet velocity/reference density there, and permanently releases particles that cross the outlet. `SPHJetParticleIndices(firstIndex)` reports all particles already created by that source, including released particles; membership can be noncontiguous when sources are interleaved.
 
 Virtual particles are sampled on the uniform SPH lattice anchored by the first fluid particle. The LS grid is interpolated at each candidate point, and solid-side samples within a two-smoothing-length boundary band are retained with volume equal to one SPH lattice cell. This common lattice prevents boundary samples from overlapping fluid particles by half a spacing. Local position and normal follow the LS owner; world position, velocity, acceleration, force, and normal are refreshed by the coupling stages. `interaction/virtualParticleCoupling` owns the host owner mappings and accumulators used by those stages. Users never append virtual particles directly.
 
@@ -112,8 +112,8 @@ For rigid multilevel grids, size bands reduce unnecessary cell traversal for lar
 
 ## Common Failure Modes
 
-- A sphere is invalid: set a positive radius and assign an ordinary material from the destination solver.
-- An LS particle is invalid: assign an `LSMaterial` and a valid geometry from the destination solver.
+- A sphere is invalid: set a positive radius and assign a unified material from the destination solver.
+- An LS particle is invalid: assign a unified material and a valid geometry from the destination solver.
 - Mass remains infinite: check geometry volume, material density, and inertia invertibility.
 - Device state appears stale: reinitialize or perform the appropriate host/device copy after changing host configuration.
 - Contact indices change unexpectedly: do not reorder or erase solver-owned host objects.

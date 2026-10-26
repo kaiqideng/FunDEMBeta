@@ -1,7 +1,8 @@
 /** Checks level-set two-sphere central compression and surface-discretization convergence. */
 #include "data/myLSObject.h"
 #include "interaction/contactSearch.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "solver/LSDEM.h"
 #include "validationCommon.h"
@@ -32,7 +33,10 @@ resolutionResult runResolution(int subdivisionLevel, std::ofstream& output)
     constexpr std::array<Real, 3> overlaps{2.5e-5, 5.0e-5, 1.0e-4};
 
     LSDEM simulation;
-    const int materialIndex = simulation.addMaterial(LSMaterial{normalStiffnessPerUnitArea, 0.0, 0.0, 1.0, density});
+    const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, density});
+    materialPair pair{materialIndex, materialIndex};
+    pair.setLevelSetStiffness(normalStiffnessPerUnitArea, 0.0);
+    simulation.setMaterialPair(pair);
     levelset::Sphere geometry{radius};
     geometry.buildSurfaceNode(subdivisionLevel);
     geometry.buildLSGrid(60);
@@ -62,7 +66,7 @@ resolutionResult runResolution(int subdivisionLevel, std::ofstream& output)
         for (contact& value : contacts.host())
         {
             validation::require(value.setMasterSlaveParticle(simulation.LSParticles(), value.masterParticleIndex(), value.slaveParticleIndex()), "Cannot refresh an LS contact.");
-            validation::require(value.calculateForce(0.0), "Cannot evaluate an LS contact.");
+            validation::require(value.calculateForce(0.0, simulation.materialPairs(), execution::contactType::levelSetLevelSet), "Cannot evaluate an LS contact.");
             resultantForce += value.force();
         }
 

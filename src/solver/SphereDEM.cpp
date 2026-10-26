@@ -50,15 +50,25 @@ int SphereDEM::addSphere(const particle& value)
     {
         throw std::invalid_argument("The sphere must reference this solver's material container.");
     }
-    if (value.getMaterial().isLevelSet())
-    {
-        throw std::invalid_argument("A sphere must use an ordinary material; LSMaterial is reserved for LSParticles.");
-    }
 
     const int sphereIndex = static_cast<int>(spheres_.hostSize());
     spheres_.host().push_back(value);
     invalidateContinuation();
     return sphereIndex;
+}
+
+void SphereDEM::refreshParticleMaterial(int materialIndex) noexcept
+{
+    LSDEM::refreshParticleMaterial(materialIndex);
+    for (particle& value : spheres_.host())
+    {
+        if (value.materialIndex() != materialIndex)
+            continue;
+        const bool fixed = value.inverseMass() == 0.0;
+        value.setMaterial(materials(), materialIndex);
+        if (fixed)
+            value.setInfiniteMass();
+    }
 }
 
 particle& SphereDEM::mutableSphere(int particleIndex)
@@ -160,7 +170,11 @@ void SphereDEM::executionModeChanged(executionMode value)
     mutableLSParticles().setUseDevice(value == executionMode::GPU);
 }
 
-void SphereDEM::initialize(cpu::mode) { assembleForceAndTorque(0.0, cpu::mode{}); }
+void SphereDEM::initialize(cpu::mode)
+{
+    validateContactMaterials();
+    assembleForceAndTorque(0.0, cpu::mode{});
+}
 
 void SphereDEM::initialize(gpu::mode, cudaStream_t stream)
 {
@@ -322,13 +336,13 @@ void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, cpu::mode)
     addSphereContactForceAndTorque(historyTimeStep, cpu::mode{});
     cpu::addBondForceAndTorque(sphereInteractions_.bonds(), spheres_);
     sphereLSSearch_.findContacts(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles());
-    cpu::addContactForceAndTorque(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), historyTimeStep);
+    cpu::addContactForceAndTorque(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materialPairs(), historyTimeStep);
     cpu::addBondForceAndTorque(sphereLSInteractions_.bonds(), spheres_, mutableLSParticles());
 }
 
 void SphereDEM::addSphereContactForceAndTorque(Real historyTimeStep, cpu::mode)
 {
-    cpu::addContactForceAndTorque(sphereInteractions_.contacts(), spheres_, spheres_, historyTimeStep);
+    cpu::addContactForceAndTorque(sphereInteractions_.contacts(), spheres_, spheres_, materialPairs(), historyTimeStep);
 }
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
@@ -349,13 +363,13 @@ void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, gpu::mode, c
     addSphereContactForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     cuda::launchBondForce(sphereInteractions_.bonds(), spheres_, stream);
     cuda::launchSphereLevelSetContactDetection(sphereLSInteractions_, spheres_, LSParticles(), geometries(), mutableLSParticleSpatialGrid().device(), stream);
-    cuda::launchContactForce(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materials(), historyTimeStep, stream);
+    cuda::launchContactForce(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materials(), materialPairs(), historyTimeStep, stream);
     cuda::launchBondForce(sphereLSInteractions_.bonds(), spheres_, mutableLSParticles(), stream);
 }
 
 void SphereDEM::addSphereContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream)
 {
-    cuda::launchContactForce(sphereInteractions_.contacts(), spheres_, materials(), historyTimeStep, stream);
+    cuda::launchContactForce(sphereInteractions_.contacts(), spheres_, materials(), materialPairs(), historyTimeStep, stream);
 }
 
 void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, hybrid::mode, cudaStream_t stream)

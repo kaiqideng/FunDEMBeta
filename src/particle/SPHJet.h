@@ -21,8 +21,8 @@ public:
     /**
      * Creates a jet from its outlet, axis, radius, speed, and emission duration.
      * If any argument fails its individual setter's validation, the object
-     * remains in its default invalid state. The derived pipe length is checked
-     * by the solver when the jet is added.
+     * remains in its default invalid state. The solver discretizes the finite
+     * supplied length, seeds a short inlet buffer, and appends later layers.
      */
     SPHJet(const Vec3& outletCenter, const Vec3& direction, Real radius, Real speed, Real duration) noexcept
     {
@@ -39,6 +39,7 @@ public:
     Real speed() const noexcept { return speed_; }
     Real duration() const noexcept { return duration_; }
     Vec3 velocity() const noexcept { return speed_ * direction_; }
+    /** Nominal supplied length U*T, not the depth of the runtime inlet buffer. */
     Real pipeLength() const noexcept { return speed_ * duration_; }
 
     bool setOutletCenter(const Vec3& value) noexcept

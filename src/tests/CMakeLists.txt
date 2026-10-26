@@ -37,6 +37,8 @@ fundem_add_cpp_test(
 )
 
 fundem_add_cpp_test(fundem_random_shape_test FunDEM.RandomShape RandomShapeTest.cpp)
+fundem_add_cpp_test(fundem_material_pair_test FunDEM.MaterialPair MaterialPairTest.cpp)
+fundem_add_cpp_test(fundem_contact_pair_response_test FunDEM.ContactPairResponse ContactPairResponseTest.cpp)
 
 find_package(Threads REQUIRED)
 fundem_add_cpp_test(fundem_host_container_binding_test FunDEM.HostContainerBinding HostContainerBindingTest.cpp)

@@ -114,17 +114,16 @@ private:
 template <class PositionGetter>
 void buildNeighborList(std::vector<int>& offsets, std::vector<int>& indices, int particleCount, PositionGetter position, const uniformSpatialGrid& neighborGrid, Real searchRadius)
 {
-    std::vector<int> counts(static_cast<std::size_t>(particleCount), 0);
+    offsets.assign(static_cast<std::size_t>(particleCount) + 1, 0);
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static) if (particleCount >= parallelParticleThreshold)
 #endif
     for (int particleIndex = 0; particleIndex < particleCount; ++particleIndex)
     {
-        neighborGrid.forEachCandidate(position(particleIndex), searchRadius, [&](int) { ++counts[particleIndex]; });
+        neighborGrid.forEachCandidate(position(particleIndex), searchRadius, [&](int) { ++offsets[particleIndex + 1]; });
     }
 
-    offsets.assign(static_cast<std::size_t>(particleCount) + 1, 0);
-    std::partial_sum(counts.begin(), counts.end(), offsets.begin() + 1);
+    std::partial_sum(offsets.begin() + 1, offsets.end(), offsets.begin() + 1);
     indices.resize(static_cast<std::size_t>(offsets.back()));
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static) if (particleCount >= parallelParticleThreshold)
@@ -349,7 +348,13 @@ void SPHInteraction::updatePriorForceAndBoundaryForce(SPHParticleContainer& part
     auto& particleHost = particles.host();
     auto& virtualParticleHost = virtualParticles.host();
     const int particleCount = static_cast<int>(particleHost.size());
-    std::vector<Vec3> wallForces(virtualParticleHost.size(), Vec3::zero());
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static) if (static_cast<int>(virtualParticleHost.size()) >= parallelParticleThreshold)
+#endif
+    for (int wallIndex = 0; wallIndex < static_cast<int>(virtualParticleHost.size()); ++wallIndex)
+    {
+        virtualParticleHost[wallIndex].setPriorForce(Vec3::zero());
+    }
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static) if (particleCount >= parallelParticleThreshold)
 #endif
@@ -386,16 +391,9 @@ void SPHInteraction::updatePriorForceAndBoundaryForce(SPHParticleContainer& part
                                                                                       parameters.dynamicViscosity_,
                                                                                       parameters.smoothingLength_);
             acceleration += wallAcceleration;
-            addAtomic(wallForces[*neighbor], execution::calculateWallForce(parameters.particleMass_, wallAcceleration));
+            addAtomic(virtualParticleHost[*neighbor].*virtualParticle::priorForceField::member, execution::calculateWallForce(parameters.particleMass_, wallAcceleration));
         }
         particle.setPriorForce(parameters.particleMass_ * acceleration);
-    }
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(static) if (static_cast<int>(virtualParticleHost.size()) >= parallelParticleThreshold)
-#endif
-    for (int wallIndex = 0; wallIndex < static_cast<int>(virtualParticleHost.size()); ++wallIndex)
-    {
-        virtualParticleHost[wallIndex].setPriorForce(wallForces[wallIndex]);
     }
 }
 
@@ -404,10 +402,12 @@ void SPHInteraction::updatePressureForceAndBoundaryForce(SPHParticleContainer& p
     auto& particleHost = particles.host();
     auto& virtualParticleHost = virtualParticles.host();
     const int particleCount = static_cast<int>(particleHost.size());
-    std::vector<Vec3> wallForces(virtualParticleHost.size());
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static) if (static_cast<int>(virtualParticleHost.size()) >= parallelParticleThreshold)
+#endif
     for (int wallIndex = 0; wallIndex < static_cast<int>(virtualParticleHost.size()); ++wallIndex)
     {
-        wallForces[wallIndex] = virtualParticleHost[wallIndex].priorForce();
+        virtualParticleHost[wallIndex].setForce(virtualParticleHost[wallIndex].priorForce());
     }
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static) if (particleCount >= parallelParticleThreshold)
@@ -453,16 +453,9 @@ void SPHInteraction::updatePressureForceAndBoundaryForce(SPHParticleContainer& p
                                                                                        parameters.soundSpeed_,
                                                                                        parameters.gravity_);
             acceleration += wallAcceleration;
-            addAtomic(wallForces[*neighbor], execution::calculateWallForce(parameters.particleMass_, wallAcceleration));
+            addAtomic(virtualParticleHost[*neighbor].*pointMass::forceField::member, execution::calculateWallForce(parameters.particleMass_, wallAcceleration));
         }
         particle.setForce(particle.priorForce() + parameters.particleMass_ * acceleration);
-    }
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(static) if (static_cast<int>(virtualParticleHost.size()) >= parallelParticleThreshold)
-#endif
-    for (int wallIndex = 0; wallIndex < static_cast<int>(virtualParticleHost.size()); ++wallIndex)
-    {
-        virtualParticleHost[wallIndex].setForce(wallForces[wallIndex]);
     }
 }
 

@@ -49,15 +49,7 @@ public:
     /** Tests whether the stored stable geometry index belongs to @p container. */
     bool geometryBelongsTo(const LSGeometryContainer& container) const noexcept { return geometryContainer_ == &container; }
 
-    /** Binds only level-set material definitions; standard materials are rejected. */
-    void setMaterial(const materialContainer& container, int index) noexcept
-    {
-        if (index < 0 || index >= static_cast<int>(container.hostSize()) || !container.host()[index].isLevelSet())
-        {
-            return;
-        }
-        particle::setMaterial(container, index);
-    }
+    using particle::setMaterial;
 
     /**
      * Copies the selected geometry into host-local state and records its stable
@@ -111,7 +103,7 @@ public:
         setMassAndInertia();
     }
 
-    /** Reports whether particle state, level-set material, and geometry are ready for insertion. */
+    /** Reports whether particle state, material, and geometry are ready for insertion. */
     bool isValid() const noexcept { return particle::isValid() && geometrySet_; }
 
     struct geometryIndexField;

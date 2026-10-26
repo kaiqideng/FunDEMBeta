@@ -170,10 +170,15 @@ FUNDEM_MATH_HD inline Vec3 integrateTangentialSpringForce(Vec3& springDeformatio
                                                           Real timeStep) noexcept
 {
     const Real frictionLimit = frictionCoefficient * absoluteNormalForce;
-    if (frictionLimit <= 0.0 || stiffness <= 0.0)
+    if (frictionLimit <= 0.0)
     {
         springDeformation = Vec3::zero();
         return Vec3::zero();
+    }
+    if (stiffness <= 0.0)
+    {
+        springDeformation = Vec3::zero();
+        return limitDampingWithinCoulombDisk(Vec3::zero(), -dampingCoefficient * springVelocity, frictionLimit);
     }
 
     springDeformation -= math::dot(springDeformation, contactNormal) * contactNormal;
@@ -200,10 +205,15 @@ FUNDEM_MATH_HD inline Vec3 integrateTorsionalSpringForce(Vec3& springDeformation
                                                          Real timeStep) noexcept
 {
     const Real frictionLimit = frictionCoefficient * absoluteNormalForce;
-    if (frictionLimit <= 0.0 || stiffness <= 0.0)
+    if (frictionLimit <= 0.0)
     {
         springDeformation = Vec3::zero();
         return Vec3::zero();
+    }
+    if (stiffness <= 0.0)
+    {
+        springDeformation = Vec3::zero();
+        return limitDampingWithinCoulombDisk(Vec3::zero(), -dampingCoefficient * math::dot(springVelocity, contactNormal) * contactNormal, frictionLimit);
     }
 
     springDeformation = math::dot(springDeformation + timeStep * springVelocity, contactNormal) * contactNormal;
@@ -218,7 +228,7 @@ FUNDEM_MATH_HD inline Vec3 integrateTorsionalSpringForce(Vec3& springDeformation
     return limitDampingWithinCoulombDisk(elasticForce, -dampingCoefficient * springVelocity, frictionLimit);
 }
 
-/** Computes normal and sliding contact force using caller-supplied damping while updating sliding history. */
+/** Computes signed normal and sliding force using caller-supplied damping; the reported normal magnitude remains nonnegative. */
 FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitude,
                                                        Vec3& slidingSpringDeformation,
                                                        const Vec3& relativeVelocity,
@@ -241,7 +251,10 @@ FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitud
     const Real normalVelocity = math::dot(relativeVelocity, contactNormal);
     const Vec3 normalRelativeVelocity = normalVelocity * contactNormal;
     const Real trialNormalForceMagnitude = normalStiffness * overlap - normalDampingCoefficient * normalVelocity;
-    normalForceMagnitude = trialNormalForceMagnitude > 0.0 ? trialNormalForceMagnitude : 0.0;
+    // Normal-force truncation is intentionally disabled; retain the original line for an explicit future restoration.
+    // normalForceMagnitude = trialNormalForceMagnitude > 0.0 ? trialNormalForceMagnitude : 0.0;
+    // Preserve the absolute-magnitude contract for friction, rotational resistance, and output, independently of the force direction.
+    normalForceMagnitude = math::detail::abs(trialNormalForceMagnitude);
 
     const Vec3 slidingForce = integrateTangentialSpringForce(slidingSpringDeformation,
                                                              relativeVelocity - normalRelativeVelocity,
@@ -251,7 +264,7 @@ FUNDEM_MATH_HD inline Vec3 calculateLinearContactForce(Real& normalForceMagnitud
                                                              slidingStiffness,
                                                              slidingDampingCoefficient,
                                                              timeStep);
-    return normalForceMagnitude * contactNormal + slidingForce;
+    return trialNormalForceMagnitude * contactNormal + slidingForce;
 }
 
 /** Computes rolling and torsional resistance torque using caller-supplied damping while updating both histories. */

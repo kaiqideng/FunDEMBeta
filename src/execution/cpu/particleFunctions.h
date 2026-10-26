@@ -6,6 +6,7 @@
 
 #include "execution/cpu/parallelPolicy.h"
 #include "interaction/interactionContainer.h"
+#include "particle/LSParticle.h"
 
 #include <numeric>
 #include <vector>
@@ -90,8 +91,10 @@ template <class ParticleStorage> void integratePosition(ParticleStorage& particl
 }
 
 /** Evaluates contacts and race-freely assembles their forces and torques onto host particles. */
-template <class MasterStorage, class SlaveStorage> void addContactForceAndTorque(contactContainer& contacts, MasterStorage& masterParticles, SlaveStorage& slaveParticles, math::Real historyTimeStep)
+template <class MasterStorage, class SlaveStorage>
+void addContactForceAndTorque(contactContainer& contacts, MasterStorage& masterParticles, SlaveStorage& slaveParticles, const materialPairContainer& materialPairs, math::Real historyTimeStep)
 {
+    constexpr auto type = execution::contactTypeFor<typename MasterStorage::host_type, typename SlaveStorage::host_type>();
     auto& contactHost = contacts.host();
     auto& masterParticleHost = masterParticles.host();
     auto& slaveParticleHost = slaveParticles.host();
@@ -100,7 +103,7 @@ template <class MasterStorage, class SlaveStorage> void addContactForceAndTorque
     {
         for (contact& value : contactHost)
         {
-            if (!value.calculateForce(historyTimeStep))
+            if (!value.calculateForce(historyTimeStep, materialPairs, type))
             {
                 continue;
             }
@@ -120,7 +123,7 @@ template <class MasterStorage, class SlaveStorage> void addContactForceAndTorque
 #endif
     for (int contactIndex = 0; contactIndex < contactCount; ++contactIndex)
     {
-        calculated[contactIndex] = contactHost[contactIndex].calculateForce(historyTimeStep) ? 1 : 0;
+        calculated[contactIndex] = contactHost[contactIndex].calculateForce(historyTimeStep, materialPairs, type) ? 1 : 0;
     }
 
     const interactionAdjacency masterAdjacency =

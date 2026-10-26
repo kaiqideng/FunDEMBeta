@@ -6,7 +6,7 @@
  */
 #include "data/datWriter.h"
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
 #include "particle/LSParticle.h"
 #include "solver/SPHDEM.h"
 #include "tutorialOptions.h"
@@ -215,7 +215,7 @@ int main(int argc, char** argv)
         simulation.addSPHBlock({0.90, 0.0, 0.0}, {12, 24, 1});
         simulation.addSPHBlock({0.90, 0.36, 0.0}, {12, 25, 1});
 
-        const int wallMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, 0.0, 1.0, 1.0});
+        const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, 1.0});
 
         // Reversing a closed box places the boundary solid outside the fluid cavity.
         levelset::BoxWall tank{tankSize};

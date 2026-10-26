@@ -7,16 +7,20 @@
 | Test | File | Coverage |
 | --- | --- | --- |
 | `FunDEM.Physics` | `PhysicsTest.cpp` | Mass/inertia, contacts, bonds, materials, geometry, execution modes, SPH wall-reaction conservation, and important degenerate states |
+| `FunDEM.MaterialPair` | `MaterialPairTest.cpp` | Four-property bulk materials, two group switches, explicit zero overrides, LS unset sentinels, stable symmetric pair indices, append-only growth, and move semantics |
+| `FunDEM.ContactPairResponse` | `ContactPairResponseTest.cpp` | Hertz–Mindlin defaults and energy, final pair overrides, group-controlled dashpots, LS nodal damping weights, and missing LS-pair configuration |
+| `FunDEM.ContactMaterial.GPU` | `ContactMaterialTest.cu` | 26 CPU/CUDA contact fixtures covering sphere–sphere, sphere–LS, LS–LS, infinite mass, both group switches, pure dampers, history, energy, and force/torque scattering on a nondefault stream |
 | `FunDEM.Fiber` | `FiberTest.cpp` | Eleven-sphere bonded cantilever with one fixed end, zero gravity, a ramped 100 kN endpoint load, 0.001 global damping, and a `1e-9 m/s` maximum particle-speed limit |
 | `FunDEM.Math` | `MathTest.cu` | Vectors, matrices, quaternions, and host/device mathematical consistency |
-| `FunDEM.HostAoSDeviceSoA` | `HostAoSDeviceSoATest.cu` | Automatic device layout, field access, size semantics, and bidirectional copies |
-| `FunDEM.SPHState.CPU` | `SPHCPUStateTest.cpp` | CPU SPH neighborhoods, deferred time-step state, output snapshots, continuation, and stability limits |
+| `FunDEM.HostAoSDeviceSoA` | `HostAoSDeviceSoATest.cu` | Device layout, field access, size/copy semantics, and suffix append preserving an evolving Device prefix across growth |
+| `FunDEM.SPHState.CPU` | `SPHCPUStateTest.cpp` | CPU SPH neighborhoods, leading multirate state, current-time output, continuation, and stability limits |
+| `FunDEM.SPHCoupling` | `SPHCouplingTest.cpp` | Held-load DKD/KDK momentum budgets, pressure/viscous reaction, rotating solids, dense output, nested/throwing observations, public host copies, and split continuation on CPU/GPU/Hybrid |
 | `FunDEM.SPHJet` | `SPHJetTest.cpp` | Jet value validation, virtual-pipe geometry, source discretization, generated particles, inlet enforcement, and completion state |
-| `FunDEM.SPHState` | `SPHStateTest.cu` | Hybrid CUDA SPH kernels, deferred time-step state, output snapshots, host/device consistency, and CPU/Hybrid numerical agreement |
+| `FunDEM.SPHState` | `SPHStateTest.cu` | Hybrid CUDA SPH kernels, leading multirate state, output snapshots, host/device consistency, and CPU/Hybrid numerical agreement |
 
 ## Key Rules
 
-- `FunDEM.Physics`, `FunDEM.SPHState.CPU`, and the CPU integration test `FunDEM.Fiber` are always built; CUDA-specific tests are added when CUDA is enabled.
+- Pure C++ unit tests, including `FunDEM.MaterialPair` and `FunDEM.ContactPairResponse`, and the CPU integration test `FunDEM.Fiber` are always built; CUDA-specific tests are added when CUDA is enabled.
 - All test targets enable the project's standard compiler warnings.
 - CTest labels use `unit;cpu`, `unit;cuda`, or `integration;cpu`.
 - Long physical validation belongs in an explicitly labeled integration test or the repository-root [`example/`](../../example/README.md), not in the unit-test suite.
@@ -50,10 +54,10 @@ ctest --test-dir build -L cuda --output-on-failure
 
 | Configuration | Always-available coverage | Additional CUDA coverage |
 | --- | --- | --- |
-| CPU-only | Physics invariants, CPU SPH state, fiber integration | None |
-| CUDA-enabled | All CPU tests | Math device parity, container round trips, Hybrid SPH state |
+| CPU-only | Physics invariants, bulk materials and pair activation, contact-response formulas, CPU SPH state, fiber integration | None |
+| CUDA-enabled | All CPU tests | Math device parity, container round trips, contact-pair response parity, Hybrid SPH state |
 
-`FunDEM.Physics` includes small system-level checks such as backend tags, ownership rejection, sphere-LS stiffness selection, wall acceleration, CPU parallel assembly, and fluid-wall reaction conservation in every available execution mode. `FunDEM.SPHState.CPU` verifies that output cadence and split solves do not change CPU SPH state. The CUDA SPH test compares the same state against Hybrid execution.
+`FunDEM.Physics` includes small system-level checks such as backend tags, ownership rejection, geometry-driven contact-family selection, explicit pair response, wall acceleration, CPU parallel assembly, and fluid-wall reaction conservation in every available execution mode. `FunDEM.MaterialPair` verifies that disabling either group retains its values, explicit zero differs from a default, and LS stiffness configuration does not depend on a switch. `FunDEM.ContactPairResponse` independently checks the analytic Hertz–Mindlin formulas, normal-energy derivative, and conservation of pair damping under LS surface-node weighting. `FunDEM.ContactMaterial.GPU` compares the shared constitutive response and particle loads against CPU evaluation, including the two group switches and zero-spring damping. `FunDEM.SPHState.CPU` verifies that output cadence and split solves do not change CPU SPH state. The CUDA SPH test compares the same state against Hybrid execution.
 
 ## Labels and Intended Runtime
 

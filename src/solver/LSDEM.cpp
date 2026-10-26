@@ -19,7 +19,7 @@
 namespace fundem
 {
 
-int LSDEM::addMaterial(const LSMaterial& value) { return appendMaterial(value); }
+int LSDEM::addMaterial(const material& value) { return appendMaterial(value); }
 
 int LSDEM::appendMaterial(const material& value)
 {
@@ -32,10 +32,71 @@ int LSDEM::appendMaterial(const material& value)
         throw std::invalid_argument("Cannot add an invalid material.");
     }
 
+    const material newMaterial = value; // value may refer to an entry invalidated by reserve.
     const int materialIndex = static_cast<int>(materials_.hostSize());
-    materials_.host().push_back(value);
+    materials_.host().reserve(materialIndex + 1);
+    materialPairs_.resizeForMaterials(materialIndex + 1);
+    materials_.host().push_back(newMaterial);
     invalidateContinuation();
     return materialIndex;
+}
+
+void LSDEM::setMaterial(int materialIndex, const material& value)
+{
+    if (initialized())
+        throw std::logic_error("Materials cannot be changed while the solver is initialized.");
+    if (materialIndex < 0 || materialIndex >= static_cast<int>(materials_.hostSize()))
+        throw std::out_of_range("The material index is outside this solver.");
+    const material replacement{value.youngModulus(), value.poissonRatio(), value.restitutionCoefficient(), value.density()};
+    material& current = materials_.host()[materialIndex];
+    if (current.youngModulus() == replacement.youngModulus() && current.poissonRatio() == replacement.poissonRatio() &&
+        current.restitutionCoefficient() == replacement.restitutionCoefficient() && current.density() == replacement.density())
+        return;
+    current = replacement;
+    refreshParticleMaterial(materialIndex);
+    invalidateContinuation();
+}
+
+void LSDEM::refreshParticleMaterial(int materialIndex) noexcept
+{
+    for (LSParticle& value : LSParticles_.host())
+    {
+        if (value.materialIndex() != materialIndex)
+            continue;
+        const bool fixed = value.inverseMass() == 0.0;
+        value.setMaterial(materials_, materialIndex);
+        if (fixed)
+            value.setInfiniteMass();
+    }
+}
+
+void LSDEM::setMaterialPair(const materialPair& value)
+{
+    if (initialized())
+        throw std::logic_error("Material pairs cannot be changed while the solver is initialized.");
+    materialPairs_.at(value.masterMaterialIndex(), value.slaveMaterialIndex()) = value;
+    invalidateContinuation();
+}
+
+void LSDEM::validateContactMaterials() const
+{
+    const int count = static_cast<int>(materials_.hostSize());
+    std::vector<int> total(count, 0);
+    std::vector<int> finite(count, 0);
+    for (const LSParticle& value : LSParticles_.host())
+    {
+        ++total[value.materialIndex()];
+        finite[value.materialIndex()] += value.inverseMass() > 0.0 ? 1 : 0;
+    }
+    for (int second = 0; second < count; ++second)
+    {
+        for (int first = 0; first <= second; ++first)
+        {
+            const bool possiblePair = first == second ? total[first] > 1 : total[first] > 0 && total[second] > 0;
+            if (possiblePair && finite[first] + finite[second] > 0 && !materialPairs_.at(first, second).hasLevelSetStiffness())
+                throw std::invalid_argument("Missing LS-LS normal/sliding stiffness per unit area for materials " + std::to_string(first) + " and " + std::to_string(second) + ".");
+        }
+    }
 }
 
 int LSDEM::addGeometry(const levelset::LSInfo& value)
@@ -226,7 +287,11 @@ void LSDEM::validateExecutionMode(executionMode value) const
 
 void LSDEM::executionModeChanged(executionMode value) { LSParticles_.setUseDevice(value == executionMode::GPU); }
 
-void LSDEM::initialize(cpu::mode) { assembleLSParticleForceAndTorque(0.0, cpu::mode{}); }
+void LSDEM::initialize(cpu::mode)
+{
+    validateContactMaterials();
+    assembleLSParticleForceAndTorque(0.0, cpu::mode{});
+}
 
 void LSDEM::initialize(gpu::mode, cudaStream_t stream)
 {
@@ -288,21 +353,24 @@ void LSDEM::assembleLSParticleForceAndTorque(Real historyTimeStep, gpu::mode, cu
 
 void LSDEM::calculateLSParticleForceAndTorque(Real historyTimeStep, cpu::mode)
 {
+    beforeLSParticleContactDetection(cpu::mode{});
     LSParticleSearch_.findContacts(LSParticleInteractions_.contacts(), LSParticles_);
-    cpu::addContactForceAndTorque(LSParticleInteractions_.contacts(), LSParticles_, LSParticles_, historyTimeStep);
+    cpu::addContactForceAndTorque(LSParticleInteractions_.contacts(), LSParticles_, LSParticles_, materialPairs_, historyTimeStep);
     cpu::addBondForceAndTorque(LSParticleInteractions_.bonds(), LSParticles_);
 }
 
 double LSDEM::systemDeviceMemoryGB() const noexcept
 {
-    return materials_.deviceMemoryGB() + geometries_.deviceMemoryGB() + LSParticles_.deviceMemoryGB() + LSParticleInteractions_.deviceMemoryGB() + LSParticleSpatialGrid_.deviceMemoryGB();
+    return materials_.deviceMemoryGB() + materialPairs_.deviceMemoryGB() + geometries_.deviceMemoryGB() + LSParticles_.deviceMemoryGB() + LSParticleInteractions_.deviceMemoryGB() + LSParticleSpatialGrid_.deviceMemoryGB();
 }
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
 
 void LSDEM::initializeLSParticleDevice(cudaStream_t stream)
 {
+    validateContactMaterials();
     materials_.copyHostToDeviceAsync(stream);
+    materialPairs_.copyHostToDeviceAsync(stream);
     geometries_.copyHostToDeviceAsync(stream);
     LSParticles_.copyHostToDeviceAsync(stream);
     if (LSParticles_.usesDevice())
@@ -314,8 +382,9 @@ void LSDEM::initializeLSParticleDevice(cudaStream_t stream)
 
 void LSDEM::calculateLSParticleForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream)
 {
+    beforeLSParticleContactDetection(gpu::mode{}, stream);
     cuda::launchLevelSetLevelSetContactDetection(LSParticleInteractions_, LSParticles_, geometries_, LSParticleSpatialGrid_.device(), stream);
-    cuda::launchContactForce(LSParticleInteractions_.contacts(), LSParticles_, materials_, historyTimeStep, stream);
+    cuda::launchContactForce(LSParticleInteractions_.contacts(), LSParticles_, materials_, materialPairs_, historyTimeStep, stream);
     cuda::launchBondForce(LSParticleInteractions_.bonds(), LSParticles_, stream);
 }
 

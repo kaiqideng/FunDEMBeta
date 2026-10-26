@@ -11,10 +11,33 @@ namespace
 
 constexpr int blockSize = 256;
 
+__device__ materialPairCoefficients pairCoefficients(const contactMaterialPairDeviceView& pairs, int index) noexcept
+{
+    materialPairCoefficients result;
+    result.normalStiffnessPerUnitArea_ = pairs.normalStiffnessPerUnitArea_[index];
+    result.slidingStiffnessPerUnitArea_ = pairs.slidingStiffnessPerUnitArea_[index];
+    result.normalStiffness_ = pairs.normalStiffness_[index];
+    result.slidingStiffness_ = pairs.slidingStiffness_[index];
+    result.rollingStiffness_ = pairs.rollingStiffness_[index];
+    result.torsionalStiffness_ = pairs.torsionalStiffness_[index];
+    result.slidingFrictionCoefficient_ = pairs.slidingFrictionCoefficient_[index];
+    result.rollingFrictionCoefficient_ = pairs.rollingFrictionCoefficient_[index];
+    result.torsionalFrictionCoefficient_ = pairs.torsionalFrictionCoefficient_[index];
+    result.normalDampingCoefficient_ = pairs.normalDampingCoefficient_[index];
+    result.slidingDampingCoefficient_ = pairs.slidingDampingCoefficient_[index];
+    result.rollingDampingCoefficient_ = pairs.rollingDampingCoefficient_[index];
+    result.torsionalDampingCoefficient_ = pairs.torsionalDampingCoefficient_[index];
+    result.linearStiffnessEnabled_ = pairs.linearStiffnessEnabled_[index];
+    result.dampingEnabled_ = pairs.dampingEnabled_[index];
+    return result;
+}
+
 __global__ void contactForceKernel(contactDeviceView contacts,
                                    contactParticleDeviceView masterParticles,
                                    contactParticleDeviceView slaveParticles,
                                    contactMaterialDeviceView materials,
+                                   contactMaterialPairDeviceView materialPairs,
+                                   execution::contactType type,
                                    math::Real timeStep,
                                    int contactCount)
 {
@@ -28,42 +51,24 @@ __global__ void contactForceKernel(contactDeviceView contacts,
     const int slaveIndex = contacts.slaveParticleIndex_[contactIndex];
     const int masterMaterialIndex = masterParticles.materialIndex_[masterIndex];
     const int slaveMaterialIndex = slaveParticles.materialIndex_[slaveIndex];
-    const bool masterInfiniteMass = masterParticles.inverseMass_[masterIndex] == 0.0;
-    const bool slaveInfiniteMass = slaveParticles.inverseMass_[slaveIndex] == 0.0;
     const math::Real effectiveRadius = contacts.effectiveRadius_[contactIndex];
-    const bool nodalContact = materials.type_[masterMaterialIndex] == materialType::levelSet;
-    const bool sphereLevelSetContact = !nodalContact && materials.type_[slaveMaterialIndex] == materialType::levelSet;
-    const math::Real stiffnessScale = nodalContact ? contacts.area_[contactIndex] : 1.0;
-
-    const math::Real normalStiffness = sphereLevelSetContact ? materials.normalStiffness_[masterMaterialIndex]
-                                                             : execution::effectiveStiffness(materials.normalStiffness_[masterMaterialIndex] * stiffnessScale,
-                                                                                             materials.normalStiffness_[slaveMaterialIndex] * stiffnessScale,
-                                                                                             masterInfiniteMass,
-                                                                                             slaveInfiniteMass);
-    const math::Real slidingStiffness = sphereLevelSetContact ? materials.slidingStiffness_[masterMaterialIndex]
-                                                              : execution::effectiveStiffness(materials.slidingStiffness_[masterMaterialIndex] * stiffnessScale,
-                                                                                              materials.slidingStiffness_[slaveMaterialIndex] * stiffnessScale,
-                                                                                              masterInfiniteMass,
-                                                                                              slaveInfiniteMass);
-    const math::Real rollingStiffness =
-        sphereLevelSetContact ? materials.rollingStiffness_[masterMaterialIndex]
-                              : execution::effectiveStiffness(materials.rollingStiffness_[masterMaterialIndex], materials.rollingStiffness_[slaveMaterialIndex], masterInfiniteMass, slaveInfiniteMass);
-    const math::Real torsionalStiffness =
-        sphereLevelSetContact
-            ? materials.torsionalStiffness_[masterMaterialIndex]
-            : execution::effectiveStiffness(materials.torsionalStiffness_[masterMaterialIndex], materials.torsionalStiffness_[slaveMaterialIndex], masterInfiniteMass, slaveInfiniteMass);
-    const math::Real slidingFrictionCoefficient = execution::harmonicMean(materials.slidingFrictionCoefficient_[masterMaterialIndex], materials.slidingFrictionCoefficient_[slaveMaterialIndex]);
-    const math::Real rollingFrictionCoefficient =
-        sphereLevelSetContact ? materials.rollingFrictionCoefficient_[masterMaterialIndex]
-                             : execution::harmonicMean(materials.rollingFrictionCoefficient_[masterMaterialIndex], materials.rollingFrictionCoefficient_[slaveMaterialIndex]);
-    const math::Real torsionalFrictionCoefficient =
-        sphereLevelSetContact ? materials.torsionalFrictionCoefficient_[masterMaterialIndex]
-                             : execution::harmonicMean(materials.torsionalFrictionCoefficient_[masterMaterialIndex], materials.torsionalFrictionCoefficient_[slaveMaterialIndex]);
-    const math::Real restitutionCoefficient = execution::harmonicMean(materials.restitutionCoefficient_[masterMaterialIndex], materials.restitutionCoefficient_[slaveMaterialIndex]);
-    const math::Real dissipation = execution::contactDissipationFactor(restitutionCoefficient);
+    const bool nodalContact = type == execution::contactType::levelSetLevelSet;
     const math::Real effectiveMass = contacts.effectiveMass_[contactIndex];
-    const math::Real normalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, normalStiffness);
-    const math::Real slidingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, slidingStiffness);
+    const math::Real dampingWeight = nodalContact ? execution::nodalDampingWeight(effectiveMass, masterParticles.inverseMass_[masterIndex], slaveParticles.inverseMass_[slaveIndex]) : 1.0;
+    const materialPairCoefficients pair = pairCoefficients(materialPairs, materialPairContainer::index(masterMaterialIndex, slaveMaterialIndex));
+    const execution::contactResponse response = execution::resolveContactResponse(pair,
+                                                                                  type,
+                                                                                  materials.youngModulus_[masterMaterialIndex],
+                                                                                  materials.poissonRatio_[masterMaterialIndex],
+                                                                                  materials.restitutionCoefficient_[masterMaterialIndex],
+                                                                                  materials.youngModulus_[slaveMaterialIndex],
+                                                                                  materials.poissonRatio_[slaveMaterialIndex],
+                                                                                  materials.restitutionCoefficient_[slaveMaterialIndex],
+                                                                                  effectiveMass,
+                                                                                  effectiveRadius,
+                                                                                  contacts.overlap_[contactIndex],
+                                                                                  contacts.area_[contactIndex],
+                                                                                  dampingWeight);
 
     const math::Vec3 point = contacts.point_[contactIndex];
     const math::Vec3 normal = contacts.normal_[contactIndex];
@@ -82,15 +87,15 @@ __global__ void contactForceKernel(contactDeviceView contacts,
                                                                     normal,
                                                                     contacts.overlap_[contactIndex],
                                                                     timeStep,
-                                                                    normalStiffness,
-                                                                    slidingStiffness,
-                                                                    slidingFrictionCoefficient,
-                                                                    normalDampingCoefficient,
-                                                                    slidingDampingCoefficient);
+                                                                    response.normalStiffness_,
+                                                                    response.slidingStiffness_,
+                                                                    pair.slidingFrictionCoefficient_,
+                                                                    response.normalDampingCoefficient_,
+                                                                    response.slidingDampingCoefficient_);
     contacts.normalForceMagnitude_[contactIndex] = normalForceMagnitude;
     contacts.slidingSpringDeformation_[contactIndex] = slidingSpringDeformation;
-    contacts.normalElasticEnergy_[contactIndex] = contacts.overlap_[contactIndex] > 0.0 ? execution::springElasticEnergy(normalStiffness, contacts.overlap_[contactIndex]) : 0.0;
-    contacts.slidingElasticEnergy_[contactIndex] = execution::springElasticEnergy(slidingStiffness, slidingSpringDeformation);
+    contacts.normalElasticEnergy_[contactIndex] = response.normalElasticEnergy_;
+    contacts.slidingElasticEnergy_[contactIndex] = execution::springElasticEnergy(response.slidingStiffness_, slidingSpringDeformation);
 
     math::Vec3 rotationalTorque = math::Vec3::zero();
     if (nodalContact)
@@ -102,8 +107,6 @@ __global__ void contactForceKernel(contactDeviceView contacts,
     }
     else
     {
-        const math::Real rollingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, rollingStiffness);
-        const math::Real torsionalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass, torsionalStiffness);
         math::Vec3 rollingSpringDeformation = contacts.rollingSpringDeformation_[contactIndex];
         math::Vec3 torsionalSpringDeformation = contacts.torsionalSpringDeformation_[contactIndex];
         rotationalTorque = execution::calculateSphereRotationalContactTorque(rollingSpringDeformation,
@@ -111,18 +114,18 @@ __global__ void contactForceKernel(contactDeviceView contacts,
                                                                              masterParticles.angularVelocity_[masterIndex] - slaveParticles.angularVelocity_[slaveIndex],
                                                                              normal,
                                                                              timeStep,
-                                                                             rollingStiffness,
-                                                                             torsionalStiffness,
-                                                                             rollingFrictionCoefficient,
-                                                                             torsionalFrictionCoefficient,
-                                                                             rollingDampingCoefficient,
-                                                                             torsionalDampingCoefficient,
+                                                                             response.rollingStiffness_,
+                                                                             response.torsionalStiffness_,
+                                                                             pair.rollingFrictionCoefficient_,
+                                                                             pair.torsionalFrictionCoefficient_,
+                                                                             response.rollingDampingCoefficient_,
+                                                                             response.torsionalDampingCoefficient_,
                                                                              effectiveRadius,
                                                                              normalForceMagnitude);
         contacts.rollingSpringDeformation_[contactIndex] = rollingSpringDeformation;
         contacts.torsionalSpringDeformation_[contactIndex] = torsionalSpringDeformation;
-        contacts.rollingElasticEnergy_[contactIndex] = execution::springElasticEnergy(rollingStiffness, rollingSpringDeformation);
-        contacts.torsionalElasticEnergy_[contactIndex] = execution::springElasticEnergy(torsionalStiffness, torsionalSpringDeformation);
+        contacts.rollingElasticEnergy_[contactIndex] = execution::springElasticEnergy(response.rollingStiffness_, rollingSpringDeformation);
+        contacts.torsionalElasticEnergy_[contactIndex] = execution::springElasticEnergy(response.torsionalStiffness_, torsionalSpringDeformation);
     }
 
     contacts.force_[contactIndex] = force;
@@ -139,6 +142,8 @@ void launchContactForce(contactDeviceView contacts,
                         contactParticleDeviceView masterParticles,
                         contactParticleDeviceView slaveParticles,
                         contactMaterialDeviceView materials,
+                        contactMaterialPairDeviceView materialPairs,
+                        execution::contactType type,
                         math::Real timeStep,
                         int contactCount,
                         cudaStream_t stream)
@@ -148,7 +153,7 @@ void launchContactForce(contactDeviceView contacts,
         return;
     }
     const int gridSize = (contactCount + blockSize - 1) / blockSize;
-    contactForceKernel<<<gridSize, blockSize, 0, stream>>>(contacts, masterParticles, slaveParticles, materials, timeStep, contactCount);
+    contactForceKernel<<<gridSize, blockSize, 0, stream>>>(contacts, masterParticles, slaveParticles, materials, materialPairs, type, timeStep, contactCount);
     host_device_detail::checkCuda(cudaGetLastError(), "contactForceKernel launch");
 }
 

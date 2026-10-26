@@ -1,6 +1,7 @@
 /** CPU level-set anchor-chain tutorial derived from the CollisionLab chain-link case. */
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "solver/LSDEM.h"
 
@@ -108,7 +109,18 @@ int main(int, char** argv)
         constexpr Real outputTimeInterval = 0.05;
 
         LSDEM simulation;
-        const int materialIndex = simulation.addMaterial(LSMaterial{2.0e10, 8.0e9, 0.4, 0.2, 7850.0});
+        const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.2, 7850.0});
+        const int fixedMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.2, 7850.0});
+        // Identical physical materials have separate pair identities to preserve
+        // the former finite/finite series compliance and rigid-end compliance.
+        materialPair mobilePair{materialIndex, materialIndex};
+        mobilePair.setLevelSetStiffness(1.0e10, 4.0e9);
+        mobilePair.setFrictionCoefficients(0.4);
+        simulation.setMaterialPair(mobilePair);
+        materialPair fixedPair{materialIndex, fixedMaterialIndex};
+        fixedPair.setLevelSetStiffness(2.0e10, 8.0e9);
+        fixedPair.setFrictionCoefficients(0.4);
+        simulation.setMaterialPair(fixedPair);
 
         levelset::TriangleMesh chainLink = makeChainLink();
         chainLink.buildLSGrid(gridSpacing, 2);
@@ -124,6 +136,7 @@ int main(int, char** argv)
             value.setGeometry(simulation.geometries(), geometryIndex);
             if (particleIndex == 0 || particleIndex == particleCount - 1)
             {
+                value.setMaterial(simulation.materials(), fixedMaterialIndex);
                 value.setInfiniteMass();
             }
             simulation.addLSParticle(value);

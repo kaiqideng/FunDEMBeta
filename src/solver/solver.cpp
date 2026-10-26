@@ -231,7 +231,8 @@ void solver::writeOutput()
     observeCurrentState([this](const solver&)
     {
         const int frameIndex = outputFrameCount_;
-        writeSystemVTU(frameIndex);
+        if (vtuOutputEnabled_)
+            writeSystemVTU(frameIndex);
         appendEnergyDAT((std::filesystem::path(outputDirectory_) / "energy.dat").string(), time_, systemEnergy(), frameIndex > 0);
         std::cout << "[Solver] Calculated steps: " << stepCount_ << ", current time: " << time_ << ", current frame: " << frameIndex << ", device memory: " << std::fixed << std::setprecision(6)
                   << deviceMemoryGB() << " GB" << std::defaultfloat << std::endl;

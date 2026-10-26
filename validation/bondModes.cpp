@@ -36,7 +36,7 @@ struct response {
 response evaluate(const Vec3& masterDisplacement, const Quaternion& masterOrientation, const Vec3& slaveDisplacement, const Quaternion& slaveOrientation)
 {
     materialContainer materials;
-    materials.host().push_back(material{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1000.0});
+    materials.host().push_back(material{1.0e9, 0.25, 1.0, 1000.0});
 
     particleContainer particles;
     particle master;

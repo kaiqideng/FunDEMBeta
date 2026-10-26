@@ -401,7 +401,7 @@ This is the complete construction sequence used by the tutorial:
 
 ```cpp
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "solver/LSDEM.h"
 
@@ -418,9 +418,13 @@ int main()
         LSDEM simulation;
 
         const int particleMaterialIndex =
-            simulation.addMaterial(LSMaterial{2.4e9, 7.1e8, 0.5, 0.55, 1200.0});
+            simulation.addMaterial(material{1.0e9, 0.25, 0.55, 1200.0});
         const int wallMaterialIndex =
-            simulation.addMaterial(LSMaterial{0.0, 0.0, 0.5, 0.55, 1.0});
+            simulation.addMaterial(material{1.0e9, 0.25, 0.55, 1.0});
+        materialPair contactProperties{particleMaterialIndex, wallMaterialIndex};
+        contactProperties.setLevelSetStiffness(2.4e9, 7.1e8);
+        contactProperties.setFrictionCoefficients(0.5);
+        simulation.setMaterialPair(contactProperties);
 
         levelset::Superellipsoid shape{0.055, 0.040, 0.030, 0.45, 0.65};
         shape.buildSurfaceNode(6);
@@ -467,7 +471,7 @@ int main()
 
 The important ordering is:
 
-1. Add the material and retain its returned index.
+1. Add bulk materials, retain their indices, and configure the required material pairs.
 2. Fully build the level-set object before adding it as geometry.
 3. Assign material and geometry from this solver's containers to the particle.
 4. Add the valid particle to the solver.
@@ -478,47 +482,64 @@ The important ordering is:
 
 ### 6.1 Materials
 
-The ordinary sphere material constructor is:
+All solid particles use the same bulk material constructor:
 
 ```cpp
-material sphereMaterial{
-    normalStiffness,
-    slidingStiffness,
-    rollingStiffness,
-    torsionalStiffness,
-    slidingFriction,
-    rollingFriction,
-    torsionalFriction,
+material solidMaterial{
+    youngModulus,
+    poissonRatio,
     restitution,
     density};
 ```
 
-The level-set material constructor is:
+Contact coefficients belong to an unordered material pair, not either material:
 
 ```cpp
-LSMaterial levelSetMaterial{
-    normalStiffnessPerUnitArea,
-    shearStiffnessPerUnitArea,
-    slidingFriction,
-    restitution,
-    density};
+materialPair pair{firstMaterialIndex, secondMaterialIndex};
+pair.setLevelSetStiffness(normalStiffnessPerUnitArea, slidingStiffnessPerUnitArea);
+pair.setLinearStiffness(normalStiffness, slidingStiffness, rollingStiffness, torsionalStiffness);
+pair.setFrictionCoefficients(slidingFriction, rollingFriction, torsionalFriction);
+pair.setDampingCoefficients(normalDamping, slidingDamping, rollingDamping, torsionalDamping);
+simulation.setMaterialPair(pair);
 ```
 
-`LSMaterial` adds no storage to `material`; it changes the public parameter names and records `materialType::levelSet`. It exposes sliding friction only. Rolling/torsional stiffness and friction interfaces are hidden, and their shared-storage values remain zero:
+There are exactly two Boolean switches. `linearStiffnessEnabled` selects all four
+ordinary stiffnesses together, only for sphere-sphere and sphere-LS contacts;
+`dampingEnabled` selects all four dashpots together. Both default to false.
+Group and individual value setters enable their corresponding whole group.
+Disabling a group preserves its stored values. For example:
 
 ```cpp
-LSMaterial wallMaterial{2.4e9, 7.1e8, 0.25, 0.55, 1200.0};
-wallMaterial.setSlidingFrictionCoefficient(0.25);
+pair.setLinearStiffnessEnabled(false); // Hertz/Mindlin; rolling and torsional stiffness each equal default sliding stiffness.
+pair.setDampingCoefficients(0.0, 0.0, 0.0, 0.0); // Enables explicit zero damping in every direction.
+pair.setDampingEnabled(false); // Restore restitution-derived damping; retain the zeros.
+simulation.setMaterialPair(pair);
 ```
 
 Rules:
 
-- Density must be finite and strictly positive.
+- Young's modulus and density must be finite and strictly positive.
+- Poisson ratio must lie strictly between -1 and 0.5.
 - Stiffness and friction values must be finite and non-negative.
 - Restitution must be within `[0, 1]`.
-- `LSParticle::setMaterial()` accepts only a material marked as level-set.
-- `LSDEM::addMaterial()` accepts `LSMaterial`; `SphereDEM` additionally accepts ordinary `material`.
-- A sphere passed to `SphereDEM::addSphere()` must use ordinary `material`. `LSMaterial` is reserved for `LSParticle`, keeping contact-type selection unambiguous.
+- `material` has no Sphere/LS marker; the same definition may serve either family.
+- The solver automatically creates `m*(m+1)/2` pairs, including same-material contacts.
+  `simulation.materialPairs().at(i,j)` and `.at(j,i)` refer to the same entry.
+- Pair coefficients are final effective values, with no hidden series-stiffness or friction mixing.
+- Sphere-sphere and sphere-LS contacts use Hertz-Mindlin when the linear-stiffness group is disabled. The length-scaled rolling and torsional stiffnesses each equal the default sliding stiffness, as a prescribed FunDEM extension rather than a classical Hertz-Mindlin rotational law.
+  Sphere-LS uses the detected sphere radius as a local-plane contact approximation,
+  not the level-set body's bounding radius. Both materials' elastic compliance is used;
+  infinite mass constrains motion, not Young's modulus.
+- LS-LS contacts require explicitly configured normal and sliding stiffness per
+  unit area, independently of both switches. Initial `-1` values mean unset;
+  nonnegative values, including zero, are configured. Initialization reports
+  missing material combinations before force assembly.
+- Disabled damping falls back to the harmonic combination of material restitution values.
+  Enabled zero damping is an explicit override. Explicit LS dashpots are distributed
+  over active nodes by `node area / total active pair area`; LS-LS ignores
+  rotational dashpots.
+- Change material-pair values only before initialization or between solves.
+  See [`src/material/README.md`](../src/material/README.md) for complete activation and storage rules.
 
 ### 6.2 Level-set geometry
 
@@ -572,7 +593,7 @@ For fixed geometry, `LSInfo` preserves the input local frame and stores zero vol
 
 ### 6.3 Level-set particles
 
-An `LSParticle` becomes valid only after a level-set material and geometry have both been assigned:
+An `LSParticle` becomes valid only after a material and geometry have both been assigned:
 
 ```cpp
 LSParticle body;
@@ -589,14 +610,17 @@ The material and geometry must belong to the same solver that receives the parti
 
 ### 6.4 Spheres
 
-Use `SphereDEM` and an ordinary `material`:
+Use `SphereDEM` and the unified `material`:
 
 ```cpp
 SphereDEM simulation;
 
 const int materialIndex = simulation.addMaterial(material{
-    1.0e5, 5.0e4, 1.0e3, 1.0e3,
-    0.3, 0.02, 0.01, 0.5, 2500.0});
+    1.0e7, 0.25, 0.5, 2500.0});
+materialPair pair{materialIndex, materialIndex};
+pair.setFrictionCoefficients(0.3, 0.02, 0.01);
+// Leave the linear-stiffness group disabled to use Hertz-Mindlin.
+simulation.setMaterialPair(pair);
 
 particle sphere;
 sphere.setPosition({0.0, 0.0, 0.2});
@@ -685,15 +709,15 @@ Particles are not reordered in the user container. The grid maintains a separate
 - Sphere–LS uses the complete spherical model, including force, rolling torque, and torsional torque; the level-set particle is the slave.
 - LS–LS uses surface-node area weighting.
 
-Contact type is determined from the material marker rather than inferred from `effectiveRadius`.
+Contact type is selected from the particle-container types, not a material marker or an inference from `effectiveRadius`.
 
 For sphere–LS contact:
 
-- Normal, sliding, rolling, and torsional stiffness come directly from the sphere's ordinary material.
-- Rolling and torsional friction coefficients come directly from the sphere material; no LS-side coefficients are required.
-- Sliding friction combines the two materials using the harmonic mean.
-- Restitution combines the two materials.
-- A non-level-set material cannot be assigned to an `LSParticle`.
+- Both particle families use the same bulk `material`; Young's modulus and Poisson ratio supply both elastic compliances.
+- The disabled linear-stiffness group selects Hertz-Mindlin. Sphere-LS uses the sphere radius against a local plane, not an estimated LS curvature.
+- The enabled linear group supplies all four stored stiffnesses; the enabled damping group supplies all four stored dashpots. Friction always comes directly from the symmetric `materialPair`, without further mixing.
+- Disabled damping uses the harmonic mean of the two restitution coefficients. Explicit zero damping remains zero.
+- With the linear group off, rolling and torsional spring stiffness each equal the default sliding stiffness; they cannot be overridden independently. With it on, all four stored stiffnesses apply. The separate damping group supplies explicit rotational dashpots when enabled, subject to the friction limits.
 
 This keeps sphere–sphere and sphere–LS force evaluation on one complete contact path while preserving the area-based LS–LS model.
 
@@ -823,7 +847,7 @@ The user supplies the base DEM time step:
 simulation.setTimeStep(1.0e-5);
 ```
 
-Time-step stability remains the case author's responsibility; use material stiffness, smallest mass, contact scale, and intended accuracy when choosing it.
+Time-step stability remains the case author's responsibility; use the active material-pair law (or elastic moduli for Hertz-Mindlin), smallest mass, contact scale, and intended accuracy when choosing it.
 
 ### 11.2 `solve()`, `step()`, and reconfiguration
 
@@ -1054,9 +1078,23 @@ SPHJet jet{
 const int firstJetParticle = simulation.addSPHJet(jet);
 ```
 
-The value type normalizes its direction, and this overload pre-fills an upstream virtual pipe of length `jetSpeed * jetDuration` once during setup. It does not inject particles or resize storage while solving. The solver records the jet's stable particle range and constrains only particles from that range that are still inside its pipe, so unrelated fluid and particles that have crossed the outlet remain unconstrained.
+The value type normalizes its direction. This overload creates a short upstream inlet buffer and continuously appends actual particles while the finite source runs; it does not preload the whole `jetSpeed * jetDuration` column. For spacing `s` and smoothing length `h`, the total axial layer count is `floor(jetSpeed * jetDuration / s)`, while the initial buffer contains at most `ceil(2h/s)+1` layers. Each layer uses the same circularly clipped regular lattice. Later layers replenish the upstream end without recycling particles that have already left the outlet.
 
-At each SPH acoustic substep, the inlet velocity is applied at the substep start before any advection-step preparation and again immediately after velocity integration. A jet active at the substep start remains active through that complete substep, so its end time is rounded upward by at most one acoustic substep. After the final jet ends, the completion fast path in `SPHJetState` bypasses all later pipe checks. `SPHJetsCompleted()` reports completion at the solver's visible time, even when internal fluid work is deferred. Output observations restore the internal completion flag along with the saved fluid state and do not end a jet prematurely.
+New layers are scheduled every `s / jetSpeed` and appended only at common acoustic starts, before the interval's start snapshot. The acoustic plan is shortened to the first DEM node at or after a birth; insertion is therefore at most one DEM step late, and the new layer position compensates for the delay. No particle is born during a display/output observation. Stable global particle indices are append-only. With several jets or ordinary blocks, one source's particles can occupy several disjoint ranges:
+
+```cpp
+const std::vector<int>& emittedIndices = simulation.SPHJetParticleIndices(firstJetParticle);
+```
+
+The returned list contains that source's seeds and particles actually appended so far, not future particles. Copy it if it must remain available across further source growth. Do not infer its membership from `firstJetParticle + localIndex` after emission starts.
+
+At each SPH acoustic substep, active buffer particles receive inlet velocity, reference density, and equation-of-state pressure before optional advection preparation and again after velocity integration. They skip their own continuity-equation update while contributing to neighbors' interactions. Crossing the outlet permanently releases a particle; it is not constrained again if the fluid later carries it back into the pipe. The finite layer count prevents an extra trailing reservoir after the requested duration. Once the final jet ends, the completion fast path skips later source work. `SPHJetsCompleted()` reports completion at the solver's visible time, even while the leading internal fluid state represents a later acoustic endpoint. CPU, GPU, and Hybrid use the same source timing and preserve emitted ownership through output, pause, and continuation. GPU capacity growth preserves already integrated device particles and initializes only the new tail.
+
+The inlet also masks virtual SPH wall samples inside its finite upstream buffer cylinder, with half-spacing axial and radial clearance. Masked samples have zero quadrature volume and wall load; moving samples recover their normal volume when outside the opening. This virtual-only nozzle opening persists after emission stops and never follows the downstream fluid to remove target walls. It does not modify signed-distance grids, visible solid surfaces, or DEM contacts. A genuine geometric hole for other physics must therefore still be modeled explicitly. Moving-wall mask changes refresh SPH neighborhoods and viscous prior forces; output and paused views do not change the actual integration mask.
+
+Each finite source also opens its short inlet cylinder in the **SPH virtual-boundary samples only**. Samples inside the buffer, expanded radially and axially by half a particle spacing, receive zero quadrature volume. The opening covers the outlet plane but ends after the half-spacing downstream clearance, so a downstream target wall is not removed. Several sources form a union of these finite openings. Sample indices, owner mappings, level-set grids, and DEM contacts are unchanged; this is not a geometric hole or a modification of the LS signed-distance field.
+
+Openings remain after a finite source stops emitting. Moving wall samples are tested again at acoustic starts; samples leaving an opening regain their normal volume. A changed mask refreshes the neighborhood and cached viscous loads before fluid integration. CPU, GPU, and Hybrid apply the same rule. Current-time observations rebuild only the visible host mask and do not advance the physical source or coupling state.
 
 ### 14.4 Level-set walls
 
@@ -1085,7 +1123,11 @@ If one DEM step is already larger than either SPH limit, initialization throws i
 
 Current values are available through `SPHTimeStep()`, `SPHTimeStepLimit()`, `SPHAdvectionTimeStep()`, and their interval getters.
 
-For current-time host observations between acoustic updates, use `observeCurrentState(callback)` rather than reading deferred particle containers directly. See [SPH state and coupling corrections](SPH_CORRECTIONS.md) for the observation contract, held-load convention, impulse correction, and focused regression coverage.
+SPH uses DKD (position half-step, velocity full-step, position half-step); solids use DEM KDK (velocity half-step, position/orientation full-step, velocity half-step). At a common acoustic boundary the fluid advances first over `H = N * DEM_dt`. Its pressure and viscous reaction force and world torque are installed before the first solid half kick and held through all `N` solid substeps. Other solid forces continue to update every DEM step. No endpoint impulse correction is required. Wall geometry uses the current solid pose; wall velocity/acceleration use the completed solid interval's averages, with instantaneous kinematics at startup. This explicit coupling does not guarantee exact energy conservation or unconditional fluid-solid stability.
+
+For current-time host observations between common acoustic endpoints, use `observeCurrentState(callback)` rather than reading leading integration buffers directly. Interior fluid positions use the DKD quadratic through the stored endpoint positions and velocities; velocity and density use linear interpolation, and pressure follows the equation of state. These interior values are a dense-output approximation, not an independent SPH solve at the observation time. At a common endpoint the committed fluid solution is used. Observation leaves the force evaluation schedule, device state, and solid histories unchanged.
+
+`solve()` returns current-time host data even if it stops inside an acoustic interval. An unchanged subsequent solve on the same solver object continues the same interval, while append-only model changes or configuration changes restart from the synchronized visible state. Loading only a saved visible frame into a new solver is a restart, not restoration of the private leading endpoint and multirate phase; its future trajectory is not guaranteed to be bitwise identical to uninterrupted integration. See [SPH state and coupling corrections](SPH_CORRECTIONS.md) for the full observation contract, held-load convention, and focused regression coverage.
 
 ## 15. Performance and scaling
 
@@ -1135,7 +1177,7 @@ A larger DEM step is useful only while resolving the stiffest contact or bond mo
 | --- | --- |
 | [`src/math/`](../src/math/README.md) | Shared CPU/GPU scalars, vectors, matrices, quaternions, tolerances, and indexing |
 | [`src/data/`](../src/data/README.md) | Host AoS/device SoA storage, VTU/DAT output, energy output, and level-set input objects |
-| [`src/material/`](../src/material/README.md) | Ordinary and level-set material definitions |
+| [`src/material/`](../src/material/README.md) | Unified bulk materials and symmetric contact-pair coefficients |
 | [`src/geometry/`](../src/geometry/README.md) | Four-array reusable level-set geometry storage |
 | [`src/particle/`](../src/particle/README.md) | Point masses, rigid bodies, spheres, level-set particles, SPH particles, virtual particles, and spatial grids |
 | [`src/interaction/`](../src/interaction/README.md) | Contacts, bonds, neighbor ranges, histories, mapping, and CPU contact search |
@@ -1208,9 +1250,10 @@ The most common cause is a missing or stale compile database. Reconfigure CMake,
 
 ### `Cannot add an invalid ...`
 
-- Material: set a positive density and valid coefficients.
+- Material: set positive Young's modulus and density, valid Poisson ratio and restitution.
 - Sphere: assign positive radius and a material from this solver.
-- LSParticle: assign an `LSMaterial` and geometry from this solver.
+- LSParticle: assign a unified material and geometry from this solver.
+- Missing LS-LS stiffness: assign both nonnegative per-area stiffnesses on each required material pair; there is no LS-stiffness activation switch.
 - Geometry: build both its surface representation and signed-distance grid as required by the selected shape.
 - SPH: call `setSPHProperties()` before adding particles.
 - Bond: set equivalent length, connection, and stiffness; use this solver's particle containers.

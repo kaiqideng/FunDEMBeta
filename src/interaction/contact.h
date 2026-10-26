@@ -6,6 +6,7 @@
 
 #include "data/ContainerObject.h"
 #include "data/HostAoSDeviceSoA.h"
+#include "execution/contactMaterialFunctions.h"
 #include "math/Vector3.h"
 #include "particle/particle.h"
 
@@ -111,11 +112,13 @@ public:
 
     /**
      * Evaluates the material contact law from the current snapshots and history.
-     * @param timeStep Positive integration step used by damping and spring updates.
+     * @param timeStep Integration step for spring updates; zero initializes current loads.
+     * @param materialPairs Symmetric table indexed by the two particle material IDs.
+     * @param type Geometry family supplied by the owning particle containers.
      * @return False unless this object belongs to a container and particle
      * snapshots were refreshed for the current force assembly.
      */
-    bool calculateForce(Real timeStep) noexcept;
+    bool calculateForce(Real timeStep, const materialPairContainer& materialPairs, execution::contactType type) noexcept;
 
     struct masterParticleIndexField;
     struct slaveParticleIndexField;

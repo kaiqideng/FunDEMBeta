@@ -8,7 +8,7 @@
 #include "geometry/LSGeometry.h"
 #include "interaction/contactSearch.h"
 #include "interaction/interactionContainer.h"
-#include "material/LSMaterial.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "particle/spatialGrid.h"
 #include "solver/solver.h"
@@ -45,12 +45,17 @@ public:
     LSDEM& operator=(LSDEM&&) = delete;
 
     const materialContainer& materials() const noexcept { return materials_; }
+    const materialPairContainer& materialPairs() const noexcept { return materialPairs_; }
     const LSGeometryContainer& geometries() const noexcept { return geometries_; }
     const LSParticleContainer& LSParticles() const noexcept { return LSParticles_; }
     const interactionContainer& LSParticleInteractions() const noexcept { return LSParticleInteractions_; }
 
-    /** Appends a valid level-set material and returns its stable index. */
-    int addMaterial(const LSMaterial& value);
+    /** Appends one unified material and all new unordered pairs, preserving existing pair indices. */
+    int addMaterial(const material& value);
+    /** Replaces one bulk material between solves, refreshing particle mass/inertia while retaining fixed bodies and kinematics. */
+    void setMaterial(int materialIndex, const material& value);
+    /** Replaces one existing material-pair configuration before initialization or between solves. */
+    void setMaterialPair(const materialPair& value);
     /** Appends one built LSInfo, copying its prepared local coordinates and cached integral properties. */
     int addGeometry(const levelset::LSInfo& value);
     /** Appends a valid LS particle whose material and geometry belong here. */
@@ -99,10 +104,18 @@ protected:
 
     /** Adds user-defined LSParticle loads after all built-in force assembly. */
     virtual void addLSParticleExternalForceAndTorque(LSParticleContainer::host_container_type&) {}
+    /** Optional frontend kinematics at the force-evaluation pose, before host LS contact detection. */
+    virtual void beforeLSParticleContactDetection(cpu::mode) {}
+    /** Optional streamed frontend kinematics at the force-evaluation pose. */
+    virtual void beforeLSParticleContactDetection(gpu::mode, cudaStream_t) {}
     /** Device counterpart of the external LS load hook; work must use @p stream. */
     virtual void addLSParticleExternalForceAndTorque(LSParticle::device_type, cudaStream_t) {}
     /** Shared validated append path used by derived solvers. */
     int appendMaterial(const material& value);
+    /** Refreshes host material snapshots for particles using one changed material; derived families extend this hook. */
+    virtual void refreshParticleMaterial(int materialIndex) noexcept;
+    /** Reports missing per-area stiffness for LS material combinations that can interact. */
+    void validateContactMaterials() const;
     /** Verifies that a bond type and container ownership match this solver. */
     void validateBondForAddition(const bond& value) const;
     /** Appends a validated LS-LS bond and invalidates backend state. */
@@ -133,6 +146,7 @@ private:
     LSParticle& mutableLSParticle(int particleIndex);
 
     materialContainer materials_;                         ///< Append-only shared material definitions.
+    materialPairContainer materialPairs_;                 ///< Symmetric contact coefficients, including same-material pairs.
     LSGeometryContainer geometries_;                      ///< Append-only reusable level-set geometries.
     LSParticleContainer LSParticles_;                     ///< Rigid level-set particles.
     interactionContainer LSParticleInteractions_;         ///< LS-LS contacts, bonds, ranges, and histories.

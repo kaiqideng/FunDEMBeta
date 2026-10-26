@@ -1,6 +1,7 @@
 /** CPU Gömböc self-righting tutorial. */
 #include "data/myLSObject.h"
-#include "material/LSMaterial.h"
+#include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/LSParticle.h"
 #include "solver/LSDEM.h"
 
@@ -128,8 +129,17 @@ int main(int argc, char** argv)
 
         LSDEM simulation;
         const int gombocMaterialIndex =
-            simulation.addMaterial(LSMaterial{ceramicNormalStiffnessPerUnitArea, ceramicShearStiffnessPerUnitArea, ceramicFrictionCoefficient, ceramicRestitutionCoefficient, ceramicDensity});
-        const int wallMaterialIndex = simulation.addMaterial(LSMaterial{0.0, 0.0, ceramicFrictionCoefficient, ceramicRestitutionCoefficient, 1.0});
+            simulation.addMaterial(material{1.0e9, 0.25, ceramicRestitutionCoefficient, ceramicDensity});
+        const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, ceramicRestitutionCoefficient, 1.0});
+        // Nominal E/nu are unused by these explicitly preserved linear contacts.
+        materialPair gombocPair{gombocMaterialIndex, gombocMaterialIndex};
+        gombocPair.setLevelSetStiffness(0.5 * ceramicNormalStiffnessPerUnitArea, 0.5 * ceramicShearStiffnessPerUnitArea);
+        gombocPair.setFrictionCoefficients(ceramicFrictionCoefficient);
+        simulation.setMaterialPair(gombocPair);
+        materialPair wallPair{gombocMaterialIndex, wallMaterialIndex};
+        wallPair.setLevelSetStiffness(ceramicNormalStiffnessPerUnitArea, ceramicShearStiffnessPerUnitArea);
+        wallPair.setFrictionCoefficients(ceramicFrictionCoefficient);
+        simulation.setMaterialPair(wallPair);
 
         levelset::TriangleMesh gomboc;
         gomboc.loadOBJ((executablePath / "Gomboc.obj").string());

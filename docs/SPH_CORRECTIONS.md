@@ -1,55 +1,64 @@
 # SPH State, Coupling, and Search Corrections
 
-Version 1.0.1 — September 11, 2026.
+Updated October 24, 2026. The search and robustness notes originated in the September 2026 review; the coupling schedule below supersedes its endpoint impulse correction.
 
-This note describes the implementation corrections identified by the September 2026 SPH review. It distinguishes committed numerical integration from temporary observations and does not claim that FunDEM implements every feature of SPHinXsys.
+This note distinguishes committed numerical integration from current-time observations. FunDEM keeps SPH drift-kick-drift (DKD) and DEM kick-drift-kick (KDK); it does not claim to implement every feature of SPHinXsys.
 
 ## 1. One current-time observation scope
 
 Affected code: `solver::observeCurrentState`, `solver::writeOutput`, and the SPH output-snapshot hooks in `src/solver/SPHDEM.cpp`.
 
-SPH acoustic updates can span several DEM steps. Between updates the stored fluid state represents an earlier time than the DEM clock. Previously, writing VTU temporarily advanced the fluid and then restored that deferred state; a frontend reading the particle container afterward obtained old positions with a new time label.
+An SPH acoustic interval spans `N` DEM steps. The fluid now advances first to the acoustic endpoint, then the solids catch up using `N` ordinary substeps. During those substeps the internal fluid state can therefore be ahead of the public DEM clock. Reading integration buffers directly is not a synchronized observation.
 
-`observeCurrentState(callback)` now provides a single scope in which all observers see the same current-time state. The software captures scientific output, viewport data, and the restart checkpoint inside that scope. Nested output reuses the active scope. On exit, including callback exceptions, deferred state is restored so output frequency does not change the acoustic integration schedule. Reentrant `step`, `solve`, and `initialize` are rejected during an observation. The callback receives a const solver; mutating it through a separately captured alias is outside the observer contract.
+`observeCurrentState(callback)` provides one common-time host view for scientific output and viewport data. Nested output reuses that view. On exit, including callback exceptions, leading host buffers are restored without changing the numerical continuation. Reentrant `step`, `solve`, and `initialize` are rejected during an observation. The callback receives a const solver; mutating it through a separately captured alias is outside the observer contract.
 
-An observation can temporarily rebuild search structures. Restoring the saved particles therefore invalidates the search references as well. The next interaction rebuilds neighbors if needed without reinitializing density, resetting prior force, or changing the advection phase.
+For an observation inside an acoustic interval, the solver retains its acoustic-start state and uses:
+
+- the DKD quadratic from stored endpoint positions and velocities: `x(s) = (1-s)*x0 + s*x1 - 0.5*H*s*(1-s)*(v1-v0)` for interval fraction `s`;
+- linear velocity and density interpolation, with pressure recomputed from the equation of state;
+- the unchanged acoustic-interval free-surface classification and interval-average density rate; only position, velocity, and density need acoustic-start storage because free-surface classification is updated before that storage is captured;
+- jet flags evaluated at visible time, and virtual-boundary geometry rebuilt from the actual current solid pose;
+- current rigid-point velocity for visible virtual particles, with acceleration averaged over the completed DEM samples in the current interval (instantaneous kinematics when no samples exist), rather than exposing raw device accumulator sums.
+
+The position interpolant recovers constant-acceleration DKD motion and preserves both stored positions. For interacting fluid, these interior values are a dense-output numerical approximation, not a new SPH evaluation at the observation time. At common acoustic endpoints the committed solution itself is used. Observations do not evaluate another fluid force, modify contact/bond histories, rebuild searches, change advection phase, or write device state. Their frequency therefore does not alter the actual trajectory.
+
+On `solve()` completion the synchronized host view remains available, while the leading endpoint is retained privately for continuation. Resuming an unchanged solver restores the leading buffers and finishes the remaining DEM substeps. Configuration changes or appended particles discard that continuation and restart from the current visible state; they do not resume an old acoustic interval with incompatible inputs. A saved frame inside an interval is a common-time state, not a serialized copy of the complete hidden multirate continuation.
+
+Consequently, pausing and resuming the same solver object preserves its numerical continuation; constructing a new solver from visible frame values does not restore the private future endpoint, held reaction history, and search phase. The latter begins a new interval from the frame time and is not a bitwise continuation guarantee. Output itself never replaces the private state by the interpolated view.
 
 ## 2. A common held-load convention
 
 Affected code: `src/interaction/virtualParticleCoupling`, virtual-particle load fields, and CUDA wall-load collection/scattering.
 
-Between acoustic updates, all backends hold the last evaluated world force **and world torque**. Previously CPU/Hybrid held torque while GPU recomputed it from the current rotated lever arm. That difference was unrelated to floating-point reduction order.
+All backends hold the newly evaluated world force **and world torque** throughout the following solid interval. GPU caches the world torque when the fluid load is collected, rather than recomputing it from a different rotated lever arm at each solid substep. CPU, GPU, and Hybrid therefore use the same held-load convention.
 
-The GPU now caches the world torque when the fluid load is evaluated and scatters that cached value until the next fluid update. New-minus-held load increments are retained for impulse matching. The added fields are included automatically in virtual-particle storage and in temporary SPH snapshots; host owner accumulators are included in coupling snapshots.
+Only the old hydraulic component is removed from the cached total force/torque when an interval begins. The new reaction is added before the first solid half kick. Replacing this component does not reevaluate contact/bond history, repeat gravity, or invoke external-field callbacks twice. Both pressure and the cached viscous prior force participate in the reaction delivered to the solids. No new-minus-held load increment or velocity-correction cache is retained.
+
+The GPU acoustic-start snapshot is copied device-to-device. Ordinary GPU intervals do not add a complete fluid download/upload. Hybrid still transfers boundary kinematics and the wall reaction required by its CPU-owned solids; output reads the data needed for its host view on the solver stream.
 
 ## 3. Complete, consistently timed wall kinematics
 
 Affected code: SPHDEM `advanceCPU`, `advanceGPU`, `advanceHybrid`, and virtual-boundary kinematics sampling.
 
-For finite-mass solids, kinematics are sampled at the left endpoint of each DEM step, before the first velocity kick and before force clearing. At that point the prior endpoint force contains contact, fluid, and external contributions. The external-force callback remains the last part of force assembly.
+At an acoustic boundary, prescribed-motion preparation runs before fluid evaluation. Virtual geometry is then refreshed from the current solid position and orientation. Boundary velocity and acceleration use averages accumulated over the preceding completed solid interval; startup uses instantaneous kinematics because no completed interval exists. This is an explicit, lagged boundary treatment, not a jointly implicit or exact midpoint fluid-solid solve.
 
-This fixes the previous use of partially assembled contact-only force to reconstruct wall acceleration. The averaged boundary acceleration used by wall-pressure reconstruction now has an explicit time convention. Prescribed infinite-mass boundary motion uses its sampled velocity history rather than a force divided by an infinite mass; constant velocity must not create fictitious acceleration.
+For finite-mass solids, new kinematic samples are taken at each solid substep's left endpoint, after the new hydraulic interval load has been installed and before the first velocity kick or force clearing. The sampled total includes contact, fluid, and external contributions. The external-force callback remains last in ordinary force assembly. Prescribed infinite-mass motion uses differences of sampled world velocities rather than force divided by mass; constant prescribed velocity must not create fictitious acceleration.
 
-## 4. Match transient reaction impulse at acoustic boundaries
+## 4. Match reaction impulse through stage ordering, not correction
 
-Affected code: `src/execution/sphCouplingFunctions.h`, coupling load increments, and the final rigid-body velocity stage.
+Affected code: SPHDEM `beginSPHInterval`, all three `advance...` methods, and hydraulic-load collection/scattering.
 
-Let an acoustic interval contain N DEM steps of duration delta_t. With an old held fluid reaction F0 and a newly evaluated reaction F1, the split solid integration receives
-
-```text
-I_applied = delta_t * ((N - 1/2) * F0 + (1/2) * F1).
-```
-
-The corresponding fluid update uses the new reaction over the acoustic interval. After the final solid half kick, the implementation therefore adds
+Let `H = N * delta_t` and let `F` be the fluid reaction collected from that leading SPH interval. Both solid velocity half kicks of every substep use that same hydraulic force:
 
 ```text
-Delta_I = (acoustic_dt - DEM_dt / 2) * (F1 - F0)
-Delta_v = inverse_mass * Delta_I.
+fluid: DKD over H, collecting pressure and viscous wall reaction F
+solid: N * [K(delta_t/2, F), D(delta_t), K(delta_t/2, F)]
+I_solid = N * delta_t * F = H * F.
 ```
 
-The analogous centroidal torque increment is mapped through the current world inverse inertia tensor to an angular-velocity correction. Gravity, external loads, and the gyroscopic term are not integrated a second time; endpoint position and orientation are not changed by this correction.
+The opposite linear momentum exchange is already represented in the fluid kick. The previous late-fluid arrangement instead mixed the old hydraulic force into the first solid half kicks and repaired that mismatch afterward. Its endpoint impulse time, load-difference members, and correction methods/kernels have been removed. Normal velocity integration still uses physical force; no additional velocity or angular-velocity correction is applied.
 
-Only actual acoustic updates schedule this correction. Observation-only flushes do not modify solid velocity. They are current-time projections, not additional committed coupling steps. This removes the identified linear reaction-impulse imbalance; it is not a claim of exact energy conservation or exact global angular-momentum conservation for arbitrary rotating, moving bodies. Those remain subject to the chosen rigid-body integration and spatial discretization.
+This removes the identified linear reaction-impulse mismatch at common acoustic endpoints. It does not establish exact energy conservation, exact global angular-momentum conservation for arbitrary rotating bodies, global second-order accuracy, or unconditional stability for large fluid-solid added-mass ratios. Those require separate spatial/model analysis and convergence studies. Observation inside an interval is subject to the dense-output approximation described above.
 
 ## 5. Retain computed-invalid-state information
 
@@ -69,11 +78,21 @@ Normally the advection-step rebuild is sufficient. If rapidly changing motion ex
 
 The guard adds a linear reduction before the relevant stages. It is a correctness cost, not a claimed speedup; GPU latency and workload scaling should be profiled separately from the tests below.
 
-## 7. Safe interval and source discretization conversion
+## 7. Safe intervals and short-buffer source injection
 
 Acoustic and advection interval ratios are capped to representable positive int values before conversion. Capping makes the chosen interval shorter, not longer than its stability limit. Oversized cylindrical jet lattices are rejected before unsafe casts or products; ordinary lattice dimensions and particle counts are unchanged. These checks occur at conversion/source setup boundaries, not in particle-pair calculations.
 
 The DEM-versus-stability-limit comparison uses relative tolerance, not an absolute tolerance in seconds. This prevents extremely small acoustic limits from being treated as equal to much larger DEM steps. Circular source counts use exact lattice row counts with rounding correction, avoiding quadratic candidate enumeration before rejecting a source that cannot fit its indexed storage.
+
+A finite-duration `SPHJet` now seeds only a short buffer, at most `ceil(2h/spacing)+1` layers, instead of preloading its entire nominal stroke. The complete finite layer count remains `floor(speed * duration / spacing)`. New layers are appended at their scheduled inlet times, quantized to a common DEM node by clipping the acoustic plan. Their positions compensate the at-most-one-DEM-step insertion delay. Insertion happens before the acoustic-start snapshot, never during output; start and end snapshots therefore contain the same active particle set within an interval.
+
+Particle IDs remain stable and append-only. Device capacity growth preserves the old device prefix and initializes only the new tail; a stale host copy must never replace the evolving fluid. Source ownership is recorded explicitly because several jets and ordinary blocks can be interleaved. `SPHJetParticleIndices(firstIndex)` exposes the particles already created by one source. Active short-buffer particles receive prescribed velocity and reference density. Outlet release is permanent, source completion stops later replenishment, and a paused/resumed solver preserves its birth counters and emitted ownership.
+
+Source end time, public handle, and created-layer count are derived from the source value and append-only ownership, rather than copied into separate mutable fields. A single released-layer prefix marks the remaining inlet suffix; per-layer global starts follow directly from ownership. Initial layers and later births use the same initializer and axial-position expression.
+
+Nozzle clearance changes virtual-wall quadrature only. A finite cylinder spanning the upstream buffer is expanded by `spacing/2` in the radial and axial directions; virtual samples inside it receive zero volume and no SPH wall load. The mask is independent of emission completion and does not cut a downstream target wall. It does not modify an LS SDF, triangle mesh, or DEM contact boundary and is not a CAD-level hole. Moving samples regain their nominal lattice volume outside the mask. A changed mask clears its old sample loads and refreshes advection preparation, including viscous prior force. The owner-level old hydraulic load is removed before clearing those sample loads. Current-time observation changes only its temporary host mask, never device state or the actual neighbor/advection phase.
+
+Finite inlets mask virtual-boundary quadrature rather than changing LS geometry: a sample inside any short upstream buffer, with half-spacing radial/axial clearance, has zero effective volume. Slots and owner indices remain stable, and samples outside the finite cut retain their usual volume. The mask persists after emission ends. Moving-boundary mask changes invalidate the neighborhood and restart advection preparation so previously cached viscous loads cannot survive a newly opened or restored sample. Observation updates only the displayed host mask; it never changes integration phases. The LS grid, surface geometry, and DEM contact detection are not cut by this SPH-only policy.
 
 ## 8. Workbench history and resumed fluid properties
 
@@ -95,12 +114,13 @@ This follow-up changes workbench memory retention, not the numerical corrections
 The regression suites cover:
 
 - `SPHCPUStateTest` / `SPHStateTest`: analytic current-time positions, nested and throwing observers, output/acoustic misalignment, and continuation across advection intervals;
-- `SPHCouplingTest`: held torque under rotation, changing-load reaction impulse with a known external-force budget, complete wall kinematics, and non-mutating observations;
+- `SPHCouplingTest`: held torque under rotation, changing-load reaction impulse with a known external-force budget, first-half-kick installation, complete wall kinematics, and non-mutating observations;
 - `SPHRobustnessTest`: invalid-rate latching, approaching particles crossing cells, boundary displacement, and extreme interval/jet conversion;
+- `SPHJetTest`: bounded initial buffers, scheduled growth to exact finite counts, two-source/block ownership, preserved device prefixes, no early births during observation, permanent outlet release, non-grid births after a DEM-step change, finite virtual openings with unchanged LS grids/stable sample slots, static/moving-wall mask updates, and uninterrupted versus observed/segmented continuation;
 - software engine/JSON checks: paused and recorded positions, checkpoint time consistency, and frozen resumed SPH properties;
 - `frameHistoryTest`: serialization, bounded cache, failure atomicity, corrupt/truncated records, concurrent access, and spool lifetime.
 
-Local verification passed all six focused CPU/CUDA tests with CUDA 13.2 on an RTX 5060, all three CPU-only software engine/history/policy checks, and the standalone history tests under ASan/UBSan. Native Windows and macOS package checks are additionally required before publishing their binaries. Tiny regression tests are not substitutes for a full hydrostatic, impact-force, or long-duration FSI convergence study.
+The September review verified its earlier CPU/CUDA corrections and software history behavior. Those historical results are not evidence that a later coupling change has been tested: the leading-fluid schedule must pass the focused suites for the actual CPU, GPU, and Hybrid builds being delivered. Native Windows and macOS package checks are additionally required before publishing their binaries. Tiny regression tests are not substitutes for a full hydrostatic, impact-force, or long-duration FSI convergence study.
 
 ## Deliberately unchanged model choices
 

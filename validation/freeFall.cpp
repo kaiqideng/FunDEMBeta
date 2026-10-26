@@ -49,7 +49,7 @@ int main(int argc, char** argv)
         const Vec3 gravity{0.0, 0.0, -9.81};
 
         ConstantTorqueSolver simulation;
-        const int materialIndex = simulation.addMaterial(material{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, density});
+        const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, density});
         particle sphere;
         sphere.setPosition(initialPosition);
         sphere.setVelocity(initialVelocity);

@@ -6,7 +6,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `contact.*` | Contact geometry, effective parameters, material coefficients, particle copies, force, and torque |
+| `contact.*` | Contact geometry, effective mass/radius, particle copies, history, force, torque, and energy; pair coefficients are looked up during evaluation |
 | `bond.*` | Bond endpoints, stiffnesses, BK damage state, force, and master/slave torques |
 | `neighborRange.h` | Neighbor counts, inclusive prefix sums, and range history |
 | `surfaceNodeMapping.h` | Map expanded surface nodes to geometry nodes and owning LS particles |
@@ -23,8 +23,9 @@
 - Sphere–sphere: order master/slave by mass rules; if only one particle has infinite mass, it is always the slave.
 - Sphere–LS: the `LSParticle` is always the slave, and the complete spherical model includes sliding, rolling, and torsional torque.
 - LS–LS: use one-way surface-node sampling. The smaller or finite-mass side becomes the master, and its surface nodes query the slave signed-distance field. Nodal area weights effective mass and force.
-- A level-set master material selects the nodal area-scaled model. Standard master material selects the complete spherical model for both sphere–sphere and sphere–LS contacts.
-- Sphere–LS normal, sliding, rolling, and torsional stiffnesses and rolling/torsional friction coefficients come directly from the sphere material; only sliding friction and restitution combine both materials.
+- Particle-container types select the contact family before type erasure; materials carry no geometry marker.
+- All contact stiffness, friction and explicit damping come from one symmetric material-pair record. Its two switches select all four ordinary stiffnesses or all four dashpots. With the linear group off, sphere-sphere and sphere-LS use Hertz-Mindlin and set both length-scaled rotational stiffnesses equal to the default sliding stiffness, as a prescribed FunDEM extension. Only restitution-based default damping combines material restitution values.
+- LS-LS requires explicitly configured nonnegative per-area normal/sliding stiffness, independent of the ordinary linear-stiffness switch. When the damping group is on, nodal normal/sliding dashpots receive their share of the pair coefficient, weighted by active nodal area. No separate rolling/torsional spring or dashpot is added to LS-LS nodal contacts.
 - `effectiveRadius_` is only a physical radius/lever arm; it no longer selects the contact model.
 - `geometrySurfaceNodeIndex_` is a global index into the geometry surface-node container; `ownerParticleIndex_` indexes the LS-particle container.
 
@@ -53,7 +54,7 @@ After a GPU solve, only valid contacts and bonds are copied to the host. Neighbo
 
 ## Extension Guide
 
-- Configure contact geometry and material coefficients separately, without leaving a partially valid contact after failure.
+- Configure contact geometry separately from the symmetric material-pair table; pass that table and the contact family to force evaluation.
 - Keep host particle copies in contact and bond objects out of `DeviceLayout`.
 - Put new shared CPU/GPU formulas in `execution/`; object methods should only organize inputs and retain results.
 - For every new contact type, explicitly define master/slave ordering, history keys, and torque distribution.
@@ -62,7 +63,7 @@ After a GPU solve, only valid contacts and bonds are copied to the host. Neighbo
 
 | Type | Persistent role | Device role |
 | --- | --- | --- |
-| `contact` | Current geometry, coefficients, history state, loads, and energies | One active detected contact |
+| `contact` | Current geometry, particle copies, history state, loads, and energies; no persistent material-pair coefficients | One active detected contact |
 | `contactHistory` | Slave key and three spring deformations | Restores history after contacts are rebuilt |
 | `bond` | Fixed particle pairing, endpoint bases, stiffness, damage, and loads | Updated every force stage |
 | `neighborRange` | Candidate count and inclusive prefix sum | Allocates/writes compact result ranges |
@@ -116,7 +117,9 @@ Bond calculations first refresh the two rigid-body copies and clear the previous
 
 [`SPHInteractionTypes.h`](SPHInteractionTypes.h) defines backend-independent `SPHStateStatistics`, `SPHKinematicsStatistics` and `SPHInteractionParameters` in `fundem`. Existing `cpu::` and `cuda::` statistics names remain aliases, not separate copies. Reductions return fluid or boundary extrema; the solver retains the latest fluid statistics for time-step and search-buffer calculation. `SPHInteractionParameters` holds immutable values for one CPU stage, constructed from current uniform properties and gravity. Physical configuration remains in `SPHDEM` rather than being duplicated in cached stage parameters. Shared equations live in `execution/sphFunctions.h` and `execution/sphCouplingFunctions.h`.
 
-`virtualParticleCoupling` retains stable LS-owner mappings, sampled boundary kinematics, held forces and torques, and new-minus-held load increments. It averages or reduces these values when requested and supports capturing/restoring its host accumulators for temporary observations. `SPHDEM` controls the sampling times, acoustic updates, impulse-correction stage, and complete snapshot lifecycle. CUDA copies use the stream supplied by the solver.
+`virtualParticleCoupling` retains stable LS-owner mappings, sampled boundary kinematics, and held world forces and torques. At each common acoustic boundary it refreshes geometry from the current LS pose and prepares wall velocity/acceleration from the completed solid interval's samples, or from instantaneous kinematics at startup. `SPHDEM` advances SPH first, collects the new reaction, and installs it before the first DEM half kick. Both halves of every solid substep then use the same held hydraulic load. Replacing the hydraulic part of the cached total does not reevaluate contact/bond history or call external hooks a second time. There are no new-minus-held increment caches or endpoint impulse-correction stage. CUDA copies and launchers use the stream supplied by the solver.
+
+Current-time observations are owned by `SPHDEM`: they expose dense-output fluid state and current solid-boundary geometry without changing these kinematic accumulators, the held reaction, search references, or device state. The interaction component does not select output times or maintain a second observation-time integration path.
 
 ## History Debugging Checklist
 

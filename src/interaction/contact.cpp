@@ -5,7 +5,7 @@
 namespace fundem
 {
 
-bool contact::calculateForce(Real timeStep) noexcept
+bool contact::calculateForce(Real timeStep, const materialPairContainer& materialPairs, execution::contactType type) noexcept
 {
     force_ = Vec3::zero();
     torque_ = Vec3::zero();
@@ -25,33 +25,28 @@ bool contact::calculateForce(Real timeStep) noexcept
     const particle& slave = slaveParticle_;
     const material& masterMaterial = master.getMaterial();
     const material& slaveMaterial = slave.getMaterial();
-    const bool masterInfiniteMass = master.inverseMass() == 0.0;
-    const bool slaveInfiniteMass = slave.inverseMass() == 0.0;
-    const bool nodalContact = masterMaterial.isLevelSet();
-    const bool sphereLevelSetContact = !nodalContact && slaveMaterial.isLevelSet();
-    const Real stiffnessScale = nodalContact ? area_ : 1.0;
-    const Real normalStiffness =
-        sphereLevelSetContact
-            ? masterMaterial.normalStiffness()
-            : execution::effectiveStiffness(masterMaterial.normalStiffness() * stiffnessScale, slaveMaterial.normalStiffness() * stiffnessScale, masterInfiniteMass, slaveInfiniteMass);
-    const Real slidingStiffness =
-        sphereLevelSetContact
-            ? masterMaterial.slidingStiffness()
-            : execution::effectiveStiffness(masterMaterial.slidingStiffness() * stiffnessScale, slaveMaterial.slidingStiffness() * stiffnessScale, masterInfiniteMass, slaveInfiniteMass);
-    const Real rollingStiffness = sphereLevelSetContact ? masterMaterial.rollingStiffness()
-                                                        : execution::effectiveStiffness(masterMaterial.rollingStiffness(), slaveMaterial.rollingStiffness(), masterInfiniteMass, slaveInfiniteMass);
-    const Real torsionalStiffness = sphereLevelSetContact
-                                        ? masterMaterial.torsionalStiffness()
-                                        : execution::effectiveStiffness(masterMaterial.torsionalStiffness(), slaveMaterial.torsionalStiffness(), masterInfiniteMass, slaveInfiniteMass);
-    const Real slidingFrictionCoefficient = execution::harmonicMean(masterMaterial.slidingFrictionCoefficient(), slaveMaterial.slidingFrictionCoefficient());
-    const Real rollingFrictionCoefficient = sphereLevelSetContact ? masterMaterial.rollingFrictionCoefficient()
-                                                                  : execution::harmonicMean(masterMaterial.rollingFrictionCoefficient(), slaveMaterial.rollingFrictionCoefficient());
-    const Real torsionalFrictionCoefficient = sphereLevelSetContact ? masterMaterial.torsionalFrictionCoefficient()
-                                                                   : execution::harmonicMean(masterMaterial.torsionalFrictionCoefficient(), slaveMaterial.torsionalFrictionCoefficient());
-    const Real restitutionCoefficient = execution::harmonicMean(masterMaterial.restitutionCoefficient(), slaveMaterial.restitutionCoefficient());
-    const Real dissipation = execution::contactDissipationFactor(restitutionCoefficient);
-    const Real normalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, normalStiffness);
-    const Real slidingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, slidingStiffness);
+    const int masterMaterialIndex = master.materialIndex();
+    const int slaveMaterialIndex = slave.materialIndex();
+    if (masterMaterialIndex < 0 || slaveMaterialIndex < 0 || masterMaterialIndex >= materialPairs.materialCount() || slaveMaterialIndex >= materialPairs.materialCount())
+        return false;
+    const materialPair& pair = materialPairs.host()[materialPairContainer::index(masterMaterialIndex, slaveMaterialIndex)];
+    const bool nodalContact = type == execution::contactType::levelSetLevelSet;
+    if (nodalContact && !pair.hasLevelSetStiffness())
+        return false;
+    const materialPairCoefficients coefficients = pair.coefficients();
+    const execution::contactResponse response = execution::resolveContactResponse(coefficients,
+                                                                                  type,
+                                                                                  masterMaterial.youngModulus(),
+                                                                                  masterMaterial.poissonRatio(),
+                                                                                  masterMaterial.restitutionCoefficient(),
+                                                                                  slaveMaterial.youngModulus(),
+                                                                                  slaveMaterial.poissonRatio(),
+                                                                                  slaveMaterial.restitutionCoefficient(),
+                                                                                  effectiveMass_,
+                                                                                  effectiveRadius_,
+                                                                                  overlap_,
+                                                                                  area_,
+                                                                                  nodalContact ? execution::nodalDampingWeight(effectiveMass_, master.inverseMass(), slave.inverseMass()) : 1.0);
     const Vec3 relativeVelocity =
         execution::relativeVelocityAtContactPoint(master.position(), master.velocity(), master.angularVelocity(), slave.position(), slave.velocity(), slave.angularVelocity(), point_);
     force_ = execution::calculateLinearContactForce(normalForceMagnitude_,
@@ -60,13 +55,13 @@ bool contact::calculateForce(Real timeStep) noexcept
                                                     normal_,
                                                     overlap_,
                                                     timeStep,
-                                                    normalStiffness,
-                                                    slidingStiffness,
-                                                    slidingFrictionCoefficient,
-                                                    normalDampingCoefficient,
-                                                    slidingDampingCoefficient);
-    normalElasticEnergy_ = overlap_ > 0.0 ? execution::springElasticEnergy(normalStiffness, overlap_) : 0.0;
-    slidingElasticEnergy_ = execution::springElasticEnergy(slidingStiffness, slidingSpringDeformation_);
+                                                    response.normalStiffness_,
+                                                    response.slidingStiffness_,
+                                                    coefficients.slidingFrictionCoefficient_,
+                                                    response.normalDampingCoefficient_,
+                                                    response.slidingDampingCoefficient_);
+    normalElasticEnergy_ = response.normalElasticEnergy_;
+    slidingElasticEnergy_ = execution::springElasticEnergy(response.slidingStiffness_, slidingSpringDeformation_);
 
     if (nodalContact)
     {
@@ -75,23 +70,21 @@ bool contact::calculateForce(Real timeStep) noexcept
         torsionalSpringDeformation_ = Vec3::zero();
         return true;
     }
-    const Real rollingDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, rollingStiffness);
-    const Real torsionalDampingCoefficient = execution::contactDampingCoefficient(dissipation, effectiveMass_, torsionalStiffness);
     torque_ = execution::calculateSphereRotationalContactTorque(rollingSpringDeformation_,
                                                                 torsionalSpringDeformation_,
                                                                 master.angularVelocity() - slave.angularVelocity(),
                                                                 normal_,
                                                                 timeStep,
-                                                                rollingStiffness,
-                                                                torsionalStiffness,
-                                                                rollingFrictionCoefficient,
-                                                                torsionalFrictionCoefficient,
-                                                                rollingDampingCoefficient,
-                                                                torsionalDampingCoefficient,
+                                                                response.rollingStiffness_,
+                                                                response.torsionalStiffness_,
+                                                                coefficients.rollingFrictionCoefficient_,
+                                                                coefficients.torsionalFrictionCoefficient_,
+                                                                response.rollingDampingCoefficient_,
+                                                                response.torsionalDampingCoefficient_,
                                                                 effectiveRadius_,
                                                                 normalForceMagnitude_);
-    rollingElasticEnergy_ = execution::springElasticEnergy(rollingStiffness, rollingSpringDeformation_);
-    torsionalElasticEnergy_ = execution::springElasticEnergy(torsionalStiffness, torsionalSpringDeformation_);
+    rollingElasticEnergy_ = execution::springElasticEnergy(response.rollingStiffness_, rollingSpringDeformation_);
+    torsionalElasticEnergy_ = execution::springElasticEnergy(response.torsionalStiffness_, torsionalSpringDeformation_);
     return true;
 }
 

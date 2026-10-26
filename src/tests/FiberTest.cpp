@@ -1,5 +1,6 @@
 #include "interaction/bond.h"
 #include "material/material.h"
+#include "material/materialPair.h"
 #include "particle/particle.h"
 #include "solver/SphereDEM.h"
 
@@ -78,7 +79,10 @@ int main()
         constexpr int maximumStepCount = static_cast<int>(maximumSimulationTime / timeStep);
 
         FiberTestSolver simulation;
-        const int materialIndex = simulation.addMaterial(material{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, density});
+        const int materialIndex = simulation.addMaterial(material{youngsModulus, poissonRatio, 1.0, density});
+        materialPair contactPair{materialIndex, materialIndex};
+        contactPair.setLinearStiffness(0.0, 0.0);
+        simulation.setMaterialPair(contactPair);
 
         for (int particleIndex = 0; particleIndex < FiberTestSolver::particleCount; ++particleIndex)
         {

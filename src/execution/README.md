@@ -9,9 +9,10 @@
 | `motionIntegration.h` | Integrate velocity, angular velocity, position, and unit quaternion |
 | `contactDetection.h` | Compute effective mass and shared sphere/level-set contact geometry |
 | `contactFunctions.h` | Evaluate normal, sliding, rolling, and torsional response with Coulomb limits |
+| `contactMaterialFunctions.h` | Resolve material-pair overrides, Hertz-Mindlin defaults, nodal damping and normal elastic energy identically on CPU/CUDA |
 | `bondFunctions.h` | Evaluate bond force/torque, stiffness, and BK mixed-mode fracture energy |
 | `sphFunctions.h` | Provide Wendland kernels, reference-impedance acoustic Riemann states, density/pressure updates, and fluid/wall interaction formulas |
-| `sphCouplingFunctions.h` | Sample prescribed boundary kinematics and compute endpoint coupling velocity corrections |
+| `sphCouplingFunctions.h` | Sample prescribed boundary velocity differences without duplicating centripetal acceleration |
 | `sphJetFunctions.h` | Test whether a particle lies inside an upstream SPH jet pipe |
 | `sphSourceDiscretization.h` | Construct the regular cylindrical-source lattice |
 | `cpu/` | Apply generic particle integration and interaction-force assembly over host containers |
@@ -49,13 +50,36 @@ This boundary keeps the physical equation identical on CPU and GPU. Object metho
 ## Contact Response Sequence
 
 1. Contact detection supplies point, unit normal, overlap, area, effective mass, and effective radius.
-2. Material coefficients produce normal, sliding, rolling, and torsional stiffness/damping values.
-3. Normal response is evaluated first and records `normalForceMagnitude`.
+2. Material IDs select one symmetric pair record. Two Boolean switches select the ordinary four-stiffness group and the four-dashpot group; both backends call `resolveContactResponse()`.
+3. For positive overlap, normal response retains the signed `k_n*overlap - c_n*v_n` value; its former zero-force truncation is commented out in the shared host/device function. `normalForceMagnitude` records its absolute value for friction, rotational resistance, and output. Nonpositive overlap still returns zero force and clears sliding history.
 4. Sliding damping is projected onto the Coulomb disk together with the elastic spring force.
 5. Rolling and torsional responses use their own spring state, stiffness, friction coefficient, and lever arm.
 6. Force, torque, elastic energies, and updated history values return to the caller.
 
 Degenerate contacts return zero response rather than creating non-finite values. Normals should already be normalized by contact construction; guarded normalization remains appropriate when data crosses a public boundary.
+
+The bulk material stores only Young's modulus, Poisson ratio, restitution and
+density. Hertz normal force uses both elastic compliances and `sqrt(R*overlap)`;
+Mindlin sliding stiffness uses both shear compliances. The normal dashpot uses
+the Hertz **tangent** stiffness, while the elastic normal potential is
+`(2/5)*Fn_elastic*overlap`, not the linear `(1/2)*k*overlap^2` expression.
+These definitions follow the material-based Hertz/Mindlin and coefficient-of-restitution
+forms in the [LAMMPS granular model documentation](https://docs.lammps.org/pair_granular.html).
+Tangential history remains the existing displacement-history Mindlin no-slip
+approximation, not a full Mindlin-Deresiewicz partial-slip model.
+
+LS nodal detection already stores `m_node = m_pair*A_node/A_patch`.
+`nodalDampingWeight()` recovers the same area fraction without a second reduction
+or another device field; explicitly supplied pair damping is multiplied by that
+fraction. Restitution-derived nodal damping continues using nodal mass and nodal
+stiffness. LS-LS always requires both per-area stiffness values; it does not use
+the ordinary linear-stiffness switch, and ignores rotational dashpots. For sphere
+contacts, disabling the linear-stiffness group selects Hertz-Mindlin, with both
+length-scaled rotational stiffnesses equal to the default sliding stiffness.
+This equality is FunDEM's prescribed rotational extension, not a classical
+Hertz-Mindlin rolling law. Enabling the damping group applies all four
+stored dashpots, including zero values. Dashpots can act without their associated
+elastic spring, subject to the existing Coulomb limit.
 
 ## Bond Response Sequence
 
@@ -76,7 +100,9 @@ The shared SPH formulas are split intentionally:
 
 CPU loops and CUDA kernels compose these functions in the same order. The physical support remains `2h`, even when the neighbor search radius is enlarged with a displacement buffer. `interaction/SPHNeighborhood` tracks actual displacement so the solver can reuse the search structures across acoustic substeps while the buffer remains valid, rebuilding them earlier when needed.
 
-Finite-duration jets reuse one host/device pipe-membership predicate from `sphJetFunctions.h`. The solver performs the one-time upstream particle allocation and owns each source's stable range and end time in `SPHJetState`; the execution formula owns no source state. For every active acoustic substep, the solver applies the prescribed velocity before optional advection preparation and again after velocity integration. Once the final end time is reached, `SPHJets_.completed_` stops calling the range checks entirely. The legacy four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
+Finite-duration jets reuse the host/device pipe-membership predicate from `sphJetFunctions.h`. The solver owns a bounded upstream buffer, scheduled layer births, stable emitted-particle indices, and source completion; the execution formula owns no source clock. New layers are appended only at common acoustic starts, with timing quantized upward by at most one DEM step and insertion positions adjusted for that delay. Device-tail initialization preserves existing fluid fields and runs on the solver stream. The inlet imposes velocity and reference density before optional advection preparation and again after velocity integration. Outlet release advances a permanent released-layer prefix, so returning particles are not constrained again. Once all sources end, the completion fast path stops source work. The four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
+
+`isInsideSPHJetOpening` defines a separate virtual-wall mask: the finite upstream buffer cylinder expanded by half a particle spacing. Samples there use zero volume and cleared wall loads; samples that move out regain nominal volume. This is not an LS-grid or triangle edit. Changed quadrature requires a fresh viscous-prior-force preparation after the old owner hydraulic load has been removed. The same predicate drives CPU and CUDA, while observation applies it only to a reversible host view.
 
 ## Review Checklist for a New Formula
 

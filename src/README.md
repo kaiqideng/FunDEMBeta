@@ -8,7 +8,7 @@ This directory contains FunDEMBeta's eight library modules and the test suite. E
 | [`execution/`](execution/README.md) | Shared numerical formulas, [CPU container loops](execution/cpu/README.md), and [CUDA kernels and launchers](execution/cuda/README.md) |
 | [`geometry/`](geometry/README.md) | Reusable level-set descriptors, signed-distance grids, and surface storage |
 | [`interaction/`](interaction/README.md) | Contacts, bonds, searches, SPH neighborhoods, and virtual-boundary coupling state |
-| [`material/`](material/README.md) | Ordinary and level-set material definitions |
+| [`material/`](material/README.md) | Unified bulk materials and symmetric contact-pair coefficients |
 | [`math/`](math/README.md) | CPU/CUDA scalar, vector, matrix, quaternion, tolerance, and indexing utilities |
 | [`particle/`](particle/README.md) | Rigid, level-set, SPH, and virtual particles, inlet descriptors, and spatial grids |
 | [`solver/`](solver/README.md) | Simulation construction, lifecycle, execution modes, time integration, and synchronization |

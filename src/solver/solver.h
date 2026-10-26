@@ -75,6 +75,7 @@ public:
     const std::string& outputDirectory() const noexcept { return outputDirectory_; }
     int outputStepInterval() const noexcept { return outputStepInterval_; }
     int outputFrameCount() const noexcept { return outputFrameCount_; }
+    bool vtuOutputEnabled() const noexcept { return vtuOutputEnabled_; }
     vtuFormat vtuOutputFormat() const noexcept { return vtuOutputFormat_; }
 
     void setBoundary(const Vec3& minimumBoundary, const Vec3& maximumBoundary);
@@ -83,6 +84,8 @@ public:
     void setExecutionMode(executionMode value);
     void setOutputDirectory(std::string directory);
     void setOutputStepInterval(int stepInterval);
+    /** Controls VTU files only; synchronized output frames and energy.dat remain enabled. */
+    void setVTUOutputEnabled(bool enabled) noexcept { vtuOutputEnabled_ = enabled; }
     void setVTUOutputFormat(vtuFormat value) noexcept { vtuOutputFormat_ = value; }
 
     /** Writes one output frame immediately from a synchronized snapshot. */
@@ -195,6 +198,7 @@ private:
     int device_{0};                                   ///< Zero-based CUDA device index.
     executionMode executionMode_{executionMode::CPU}; ///< Selected runtime policy.
     std::string outputDirectory_;                     ///< Root output directory.
+    bool vtuOutputEnabled_{true};                     ///< Preserve VTU output for existing core callers.
     vtuFormat vtuOutputFormat_{vtuFormat::binary};    ///< VTU serialization format.
     int outputStepInterval_{0};                       ///< DEM steps between output frames.
     int nextOutputStep_{0};                           ///< Next scheduled output step.
