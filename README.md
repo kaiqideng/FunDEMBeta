@@ -4,6 +4,12 @@ FunDEMBeta is a C++17 discrete-element framework for spherical and level-set par
 
 This README provides one complete path from a new development environment through the introductory tutorials and their results. Detailed interfaces and advanced workflows are documented in the [User Guide](docs/UserGuide.md).
 
+The CMake package version is **1.0.2**. Current interfaces include an expanded
+native level-set primitive catalog, restoration of already prepared geometry
+without another centroid shift, reusable CPU fixed-radius point queries, and
+periodic SPH neighbor images. See the [geometry and search guide](docs/UserGuide.md#6-model-construction)
+and [SPH guide](docs/UserGuide.md#14-sphdem) for their scope and limitations.
+
 Using a Mac? Follow the dedicated [macOS quick start](README_macOS.md) for a CPU-only build on Apple Silicon or Intel.
 
 Create a parent directory named `workplace` and open a terminal there before following this guide. Keep the terminal in `workplace/` for every command below; the source checkout and build directory will be `workplace/FunDEMBeta/` and `workplace/build/`.
@@ -122,12 +128,13 @@ cmake -S FunDEMBeta -B build -G Ninja \
     -DFUNDEM_ENABLE_OPENMP=ON \
     -DFUNDEM_BUILD_TUTORIALS=ON \
     -DFUNDEM_BUILD_EXAMPLES=OFF \
+    -DFUNDEM_BUILD_VALIDATIONS=OFF \
     -DBUILD_TESTING=OFF
 
 cmake --build build --parallel
 ```
 
-CPU code is always compiled. When CUDA is found, the same configuration also compiles the CUDA libraries and kernels. During configuration, confirm that CMake reports an NVIDIA CUDA compiler. If it prints `CUDA compiler not found`, the build contains CPU support only; make `nvcc` available on `PATH`, remove `build/`, and configure again.
+CPU code is always compiled. When CUDA is found, the same configuration also compiles the CUDA libraries and kernels. During configuration, confirm that CMake reports an NVIDIA CUDA compiler. If it prints `CUDA compiler not found`, the build contains CPU support only; make `nvcc` available on `PATH`, then repeat the configure command with `cmake --fresh` to refresh the CMake cache without deleting saved simulation results.
 
 ## 4. Run the tutorials
 
@@ -225,3 +232,19 @@ PY
 ```
 
 `totalEnergy` is the sum of the reported DEM mechanical-energy components. It may decrease because restitution, friction, and damping dissipate energy; dissipated energy is not stored as an additional state component.
+
+## Verification and known limits
+
+The [validation guide](validation/README.md) distinguishes small analytical
+checks, backend comparisons and physical validation. The separately published
+[English LAMMPS/PFC report collection](https://github.com/kaiqideng/FunDEMSoftware/tree/main/validation)
+contains 35 LAMMPS-derived variants and three PFC-derived cases, including two
+explicitly failed Mindlin sliding-to-rolling cases. Those reports retain their
+original source pins, tolerances, dates and build limitations; they are not a
+claim that every current core or desktop feature has been physically validated,
+and they do not claim a local execution of the proprietary PFC solver.
+
+Reusable periodic-coordinate transforms do not by themselves add periodic
+rigid-particle contact assembly to `LSDEM` or `SphereDEM`. The native SPH
+periodic API covers fluid/virtual-boundary neighbor images; a frontend still
+owns solid wrapping, DEM seam contacts and the boundary policy.

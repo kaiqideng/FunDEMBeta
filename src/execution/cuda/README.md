@@ -24,7 +24,7 @@
 - Declare public lightweight device views in `.cuh` files; views private to one implementation may remain in a `.cu` file.
 - Containers and solvers own device allocation, host/device copies, and solve-stage transitions.
 
-Contact detection exposes three final launch flows: sphere–sphere, sphere–LS, and LS–LS. LS–LS includes a separate area-weighted effective-mass stage. CUDA SPH uses a background grid and rebuilds it only once per SPH advection step.
+Contact detection exposes three final launch flows: sphere–sphere, sphere–LS, and LS–LS. LS–LS includes a separate area-weighted effective-mass stage. CUDA SPH normally builds its background grids at advection preparation. Exhausted displacement allowances, appended jet layers, or changed inlet openings can require earlier rebuilds; it is not restricted to exactly one build per advection interval.
 
 ## Extension Guide
 
@@ -55,6 +55,14 @@ Launchers enqueue work and return without synchronizing. A following kernel on t
 5. During search, map `sortedIndex` back through `particleIndex_[sortedIndex]` before reading particle fields.
 
 The multilevel rigid grid reserves a final level for infinite-mass particles. SPH uses uniform fluid and virtual-particle grids; their interaction kernels query cells directly rather than materializing a device neighbor list.
+
+For SPH periodic axes, `launchBuildSPHSpatialGrid()` and
+`launchBuildVirtualParticleSpatialGrid()` accept the configured domain. Hashing
+uses periodic cell coordinates, while particle fields keep continuous physical
+coordinates. The shared cell-range helpers visit each occupied image cell at
+most once, and every interaction uses its minimum-image separation. A periodic
+wall contribution is accumulated to the original LS owner with its physical
+local lever arm. This does not make the ordinary DEM contact pipeline periodic.
 
 ## Main Launch Pipelines
 

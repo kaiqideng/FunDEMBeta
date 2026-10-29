@@ -5,6 +5,7 @@
 #include "data/HostAoSDeviceSoA.h"
 #include "execution/motionIntegration.h"
 #include "execution/sphFunctions.h"
+#include "execution/sphSpatialGridFunctions.h"
 #include "execution/sphCouplingFunctions.h"
 
 #include <thrust/device_ptr.h>
@@ -174,10 +175,7 @@ ConstVirtualParticleDeviceView makeVirtualParticleDeviceView(const virtualPartic
             particles.device<virtualParticle::couplingTorqueField>()};
 }
 
-LSParticleDeviceView makeLSParticleDeviceView(LSParticleContainer& particles) noexcept
-{
-    return {particles.device<rigidBody::forceField>(), particles.device<rigidBody::torqueField>()};
-}
+LSParticleDeviceView makeLSParticleDeviceView(LSParticleContainer& particles) noexcept { return {particles.device<rigidBody::forceField>(), particles.device<rigidBody::torqueField>()}; }
 
 ConstLSParticleDeviceView makeLSParticleDeviceView(const LSParticleContainer& particles) noexcept
 {
@@ -192,28 +190,32 @@ ConstLSParticleDeviceView makeLSParticleDeviceView(const LSParticleContainer& pa
             particles.device<rigidBody::inverseInertiaTensorField>()};
 }
 
-__device__ bool spatialGridRange(int3& begin, int3& end, const math::Vec3& position, math::Real queryRadius, const spatialGridContainer::const_device_type& spatialGrid) noexcept
+__device__ bool spatialGridRange(int3& begin,
+                                 int3& end,
+                                 const math::Vec3& position,
+                                 math::Real queryRadius,
+                                 const spatialGridContainer::const_device_type& spatialGrid,
+                                 const math::periodicDomain& periodicDomain) noexcept
 {
     const spatialGridLevel& level = spatialGrid.levels_[0];
-    const math::Vec3 local = math::hadamardProduct(position - spatialGrid.minimumBoundary_, level.inverseCellSize_);
+    const math::Vec3 local = math::hadamardProduct(periodicDomain.wrapPosition(position) - spatialGrid.minimumBoundary_, level.inverseCellSize_);
     const math::Vec3 extent = queryRadius * level.inverseCellSize_;
-    begin = make_int3(static_cast<int>(math::detail::floor(local.x - extent.x)), static_cast<int>(math::detail::floor(local.y - extent.y)), static_cast<int>(math::detail::floor(local.z - extent.z)));
-    end = make_int3(static_cast<int>(math::detail::floor(local.x + extent.x)), static_cast<int>(math::detail::floor(local.y + extent.y)), static_cast<int>(math::detail::floor(local.z + extent.z)));
-    begin.x = begin.x < 0 ? 0 : (begin.x < level.size_.x ? begin.x : level.size_.x - 1);
-    begin.y = begin.y < 0 ? 0 : (begin.y < level.size_.y ? begin.y : level.size_.y - 1);
-    begin.z = begin.z < 0 ? 0 : (begin.z < level.size_.z ? begin.z : level.size_.z - 1);
-    end.x = end.x < 0 ? 0 : (end.x < level.size_.x ? end.x : level.size_.x - 1);
-    end.y = end.y < 0 ? 0 : (end.y < level.size_.y ? end.y : level.size_.y - 1);
-    end.z = end.z < 0 ? 0 : (end.z < level.size_.z ? end.z : level.size_.z - 1);
+    execution::SPHGridAxisRange(begin.x, end.x, local.x, extent.x, level.size_.x, periodicDomain.periodicAxes_[0]);
+    execution::SPHGridAxisRange(begin.y, end.y, local.y, extent.y, level.size_.y, periodicDomain.periodicAxes_[1]);
+    execution::SPHGridAxisRange(begin.z, end.z, local.z, extent.z, level.size_.z, periodicDomain.periodicAxes_[2]);
     return true;
 }
 
 class uniformSpatialGridSearch
 {
 public:
-    __device__ uniformSpatialGridSearch(const spatialGridContainer::const_device_type& spatialGrid, const math::Vec3& position, math::Real queryRadius) noexcept : spatialGrid_(spatialGrid)
+    __device__ uniformSpatialGridSearch(const spatialGridContainer::const_device_type& spatialGrid,
+                                        const math::Vec3& position,
+                                        math::Real queryRadius,
+                                        const math::periodicDomain& periodicDomain) noexcept
+        : spatialGrid_(spatialGrid), periodicDomain_(periodicDomain)
     {
-        cellValid_ = spatialGridRange(cellBegin_, cellEnd_, position, queryRadius, spatialGrid_);
+        cellValid_ = spatialGridRange(cellBegin_, cellEnd_, position, queryRadius, spatialGrid_, periodicDomain_);
         cell_ = cellBegin_;
     }
 
@@ -239,7 +241,11 @@ private:
         const spatialGridLevel& level = spatialGrid_.levels_[0];
         while (cellValid_)
         {
-            const int hash = math::linearIndex(cell_.x, cell_.y, cell_.z, level.size_.x, level.size_.y);
+            const int hash = math::linearIndex(execution::SPHGridCell(cell_.x, level.size_.x, periodicDomain_.periodicAxes_[0]),
+                                               execution::SPHGridCell(cell_.y, level.size_.y, periodicDomain_.periodicAxes_[1]),
+                                               execution::SPHGridCell(cell_.z, level.size_.z, periodicDomain_.periodicAxes_[2]),
+                                               level.size_.x,
+                                               level.size_.y);
             advanceCell();
             const int cellIndex = level.occupiedCellBegin_ + hash;
             const int sortedIndex = spatialGrid_.cellSortedParticleIndexBegin_[cellIndex];
@@ -277,6 +283,7 @@ private:
     }
 
     const spatialGridContainer::const_device_type& spatialGrid_;
+    const math::periodicDomain& periodicDomain_;
     int3 cellBegin_{0, 0, 0};
     int3 cellEnd_{0, 0, 0};
     int3 cell_{0, 0, 0};
@@ -314,7 +321,11 @@ __global__ void updateVirtualParticlePositionAndNormalKernel(VirtualParticleDevi
                                                          LSParticles.orientation_[ownerIndex]);
 }
 
-__global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Vec3 gravity, math::Real timeStep, int virtualParticleCount)
+__global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles,
+                                                          ConstLSParticleDeviceView LSParticles,
+                                                          math::Vec3 gravity,
+                                                          math::Real timeStep,
+                                                          int virtualParticleCount)
 {
     const int virtualParticleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
     if (virtualParticleIndex >= virtualParticleCount)
@@ -324,9 +335,13 @@ __global__ void accumulateVirtualParticleKinematicsKernel(VirtualParticleDeviceV
     const int ownerIndex = virtualParticles.ownerLSParticleIndex_[virtualParticleIndex];
     if (LSParticles.inverseMass_[ownerIndex] <= 0.0 && timeStep > 0.0)
     {
-        const math::Vec3 velocity = LSParticles.velocity_[ownerIndex] + math::cross(LSParticles.angularVelocity_[ownerIndex], math::rotateUnit(LSParticles.orientation_[ownerIndex], virtualParticles.localPosition_[virtualParticleIndex]));
-        execution::accumulatePrescribedSPHKinematics(virtualParticles.velocity_[virtualParticleIndex], virtualParticles.acceleration_[virtualParticleIndex],
-                                                    virtualParticles.previousKinematicsVelocity_[virtualParticleIndex], velocity, timeStep);
+        const math::Vec3 velocity = LSParticles.velocity_[ownerIndex] + math::cross(LSParticles.angularVelocity_[ownerIndex],
+                                                                                    math::rotateUnit(LSParticles.orientation_[ownerIndex], virtualParticles.localPosition_[virtualParticleIndex]));
+        execution::accumulatePrescribedSPHKinematics(virtualParticles.velocity_[virtualParticleIndex],
+                                                     virtualParticles.acceleration_[virtualParticleIndex],
+                                                     virtualParticles.previousKinematicsVelocity_[virtualParticleIndex],
+                                                     velocity,
+                                                     timeStep);
         return;
     }
     execution::accumulateVirtualParticleVelocityAndAcceleration(virtualParticles.velocity_[virtualParticleIndex],
@@ -349,7 +364,8 @@ __global__ void resetVirtualParticleKinematicsReferenceKernel(VirtualParticleDev
     if (index >= virtualParticleCount)
         return;
     const int owner = virtualParticles.ownerLSParticleIndex_[index];
-    virtualParticles.previousKinematicsVelocity_[index] = LSParticles.velocity_[owner] + math::cross(LSParticles.angularVelocity_[owner], math::rotateUnit(LSParticles.orientation_[owner], virtualParticles.localPosition_[index]));
+    virtualParticles.previousKinematicsVelocity_[index] =
+        LSParticles.velocity_[owner] + math::cross(LSParticles.angularVelocity_[owner], math::rotateUnit(LSParticles.orientation_[owner], virtualParticles.localPosition_[index]));
 }
 
 __global__ void prepareVirtualParticleKinematicsKernel(VirtualParticleDeviceView virtualParticles, ConstLSParticleDeviceView LSParticles, math::Vec3 gravity, int sampleCount, int virtualParticleCount)
@@ -376,10 +392,18 @@ __global__ void prepareVirtualParticleKinematicsKernel(VirtualParticleDeviceView
     {
         virtualParticles.velocity_[virtualParticleIndex] = math::Vec3::zero();
         virtualParticles.acceleration_[virtualParticleIndex] = math::Vec3::zero();
-        execution::accumulateVirtualParticleVelocityAndAcceleration(virtualParticles.velocity_[virtualParticleIndex], virtualParticles.acceleration_[virtualParticleIndex],
-                                                                    virtualParticles.localPosition_[virtualParticleIndex], LSParticles.orientation_[ownerIndex], LSParticles.velocity_[ownerIndex],
-                                                                    LSParticles.angularVelocity_[ownerIndex], LSParticles.force_[ownerIndex], LSParticles.torque_[ownerIndex],
-                                                                    LSParticles.inverseMass_[ownerIndex], LSParticles.inertiaTensor_[ownerIndex], LSParticles.inverseInertiaTensor_[ownerIndex], gravity);
+        execution::accumulateVirtualParticleVelocityAndAcceleration(virtualParticles.velocity_[virtualParticleIndex],
+                                                                    virtualParticles.acceleration_[virtualParticleIndex],
+                                                                    virtualParticles.localPosition_[virtualParticleIndex],
+                                                                    LSParticles.orientation_[ownerIndex],
+                                                                    LSParticles.velocity_[ownerIndex],
+                                                                    LSParticles.angularVelocity_[ownerIndex],
+                                                                    LSParticles.force_[ownerIndex],
+                                                                    LSParticles.torque_[ownerIndex],
+                                                                    LSParticles.inverseMass_[ownerIndex],
+                                                                    LSParticles.inertiaTensor_[ownerIndex],
+                                                                    LSParticles.inverseInertiaTensor_[ownerIndex],
+                                                                    gravity);
     }
 }
 
@@ -413,6 +437,7 @@ __global__ void updateSPHFreeSurfaceKernel(SPHParticleDeviceView particles,
                                            math::Real smoothingLength,
                                            math::Real neighborSearchRadius,
                                            math::Real particleMass,
+                                           math::periodicDomain periodicDomain,
                                            int particleCount)
 {
     const int particleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -423,7 +448,7 @@ __global__ void updateSPHFreeSurfaceKernel(SPHParticleDeviceView particles,
     const math::Vec3 position = particles.position_[particleIndex];
     math::Real positionDivergence = 0.0;
 
-    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     int neighborIndex;
     while (particleSearch.next(neighborIndex))
     {
@@ -432,13 +457,15 @@ __global__ void updateSPHFreeSurfaceKernel(SPHParticleDeviceView particles,
             continue;
         }
         const math::Real neighborVolume = particleMass / execution::nonZeroDensity(particles.density_[neighborIndex]);
-        positionDivergence += execution::freeSurfacePositionDivergenceContribution(position - particles.position_[neighborIndex], neighborVolume, smoothingLength);
+        positionDivergence += execution::freeSurfacePositionDivergenceContribution(periodicDomain.minimumImage(position - particles.position_[neighborIndex]), neighborVolume, smoothingLength);
     }
 
-    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     while (wallSearch.next(neighborIndex))
     {
-        positionDivergence += execution::freeSurfacePositionDivergenceContribution(position - virtualParticles.position_[neighborIndex], virtualParticles.volume_[neighborIndex], smoothingLength);
+        positionDivergence += execution::freeSurfacePositionDivergenceContribution(periodicDomain.minimumImage(position - virtualParticles.position_[neighborIndex]),
+                                                                                   virtualParticles.volume_[neighborIndex],
+                                                                                   smoothingLength);
     }
     particles.freeSurface_[particleIndex] = execution::isFreeSurface(positionDivergence) ? 1 : 0;
 }
@@ -453,6 +480,7 @@ __global__ void reinitializeSPHDensityKernel(SPHParticleDeviceView particles,
                                              math::Real referenceDensity,
                                              math::Real latticeKernelSum3D,
                                              math::Real soundSpeed,
+                                             math::periodicDomain periodicDomain,
                                              int particleCount)
 {
     const int particleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -468,7 +496,7 @@ __global__ void reinitializeSPHDensityKernel(SPHParticleDeviceView particles,
     const math::Real supportRadius = 2.0 * smoothingLength;
     const math::Real referenceVolume = particleMass / referenceDensity;
     math::Real kernelSum = execution::wendlandKernel3D(0.0, smoothingLength);
-    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     int neighborIndex;
     while (particleSearch.next(neighborIndex))
     {
@@ -476,7 +504,7 @@ __global__ void reinitializeSPHDensityKernel(SPHParticleDeviceView particles,
         {
             continue;
         }
-        const math::Real neighborDistance = math::norm(position - particles.position_[neighborIndex]);
+        const math::Real neighborDistance = math::norm(periodicDomain.minimumImage(position - particles.position_[neighborIndex]));
         if (neighborDistance >= supportRadius)
         {
             continue;
@@ -484,10 +512,11 @@ __global__ void reinitializeSPHDensityKernel(SPHParticleDeviceView particles,
         kernelSum += execution::wendlandKernel3D(neighborDistance, smoothingLength);
     }
 
-    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     while (wallSearch.next(neighborIndex))
     {
-        kernelSum += virtualParticles.volume_[neighborIndex] / referenceVolume * execution::wendlandKernel3D(math::norm(position - virtualParticles.position_[neighborIndex]), smoothingLength);
+        kernelSum += virtualParticles.volume_[neighborIndex] / referenceVolume *
+                     execution::wendlandKernel3D(math::norm(periodicDomain.minimumImage(position - virtualParticles.position_[neighborIndex])), smoothingLength);
     }
 
     const math::Real density = execution::reinitializedDensity(kernelSum, latticeKernelSum3D, referenceDensity);
@@ -505,6 +534,7 @@ __global__ void computeSPHDensityRateKernel(SPHParticleDeviceView particles,
                                             math::Real referenceDensity,
                                             math::Real soundSpeed,
                                             math::Vec3 gravity,
+                                            math::periodicDomain periodicDomain,
                                             int particleCount)
 {
     const int particleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -525,7 +555,7 @@ __global__ void computeSPHDensityRateKernel(SPHParticleDeviceView particles,
     const math::Real pressure = particles.pressure_[particleIndex];
     math::Real densityRate = 0.0;
 
-    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     int neighborIndex;
     while (particleSearch.next(neighborIndex))
     {
@@ -537,7 +567,7 @@ __global__ void computeSPHDensityRateKernel(SPHParticleDeviceView particles,
                                                             velocity,
                                                             density,
                                                             pressure,
-                                                            particles.position_[neighborIndex],
+                                                            periodicDomain.imagePosition(particles.position_[neighborIndex], position),
                                                             particles.velocity_[neighborIndex],
                                                             particles.density_[neighborIndex],
                                                             particles.pressure_[neighborIndex],
@@ -547,14 +577,14 @@ __global__ void computeSPHDensityRateKernel(SPHParticleDeviceView particles,
                                                             soundSpeed);
     }
 
-    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     while (wallSearch.next(neighborIndex))
     {
         densityRate += execution::calculateWallDensityRate(position,
                                                            velocity,
                                                            density,
                                                            pressure,
-                                                           virtualParticles.position_[neighborIndex],
+                                                           periodicDomain.imagePosition(virtualParticles.position_[neighborIndex], position),
                                                            virtualParticles.normal_[neighborIndex],
                                                            virtualParticles.velocity_[neighborIndex],
                                                            virtualParticles.acceleration_[neighborIndex],
@@ -591,6 +621,7 @@ __global__ void updateSPHPriorForceAndBoundaryForceKernel(SPHParticleDeviceView 
                                                           math::Real neighborSearchRadius,
                                                           math::Real particleMass,
                                                           math::Real dynamicViscosity,
+                                                          math::periodicDomain periodicDomain,
                                                           int particleCount)
 {
     const int particleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -604,7 +635,7 @@ __global__ void updateSPHPriorForceAndBoundaryForceKernel(SPHParticleDeviceView 
     const math::Real density = particles.density_[particleIndex];
     math::Vec3 acceleration = math::Vec3::zero();
 
-    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     int neighborIndex;
     while (particleSearch.next(neighborIndex))
     {
@@ -615,7 +646,7 @@ __global__ void updateSPHPriorForceAndBoundaryForceKernel(SPHParticleDeviceView 
         acceleration += execution::calculateFluidViscousAcceleration(position,
                                                                      velocity,
                                                                      density,
-                                                                     particles.position_[neighborIndex],
+                                                                     periodicDomain.imagePosition(particles.position_[neighborIndex], position),
                                                                      particles.velocity_[neighborIndex],
                                                                      particles.density_[neighborIndex],
                                                                      particleMass,
@@ -623,13 +654,13 @@ __global__ void updateSPHPriorForceAndBoundaryForceKernel(SPHParticleDeviceView 
                                                                      smoothingLength);
     }
 
-    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     while (wallSearch.next(neighborIndex))
     {
         const math::Vec3 wallAcceleration = execution::calculateWallViscousAcceleration(position,
                                                                                         velocity,
                                                                                         density,
-                                                                                        virtualParticles.position_[neighborIndex],
+                                                                                        periodicDomain.imagePosition(virtualParticles.position_[neighborIndex], position),
                                                                                         virtualParticles.velocity_[neighborIndex],
                                                                                         virtualParticles.volume_[neighborIndex],
                                                                                         dynamicViscosity,
@@ -650,6 +681,7 @@ __global__ void updateSPHPressureForceAndBoundaryForceKernel(SPHParticleDeviceVi
                                                              math::Real referenceDensity,
                                                              math::Real soundSpeed,
                                                              math::Vec3 gravity,
+                                                             math::periodicDomain periodicDomain,
                                                              int particleCount)
 {
     const int particleIndex = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -664,7 +696,7 @@ __global__ void updateSPHPressureForceAndBoundaryForceKernel(SPHParticleDeviceVi
     const math::Real pressure = particles.pressure_[particleIndex];
     math::Vec3 acceleration = math::Vec3::zero();
 
-    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch particleSearch(particleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     int neighborIndex;
     while (particleSearch.next(neighborIndex))
     {
@@ -676,7 +708,7 @@ __global__ void updateSPHPressureForceAndBoundaryForceKernel(SPHParticleDeviceVi
                                                                       velocity,
                                                                       density,
                                                                       pressure,
-                                                                      particles.position_[neighborIndex],
+                                                                      periodicDomain.imagePosition(particles.position_[neighborIndex], position),
                                                                       particles.velocity_[neighborIndex],
                                                                       particles.density_[neighborIndex],
                                                                       particles.pressure_[neighborIndex],
@@ -686,14 +718,14 @@ __global__ void updateSPHPressureForceAndBoundaryForceKernel(SPHParticleDeviceVi
                                                                       soundSpeed);
     }
 
-    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius);
+    uniformSpatialGridSearch wallSearch(virtualParticleSpatialGrid, position, neighborSearchRadius, periodicDomain);
     while (wallSearch.next(neighborIndex))
     {
         const math::Vec3 wallAcceleration = execution::calculateWallPressureAcceleration(position,
                                                                                          velocity,
                                                                                          density,
                                                                                          pressure,
-                                                                                         virtualParticles.position_[neighborIndex],
+                                                                                         periodicDomain.imagePosition(virtualParticles.position_[neighborIndex], position),
                                                                                          virtualParticles.normal_[neighborIndex],
                                                                                          virtualParticles.velocity_[neighborIndex],
                                                                                          virtualParticles.acceleration_[neighborIndex],
@@ -770,7 +802,11 @@ void launchAccumulateVirtualParticleKinematics(virtualParticleContainer& virtual
     {
         return;
     }
-    accumulateVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), gravity, timeStep, count);
+    accumulateVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles),
+                                                                                           makeLSParticleDeviceView(LSParticles),
+                                                                                           gravity,
+                                                                                           timeStep,
+                                                                                           count);
     host_device_detail::checkCuda(cudaGetLastError(), "accumulateVirtualParticleKinematicsKernel launch");
 }
 
@@ -794,7 +830,11 @@ void launchPrepareVirtualParticleKinematics(virtualParticleContainer& virtualPar
     {
         return;
     }
-    prepareVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles), makeLSParticleDeviceView(LSParticles), gravity, sampleCount, count);
+    prepareVirtualParticleKinematicsKernel<<<blockCount(count), blockSize, 0, stream>>>(makeVirtualParticleDeviceView(virtualParticles),
+                                                                                        makeLSParticleDeviceView(LSParticles),
+                                                                                        gravity,
+                                                                                        sampleCount,
+                                                                                        count);
     host_device_detail::checkCuda(cudaGetLastError(), "prepareVirtualParticleKinematicsKernel launch");
 }
 
@@ -838,6 +878,7 @@ void launchUpdateSPHFreeSurface(SPHParticleContainer& particles,
                                                                             parameters.smoothingLength_,
                                                                             neighborSearchRadius,
                                                                             parameters.particleMass_,
+                                                                            parameters.periodicDomain_,
                                                                             count);
     host_device_detail::checkCuda(cudaGetLastError(), "updateSPHFreeSurfaceKernel launch");
 }
@@ -865,6 +906,7 @@ void launchReinitializeSPHDensity(SPHParticleContainer& particles,
                                                                               parameters.referenceDensity_,
                                                                               parameters.latticeKernelSum3D_,
                                                                               parameters.soundSpeed_,
+                                                                              parameters.periodicDomain_,
                                                                               count);
     host_device_detail::checkCuda(cudaGetLastError(), "reinitializeSPHDensityKernel launch");
 }
@@ -893,6 +935,7 @@ void launchUpdateSPHDensity(SPHParticleContainer& particles,
                                                                              parameters.referenceDensity_,
                                                                              parameters.soundSpeed_,
                                                                              parameters.gravity_,
+                                                                             parameters.periodicDomain_,
                                                                              count);
     host_device_detail::checkCuda(cudaGetLastError(), "computeSPHDensityRateKernel launch");
     integrateSPHDensityKernel<<<blockCount(count), blockSize, 0, stream>>>(deviceFields(particles), parameters.referenceDensity_, parameters.soundSpeed_, timeStep, count);
@@ -925,6 +968,7 @@ void launchUpdateSPHPriorForceAndBoundaryForce(SPHParticleContainer& particles,
                                                                                            neighborSearchRadius,
                                                                                            parameters.particleMass_,
                                                                                            parameters.dynamicViscosity_,
+                                                                                           parameters.periodicDomain_,
                                                                                            count);
     host_device_detail::checkCuda(cudaGetLastError(), "updateSPHPriorForceAndBoundaryForceKernel launch");
 }
@@ -959,6 +1003,7 @@ void launchUpdateSPHPressureForceAndBoundaryForce(SPHParticleContainer& particle
                                                                                               parameters.referenceDensity_,
                                                                                               parameters.soundSpeed_,
                                                                                               parameters.gravity_,
+                                                                                              parameters.periodicDomain_,
                                                                                               count);
     host_device_detail::checkCuda(cudaGetLastError(), "updateSPHPressureForceAndBoundaryForceKernel launch");
 }
@@ -985,16 +1030,16 @@ void launchIntegrateSPHPosition(SPHParticleContainer& particles, math::Real time
     host_device_detail::checkCuda(cudaGetLastError(), "integrateSPHPositionKernel launch");
 }
 
-math::Real maximumSPHNeighborDisplacementSquared(const SPHParticleContainer& particles,
-                                                 const virtualParticleContainer& boundaries,
-                                                 const SPHNeighborPositionContainer& reference,
-                                                 cudaStream_t stream)
+math::Real maximumSPHNeighborDisplacementSquared(const SPHParticleContainer& particles, const virtualParticleContainer& boundaries, const SPHNeighborPositionContainer& reference, cudaStream_t stream)
 {
     const int fluidCount = static_cast<int>(particles.deviceSize());
     const int count = fluidCount + static_cast<int>(boundaries.deviceSize());
     if (reference.deviceSize() != static_cast<std::size_t>(count))
         return std::numeric_limits<math::Real>::infinity();
-    const readNeighborDisplacement read{particles.device<pointMass::positionField>(), boundaries.device<pointMass::positionField>(), reference.device<SPHNeighborPosition::positionField>(), fluidCount};
+    const readNeighborDisplacement read{particles.device<pointMass::positionField>(),
+                                        boundaries.device<pointMass::positionField>(),
+                                        reference.device<SPHNeighborPosition::positionField>(),
+                                        fluidCount};
     const auto begin = thrust::make_counting_iterator(0);
     const math::Real result = thrust::transform_reduce(thrust::cuda::par.on(stream), begin, begin + count, read, math::Real{0.0}, maximumNeighborDisplacement{});
     host_device_detail::checkCuda(cudaGetLastError(), "SPH neighbor-displacement reduction");

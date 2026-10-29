@@ -52,3 +52,10 @@ Individual exported module targets are implementation-level building blocks. App
 5. Reinstall after adding a public header or changing exported dependencies.
 
 If `find_package(FunDEM)` succeeds but a header is missing, confirm that the header belongs to a target `FILE_SET public_headers`. Private implementation headers, such as the host-only SPH interaction engine, intentionally are not installed.
+
+The current execution target is a compiled library because it implements the
+reusable `cpu::pointGrid` queries. Linking `FunDEM::FunDEM` supplies it
+transitively; copying headers alone is insufficient. The public file sets also
+install `math/PeriodicDomain.h` and `execution/sphSpatialGridFunctions.h`,
+which are dependencies of the SPH and CUDA interfaces. Check those installed
+headers from a separate consumer, not by accidentally including the source tree.

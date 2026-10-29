@@ -37,10 +37,18 @@ Configure a bond in this order:
 
 1. Call `setEquivalentLength()`.
 2. Call `setConnection()` with particle container(s) and endpoint indices, or with a contact.
-3. Call `setCoefficientB()` with the four stiffnesses.
+3. Call `setStiffness(normal, shear, bending, torsional)` with the four physical stiffnesses.
 4. Insert the bond into the solver container matching its particle types.
 
 Changing equivalent length invalidates dependent connection geometry and stiffnesses, which must then be configured again. Each calculation cycle refreshes the master/slave particle copies and clears the previous force and torques before evaluating the bond response.
+
+`setStiffness()` converts the physical inputs to the four stored coefficients:
+`B1 = kn`, `B2 = ks * L^2`, `B4 = kt`, and
+`B3 = kb - B2/4 - B4/2`, where `L` is the equivalent length. Normal and shear
+stiffness have units N/m; bending and torsional stiffness have units N·m.
+The derived `B3` can be negative even though all four physical inputs must be
+finite and nonnegative. Check the Boolean result of every setup call before
+inserting the bond; a failed setter does not make a default bond calculable.
 
 The index-based overloads use `setConnection(particles, masterIndex, slaveIndex)` for sphere–sphere or LS–LS bonds, and `setConnection(spheres, sphereIndex, LSParticles, LSParticleIndex)` for mixed bonds. No normal argument is accepted. They reuse sphere-contact geometry with sphere radii or LS bounding radii: `n = (master.position() - slave.position()) / distance`, `overlap = masterRadius + slaveRadius - distance`, and `point = slave.position() + (slaveRadius - overlap / 2) * n`. The point is the center midpoint only when the two radii are equal. Separated bounding spheres remain valid bond endpoints; finite, distinct centers are required, and coincident centers fail because no normal can be defined. Contact-based overloads use the supplied contact's point and normal instead.
 
@@ -88,6 +96,12 @@ Sphere-LS always stores the sphere as master. LS-LS samples master surface nodes
 
 For CPU LS–LS detection, the parallel threshold is 4096 candidate master-surface-node queries summed over all pairs, not 4096 particles or detected contacts. Ordered pair/node ranges are split into blocks of at most 1024 nodes and scheduled at a single OpenMP level. Each pair's rotations and relative position are calculated once per search; its blocks use local-coordinate SDF queries and reusable contact buffers. The CPU-only transform cache preserves the shared CPU/CUDA world-space query interface.
 
+The contact broad phase uses the shared [`cpu::pointGrid`](../execution/cpu/README.md#fixed-radius-point-queries)
+occupied-cell index. Its default cell size, z/y/x query order, per-cell original
+indices, bounding-sphere inclusion, and direct-search option are unchanged.
+The same component provides independent fixed-radius center-distance pairs for
+Bond preparation without narrowing them to touching particles or sampling SDFs.
+
 Blocks are merged in pair and surface-node order regardless of worker scheduling. Effective mass is normalized over the **whole active contact area of the pair**, never separately per block: `nodal effective mass = pair effective mass × nodal area / total active pair area`. The area sum follows surface-node order, and spring restoration retains the same `(master index, slave index, master surface-node index)` key. Changing the work partition therefore does not renumber history entries or treat each block as a separate physical contact pair.
 
 ## GPU Storage Lifecycle
@@ -111,11 +125,21 @@ Bond calculations first refresh the two rigid-body copies and clear the previous
 
 ## SPH Neighborhoods and Coupling
 
-`sphInteraction.h` is private implementation and is not installed as a user API. Its CPU engine owns two compact host neighbor lists: fluid candidates per fluid particle and virtual-wall candidates per fluid particle. Both are constructed from sorted uniform-grid hashes at advection preparation and rebuilt earlier when displacement invalidates reuse.
+`sphInteraction.h` is private implementation and is not installed as a user API. Its CPU engine owns two compact host neighbor lists: fluid candidates per fluid particle and virtual-wall candidates per fluid particle. Both are constructed from sorted occupied-cell uniform-grid hashes at advection preparation and rebuilt earlier when displacement invalidates reuse. CUDA instead queries its fluid and virtual-wall grids directly. Neither representation changes particle-container ordering.
 
 `SPHNeighborhood` stores the fluid and boundary positions at the most recent search build separately from physical particle state. Before a density or pressure stage, `SPHDEM` checks that the maximum actual displacement is no greater than half the search skin. If that bound is exceeded or references are invalidated, the solver rebuilds the CPU lists or CUDA grids and captures new references. This rebuild does not reset density, refresh viscous prior force, or change the advection phase; physical kernel support remains `2h`.
 
-[`SPHInteractionTypes.h`](SPHInteractionTypes.h) defines backend-independent `SPHStateStatistics`, `SPHKinematicsStatistics` and `SPHInteractionParameters` in `fundem`. Existing `cpu::` and `cuda::` statistics names remain aliases, not separate copies. Reductions return fluid or boundary extrema; the solver retains the latest fluid statistics for time-step and search-buffer calculation. `SPHInteractionParameters` holds immutable values for one CPU stage, constructed from current uniform properties and gravity. Physical configuration remains in `SPHDEM` rather than being duplicated in cached stage parameters. Shared equations live in `execution/sphFunctions.h` and `execution/sphCouplingFunctions.h`.
+[`SPHInteractionTypes.h`](SPHInteractionTypes.h) defines backend-independent `SPHStateStatistics`, `SPHKinematicsStatistics` and `SPHInteractionParameters` in `fundem`. Existing `cpu::` and `cuda::` statistics names remain aliases, not separate copies. Reductions return fluid or boundary extrema; the solver retains the latest fluid statistics for time-step and search-buffer calculation. `SPHInteractionParameters` holds immutable values for one stage, constructed from current uniform properties, gravity and the optional periodic domain. Physical configuration remains in `SPHDEM` rather than being duplicated in cached stage parameters. Shared equations live in `execution/sphFunctions.h` and `execution/sphCouplingFunctions.h`.
+
+With an enabled SPH periodic domain, CPU and CUDA neighbor stages use
+minimum-image separations for both fluid and virtual-wall samples, including
+free-surface classification, density reset/rate, pressure and viscosity.
+Periodic grid queries visit each cell at most once even when the search skin
+covers an entire axis; every physical particle/sample keeps its original index
+and mass/volume. Wall reaction is accumulated to the original LS owner with
+its physical local torque arm, not a period-length image displacement.
+Default-disabled domains preserve ordinary nonperiodic searches. Device grid
+and interaction launchers receive the caller's `cudaStream_t` explicitly.
 
 `virtualParticleCoupling` retains stable LS-owner mappings, sampled boundary kinematics, and held world forces and torques. At each common acoustic boundary it refreshes geometry from the current LS pose and prepares wall velocity/acceleration from the completed solid interval's samples, or from instantaneous kinematics at startup. `SPHDEM` advances SPH first, collects the new reaction, and installs it before the first DEM half kick. Both halves of every solid substep then use the same held hydraulic load. Replacing the hydraulic part of the cached total does not reevaluate contact/bond history or call external hooks a second time. There are no new-minus-held increment caches or endpoint impulse-correction stage. CUDA copies and launchers use the stream supplied by the solver.
 

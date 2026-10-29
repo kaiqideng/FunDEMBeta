@@ -15,7 +15,8 @@
 | `sphCouplingFunctions.h` | Sample prescribed boundary velocity differences without duplicating centripetal acceleration |
 | `sphJetFunctions.h` | Test whether a particle lies inside an upstream SPH jet pipe |
 | `sphSourceDiscretization.h` | Construct the regular cylindrical-source lattice |
-| `cpu/` | Apply generic particle integration and interaction-force assembly over host containers |
+| `sphSpatialGridFunctions.h` | Share bounded periodic-cell queries without visiting an image cell twice |
+| `cpu/` | Apply host integration/force assembly and reusable occupied-cell fixed-radius point queries |
 | `cuda/` | Launch CUDA kernels that call these formulas |
 
 ## Key Rules
@@ -23,7 +24,7 @@
 - Place mutable output parameters before read-only inputs.
 - Shared numerical formulas use the project's host/device inline macro and contain no allocation, exceptions, or global state. CPU container loops and CUDA launchers are separate backend helpers.
 - Use `math::defaultTolerance` and helpers such as `math::isFinite()` for degeneracy checks.
-- `inverseMass == 0` means infinite mass. Motion integration leaves its velocity, position, and orientation unchanged, with inertia and inverse inertia defaulting to zero matrices.
+- `inverseMass == 0` means infinite mass. Rigid-body loops skip force-driven velocity and angular-velocity kicks for these bodies; inertia and inverse inertia default to zero matrices. Position and quaternion drift still use the assigned velocity/angular velocity, allowing prescribed wall motion. An infinite-mass body is stationary only when those velocities are zero.
 - Renormalize quaternions after integration to prevent long-term orientation drift.
 
 Tangential damping is limited by projection onto the Coulomb disk: compute the trial tangential force, then constrain the combined elastic and damping force to `mu * |normalForce|`. Rolling and torsional components use their corresponding radius, stiffness, and friction limits.
@@ -55,6 +56,13 @@ This boundary keeps the physical equation identical on CPU and GPU. Object metho
 4. Sliding damping is projected onto the Coulomb disk together with the elastic spring force.
 5. Rolling and torsional responses use their own spring state, stiffness, friction coefficient, and lever arm.
 6. Force, torque, elastic energies, and updated history values return to the caller.
+
+`calculateLinearContactForce()` receives the already resolved normal and sliding
+dashpot coefficients; `calculateSphereRotationalContactTorque()` receives the rolling and
+torsional coefficients. Neither function derives damping from restitution or
+mass internally. Host contact evaluation and CUDA kernels obtain those physical
+coefficients from the same `resolveContactResponse()` call, so explicit damping
+and restitution-derived damping follow one policy.
 
 Degenerate contacts return zero response rather than creating non-finite values. Normals should already be normalized by contact construction; guarded normalization remains appropriate when data crosses a public boundary.
 
@@ -99,6 +107,14 @@ The shared SPH formulas are split intentionally:
 - acoustic/advection time-step limits.
 
 CPU loops and CUDA kernels compose these functions in the same order. The physical support remains `2h`, even when the neighbor search radius is enlarged with a displacement buffer. `interaction/SPHNeighborhood` tracks actual displacement so the solver can reuse the search structures across acoustic substeps while the buffer remains valid, rebuilding them earlier when needed.
+
+The optional `math::periodicDomain` in `SPHInteractionParameters` supplies
+minimum-image separations for fluid and virtual-wall terms. Shared
+`sphSpatialGridFunctions.h` bounds periodic cell spans and avoids duplicate visits
+when a search skin spans an entire periodic direction. The solver validates the
+physical support requirement `4h < period`; these formulas neither wrap the
+retained particle coordinates nor create ghost particles. Solid DEM periodic
+contacts are a separate application-level policy.
 
 Finite-duration jets reuse the host/device pipe-membership predicate from `sphJetFunctions.h`. The solver owns a bounded upstream buffer, scheduled layer births, stable emitted-particle indices, and source completion; the execution formula owns no source clock. New layers are appended only at common acoustic starts, with timing quantized upward by at most one DEM step and insertion positions adjusted for that delay. Device-tail initialization preserves existing fluid fields and runs on the solver stream. The inlet imposes velocity and reference density before optional advection preparation and again after velocity integration. Outlet release advances a permanent released-layer prefix, so returning particles are not constrained again. Once all sources end, the completion fast path stops source work. The four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
 

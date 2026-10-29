@@ -110,6 +110,12 @@ Grid sorting reorders only `(hash, particleIndex)` records. It never reorders th
 
 For rigid multilevel grids, size bands reduce unnecessary cell traversal for large diameter ratios. Infinite-mass particles occupy the final level to enforce slave ordering in cross-level pairs. SPH grids are uniform because smoothing length is shared by the whole fluid.
 
+Do not confuse this particle/device grid with
+[`cpu::pointGrid`](../execution/cpu/README.md#fixed-radius-point-queries). The
+latter indexes arbitrary host point arrays for conservative candidate queries
+and exact fixed-radius pair generation; it carries no mass, radius, contact or
+periodic-boundary semantics. Neither grid may reorder solver-owned particles.
+
 ## Common Failure Modes
 
 - A sphere is invalid: set a positive radius and assign a unified material from the destination solver.

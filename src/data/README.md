@@ -100,6 +100,84 @@ With `isFixed = true`, grid construction preserves the input local frame and sto
 
 `LSGeometryContainer::add(const levelset::LSInfo&)` and `LSDEM::addGeometry(const levelset::LSInfo&)` take only the built geometry. The container validates and copies its arrays and metadata, and computes nodal areas; it does not integrate mass properties or perform centroid correction.
 
+### Closed Primitive Geometries
+
+The following `fundem::levelset` shapes in `myLSObject.h` share the existing
+`LSInfo` storage, signed-distance sampling and mass-property pipeline. They
+are movable by default; no additional particle type or contact law is needed.
+
+| Class and constructor | Local geometry and dimensions |
+| --- | --- |
+| `CutSphere(radius, cutHeight)` | Sphere intersected with z ≤ cutHeight and closed by its planar cut; requires positive radius and -radius < cutHeight < radius; zero cutHeight gives the native lower hemisphere |
+| `Tetrahedron(circumradius)` | Regular tetrahedron scaled by its positive center-to-vertex radius |
+| `Dodecahedron(circumradius)` | Regular dodecahedron with twelve pentagonal faces, scaled by positive center-to-vertex radius |
+| `Icosahedron(circumradius)` | Regular icosahedron with twenty triangular faces, scaled by positive center-to-vertex radius |
+| `RegularPolygonPrism(circumradius, height, sides)` | Regular polygon in XY extruded along Z; positive center-to-vertex circumradius and full height; at least three integer sides, subject to the primitive mesh budget |
+| `HexagonalPrism(circumradius, height)` | Regular hexagon in XY extruded along Z; circumradius is center-to-vertex and height is the full length |
+| `TriangularPrism(circumradius, height)` | Equilateral triangle in XY extruded along Z; same circumradius/full-height convention |
+| `Octahedron(halfLengths)` | `Vec3` distances to the six vertices at positive/negative X, Y and Z; equal components give a regular octahedron |
+| `Pyramid(baseSizeX, baseSizeY, height)` | Right rectangular pyramid, full base edge lengths, base at -height/2 and apex at +height/2 before centroid correction |
+| `Torus(majorRadius, tubeRadius)` | Ring in XY around Z; major radius reaches the tube centerline; requires `majorRadius > tubeRadius > 0` |
+| `Link(bendRadius, tubeRadius, straightLength)` | Tube around an XY stadium centerline elongated along Y; requires bendRadius > tubeRadius > 0 and straightLength ≥ 0; zero straightLength produces a torus |
+| `Capsule(radius, straightLength)` | Cylinder along Z with hemispherical caps; full length is `straightLength + 2 * radius`; positive radius and nonnegative straight length, including zero for a sphere |
+
+All dimensions must be finite. The polyhedra retain exact planar faces
+and share one convex distance/refinement base. `buildSurfaceNode(surfaceSpacing)`
+refines their shared-edge surface without changing the shape; the curved
+solids/rings use their own closed periodic/capped sampling. The same positive
+spacing parameter controls surface resolution for these shapes. It is independent
+of the Cartesian spacing passed later to `buildLSGrid`.
+
+```cpp
+fundem::levelset::Torus ring(0.075, 0.025);
+ring.buildSurfaceNode(0.005); // Surface edge-length target.
+ring.buildLSGrid(0.005, 2);   // Independent Cartesian SDF spacing and padding.
+simulation.addGeometry(ring);
+```
+
+The specialized `HexagonalPrism` and `TriangularPrism` classes are retained;
+the general prism uses the same definition with six or three sides.
+Link Straight length describes each straight centerline segment, not the
+total end-to-end length. Its complete Y extent is Straight length plus
+twice Bend radius plus twice Tube radius.
+
+Surface topology is welded across shared edges, periodic seams and cap
+junctions, with outward triangles. Torus and Link retain their holes and
+are not built by radially deforming a sphere. Grid sampling, volume, centroid and
+unit-density inertia still come from `LSInfo::buildLSGrid`; the surface nodes
+and grid origin are shifted together exactly once for movable geometry.
+Explicit fixed construction skips those integrations without opening the
+surface. The existing `CylinderWall` and `ConeWall` similarly have finite
+capped surfaces and capped signed-distance functions; nonzero-radius ends
+are caps and a zero-radius cone end is an apex.
+
+### Prepared Geometry and Coordinate Queries
+
+`LSInfo::fromPreparedData(...)` restores an accepted surface, SDF grid, bounding
+radius, volume, and unit-density inertia without resampling or recentering them.
+Supply surface points and grid origin in the same prepared local frame. It also
+supports zero-volume fixed geometry, including a finite plane-wall grid. This
+data-only object cannot rebuild an analytic shape: `signedDistance(localPoint)`
+interpolates within the saved grid, including its boundary nodes, and rejects
+outside queries. A native shape instead evaluates its own definition after
+mapping the current local point back through its internal centroid offset.
+
+`gridSamplingBoundsMin()` and `gridSamplingBoundsMax()` expose the unpadded
+sampling extent in that same current local frame. These are sampling bounds,
+not a promise of a tight surface AABB; a plane wall intentionally needs a
+three-dimensional sampling region. Rebuilding or regenerating a native surface
+clears stale grid and mass metadata before calculating a new frame.
+
+`reverseSDFSign()` changes stored grid samples only. It does not alter the
+native analytic/mesh query, triangle winding, local coordinates, or cached mass
+properties. A restored data-only object's query follows the stored grid because
+that is its only distance representation.
+
+Spacing-controlled finite primitives check their allocation budget before mesh
+generation: at most 2,000,000 triangles and 1,000,002 nodes. Excessively small
+surface spacing is rejected rather than silently producing a coarser surface.
+This is a generation safety limit, not a particle-container or rendering limit.
+
 ## Random Level-Set Particles
 
 `levelset::makeRandomShape(radius, minimumSurfaceHeight, maximumSurfaceHeight, subdivisionLevel = 3, seed = 0)` in `myLSObject.h` returns an owned `TriangleMesh`. It applies a smooth, spatially correlated radial deformation to an icosphere, preserving a closed surface with outward normals. The result is star-shaped about the local origin: it can have lobes and indentations, but no holes or radial overhangs.

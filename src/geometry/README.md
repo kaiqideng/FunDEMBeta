@@ -23,6 +23,12 @@
 - Device geometry is read-only; host geometry changes require another host-to-device copy.
 - Geometry indices and offsets depend on insertion order. Do not reorder or erase geometry after particles reference it.
 
+Prepared geometry can enter the same pipeline through
+`LSInfo::fromPreparedData(...)`: accepted surface points, SDF samples and origin,
+radius, volume, and unit-density inertia are restored without another centroid
+correction. Zero-volume fixed geometry is supported. Its saved grid is the
+distance representation; it cannot be rebuilt from an inferred analytic shape.
+
 ## Extension Guide
 
 `data/myLSObject.*` generates `levelset::LSInfo`, which owns the geometry arrays, local frame, bounding radius, volume, and unit-density inertia. The solver's `addGeometry(const levelset::LSInfo&)` passes that built input to `LSGeometryContainer::add()` for compact storage. Neither insertion API takes a fixed flag; `buildLSGrid()` selects the shape's default mode or an explicit override.
@@ -54,3 +60,11 @@ The returned geometry index is stable. `LSParticle::setGeometry()` copies the ho
 The signed-distance grid must contain at least two nodes per axis. Finer spacing improves interpolation, volume, inertia, and contact accuracy but increases host copies, device memory, and LS-LS search work. For SPH walls, the boundary grid spacing must not exceed the configured smoothing length. Inspect a generated grid with `LSInfo::outputGridVTI()` before running an expensive case when sign convention or padding is uncertain.
 
 Fixed geometry deliberately keeps zero volume and inertia. Use the `isFixed` flag in `LSInfo::buildLSGrid()` only for prescribed or infinite-mass boundaries; using it for a movable body prevents mass construction. For example, use `wall.buildLSGrid(50, true)` for resolution-based construction or `wall.buildLSGrid(spacing, 2, true)` for explicit spacing and padding, then call `simulation.addGeometry(wall)`.
+
+The complete generated-shape catalog and dimension conventions are documented in
+[`data/`](../data/README.md#closed-primitive-geometries). Shapes with a cavity,
+such as `Torus` and `Link`, use closed surfaces that preserve the hole rather
+than a radial deformation of a sphere. `gridSamplingBoundsMin/Max()` describe
+the unpadded SDF sampling box in the returned local frame, not necessarily the
+tight rendered surface bounds. Surface refinement spacing and Cartesian SDF
+spacing are independent inputs.

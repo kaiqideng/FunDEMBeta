@@ -46,8 +46,6 @@ int main(int argc, char** argv)
         const Real frequencyRatio = std::sqrt(1.0 - dissipation * dissipation);
         const Real dampedFrequency = undampedFrequency * frequencyRatio;
         const Real analyticalContactDuration = math::pi / dampedFrequency;
-        const Real releaseAngle = math::pi + std::atan2(-2.0 * dissipation * frequencyRatio, 1.0 - 2.0 * dissipation * dissipation);
-        const Real unilateralRestitution = -std::exp(-dissipation * releaseAngle / frequencyRatio) * (std::cos(releaseAngle) - dissipation * std::sin(releaseAngle) / frequencyRatio);
         const Real timeStep = analyticalContactDuration / 1000.0;
 
         simulation.setBoundary({-0.2, -0.1, -0.1}, {0.2, 0.1, 0.1});
@@ -68,7 +66,7 @@ int main(int argc, char** argv)
             Real normalForce = 0.0;
             for (const contact& value : simulation.sphereInteractions().contacts().host())
             {
-                normalForce += value.normalForceMagnitude();
+                normalForce += math::dot(value.force(), value.normal());
             }
             output << simulation.time() << ' ' << std::max(overlap, Real{0.0}) << ' ' << normalForce << '\n';
 
@@ -89,13 +87,13 @@ int main(int argc, char** argv)
         const auto& spheres = simulation.spheres().host();
         const Real reboundSpeed = spheres[1].velocity().x - spheres[0].velocity().x;
         const Real numericalRestitution = reboundSpeed / impactSpeed;
-        const Real restitutionError = std::abs(numericalRestitution - unilateralRestitution) / unilateralRestitution;
+        const Real restitutionError = std::abs(numericalRestitution - targetRestitution) / targetRestitution;
         const Real durationError = std::abs(numericalContactDuration - analyticalContactDuration) / analyticalContactDuration;
         const Real momentumError = std::abs(spheres[0].velocity().x + spheres[1].velocity().x) / impactSpeed;
         const Real maximumError = std::max({restitutionError, durationError, momentumError});
         constexpr Real tolerance = 5.0e-3;
 
-        std::cout << "numerical restitution=" << numericalRestitution << ", unilateral analytical restitution=" << unilateralRestitution << ", configured restitution=" << targetRestitution
+        std::cout << "numerical restitution=" << numericalRestitution << ", signed-dashpot analytical restitution=" << targetRestitution << ", configured restitution=" << targetRestitution
                   << ", numerical duration=" << numericalContactDuration << " s, analytical duration=" << analyticalContactDuration << " s\n";
         validation::require(maximumError <= tolerance, "Normal-collision response exceeded tolerance.");
         validation::printPass("normalCollision", maximumError, tolerance);

@@ -302,7 +302,6 @@ void SphereDEM::assembleForceAndTorque(Real historyTimeStep, gpu::mode, cudaStre
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
     gpu::clearForceAndTorque(mutableLSParticles(), stream);
     gpu::clearForceAndTorque(spheres_, stream);
-    cuda::launchBuildSpatialGrid(mutableLSParticleSpatialGrid(), LSParticles(), stream);
     calculateLSParticleForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     calculateSphereForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     addLSParticleExternalForceAndTorque(deviceFields(mutableLSParticles()), stream);
@@ -336,13 +335,18 @@ void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, cpu::mode)
     addSphereContactForceAndTorque(historyTimeStep, cpu::mode{});
     cpu::addBondForceAndTorque(sphereInteractions_.bonds(), spheres_);
     sphereLSSearch_.findContacts(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles());
-    cpu::addContactForceAndTorque(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materialPairs(), historyTimeStep);
+    addSphereLevelSetContactForceAndTorque(historyTimeStep, cpu::mode{});
     cpu::addBondForceAndTorque(sphereLSInteractions_.bonds(), spheres_, mutableLSParticles());
 }
 
 void SphereDEM::addSphereContactForceAndTorque(Real historyTimeStep, cpu::mode)
 {
     cpu::addContactForceAndTorque(sphereInteractions_.contacts(), spheres_, spheres_, materialPairs(), historyTimeStep);
+}
+
+void SphereDEM::addSphereLevelSetContactForceAndTorque(Real historyTimeStep, cpu::mode)
+{
+    cpu::addContactForceAndTorque(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materialPairs(), historyTimeStep);
 }
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
@@ -363,13 +367,18 @@ void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, gpu::mode, c
     addSphereContactForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     cuda::launchBondForce(sphereInteractions_.bonds(), spheres_, stream);
     cuda::launchSphereLevelSetContactDetection(sphereLSInteractions_, spheres_, LSParticles(), geometries(), mutableLSParticleSpatialGrid().device(), stream);
-    cuda::launchContactForce(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materials(), materialPairs(), historyTimeStep, stream);
+    addSphereLevelSetContactForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     cuda::launchBondForce(sphereLSInteractions_.bonds(), spheres_, mutableLSParticles(), stream);
 }
 
 void SphereDEM::addSphereContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream)
 {
     cuda::launchContactForce(sphereInteractions_.contacts(), spheres_, materials(), materialPairs(), historyTimeStep, stream);
+}
+
+void SphereDEM::addSphereLevelSetContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream)
+{
+    cuda::launchContactForce(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materials(), materialPairs(), historyTimeStep, stream);
 }
 
 void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, hybrid::mode, cudaStream_t stream)
@@ -397,6 +406,7 @@ void SphereDEM::copySystemDeviceToHost(cudaStream_t stream)
 void SphereDEM::initializeSphereDevice(cudaStream_t) { throw std::runtime_error("The SphereDEM GPU backend is unavailable in this FunDEM build."); }
 void SphereDEM::calculateSphereForceAndTorque(Real, gpu::mode, cudaStream_t) {}
 void SphereDEM::addSphereContactForceAndTorque(Real, gpu::mode, cudaStream_t) { throw std::runtime_error("The SphereDEM GPU backend is unavailable in this FunDEM build."); }
+void SphereDEM::addSphereLevelSetContactForceAndTorque(Real, gpu::mode, cudaStream_t) { throw std::runtime_error("The SphereDEM GPU backend is unavailable in this FunDEM build."); }
 void SphereDEM::calculateSphereForceAndTorque(Real, hybrid::mode, cudaStream_t) {}
 void SphereDEM::copySphereDeviceToHost(cudaStream_t) {}
 void SphereDEM::copySystemDeviceToHost(cudaStream_t) {}

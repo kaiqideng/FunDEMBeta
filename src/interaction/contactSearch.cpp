@@ -374,8 +374,7 @@ bool contactSearch::setCellSize(Real value) noexcept
 
 void contactSearch::beginSearch() noexcept
 {
-    cells_.clear();
-    gridParticles_.clear();
+    pointGrid_.clear();
     candidatePairs_.clear();
 }
 
@@ -386,74 +385,7 @@ void contactSearch::configureGrid(Real maximumRadius) noexcept
     {
         effectiveCellSize_ = 1.0;
     }
-    inverseCellSize_ = 1.0 / effectiveCellSize_;
 }
-
-void contactSearch::buildGrid(const std::vector<Vec3>& positions)
-{
-    cells_.clear();
-    gridParticles_.clear();
-    if (positions.empty())
-    {
-        gridOrigin_ = Vec3::zero();
-        return;
-    }
-
-    const int particleCount = static_cast<int>(positions.size());
-    Real minimumX = positions.front().x;
-    Real minimumY = positions.front().y;
-    Real minimumZ = positions.front().z;
-#if defined(_OPENMP)
-#pragma omp parallel for reduction(min : minimumX, minimumY, minimumZ) schedule(static) if (particleCount >= parallelParticleThreshold)
-#endif
-    for (int particleIndex = 0; particleIndex < particleCount; ++particleIndex)
-    {
-        minimumX = std::min(minimumX, positions[particleIndex].x);
-        minimumY = std::min(minimumY, positions[particleIndex].y);
-        minimumZ = std::min(minimumZ, positions[particleIndex].z);
-    }
-    gridOrigin_ = {minimumX, minimumY, minimumZ};
-
-    gridParticles_.resize(particleCount);
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(static) if (particleCount >= parallelParticleThreshold)
-#endif
-    for (int particleIndex = 0; particleIndex < particleCount; ++particleIndex)
-    {
-        gridParticles_[particleIndex] = {calculateCell(positions[particleIndex]), particleIndex};
-    }
-    std::sort(gridParticles_.begin(),
-              gridParticles_.end(),
-              [](const gridParticle& first, const gridParticle& second) { return first.cell_ == second.cell_ ? first.particleIndex_ < second.particleIndex_ : first.cell_ < second.cell_; });
-
-    cells_.reserve(particleCount);
-    int sortedParticleIndexBegin = 0;
-    while (sortedParticleIndexBegin < particleCount)
-    {
-        int sortedParticleIndexEnd = sortedParticleIndexBegin + 1;
-        while (sortedParticleIndexEnd < particleCount && gridParticles_[sortedParticleIndexEnd].cell_ == gridParticles_[sortedParticleIndexBegin].cell_)
-        {
-            ++sortedParticleIndexEnd;
-        }
-        cells_.push_back({gridParticles_[sortedParticleIndexBegin].cell_, sortedParticleIndexBegin, sortedParticleIndexEnd});
-        sortedParticleIndexBegin = sortedParticleIndexEnd;
-    }
-}
-
-contactSearch::gridCell contactSearch::calculateCell(const Vec3& position) const noexcept
-{
-    return {static_cast<int>(std::floor((position.x - gridOrigin_.x) * inverseCellSize_)),
-            static_cast<int>(std::floor((position.y - gridOrigin_.y) * inverseCellSize_)),
-            static_cast<int>(std::floor((position.z - gridOrigin_.z) * inverseCellSize_))};
-}
-
-const contactSearch::occupiedCell* contactSearch::findCell(const gridCell& cell) const noexcept
-{
-    const auto value = std::lower_bound(cells_.begin(), cells_.end(), cell, [](const occupiedCell& occupied, const gridCell& target) { return occupied.cell_ < target; });
-    return value != cells_.end() && value->cell_ == cell ? &*value : nullptr;
-}
-
-int contactSearch::searchCellRange(Real distance) const noexcept { return static_cast<int>(std::ceil(distance * inverseCellSize_)); }
 
 void contactSearch::findCandidatePairs(const std::vector<Vec3>& positions, const std::vector<Real>& radii)
 {
@@ -489,41 +421,17 @@ void contactSearch::findCandidatePairs(const std::vector<Vec3>& positions, const
     }
     else
     {
-        buildGrid(positions);
+        pointGrid_.build(positions, effectiveCellSize_);
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(guided, 8) if (particleCount >= parallelInteractionThreshold)
 #endif
         for (int masterIndex = 0; masterIndex < particleCount; ++masterIndex)
         {
             std::vector<particlePair>& localPairs = particlePairs[masterIndex];
-            const gridCell center = calculateCell(positions[masterIndex]);
-            const int cellRange = searchCellRange(radii[masterIndex] + maximumRadius);
-            for (int zOffset = -cellRange; zOffset <= cellRange; ++zOffset)
-            {
-                for (int yOffset = -cellRange; yOffset <= cellRange; ++yOffset)
-                {
-                    for (int xOffset = -cellRange; xOffset <= cellRange; ++xOffset)
-                    {
-                        const occupiedCell* cell = findCell({center.x_ + xOffset, center.y_ + yOffset, center.z_ + zOffset});
-                        if (cell == nullptr)
-                        {
-                            continue;
-                        }
-                        for (int sortedParticleIndex = cell->sortedParticleIndexBegin_; sortedParticleIndex < cell->sortedParticleIndexEnd_; ++sortedParticleIndex)
-                        {
-                            const int slaveIndex = gridParticles_[sortedParticleIndex].particleIndex_;
-                            if (slaveIndex <= masterIndex)
-                            {
-                                continue;
-                            }
-                            if (execution::boundingSpheresOverlap(positions[masterIndex], radii[masterIndex], positions[slaveIndex], radii[slaveIndex]))
-                            {
-                                localPairs.push_back({masterIndex, slaveIndex});
-                            }
-                        }
-                    }
-                }
-            }
+            pointGrid_.forEachCandidate(positions[masterIndex], radii[masterIndex] + maximumRadius, [&](int slaveIndex) {
+                if (slaveIndex > masterIndex && execution::boundingSpheresOverlap(positions[masterIndex], radii[masterIndex], positions[slaveIndex], radii[slaveIndex]))
+                    localPairs.push_back({masterIndex, slaveIndex});
+            });
         }
     }
     mergeLocalValues(candidatePairs_, particlePairs);
@@ -582,37 +490,17 @@ void contactSearch::findSphereLevelSetCandidatePairs(const std::vector<Vec3>& ma
         {
             maximumSlaveRadius = std::max(maximumSlaveRadius, slaveRadii[slaveIndex]);
         }
-        buildGrid(slavePositions);
+        pointGrid_.build(slavePositions, effectiveCellSize_);
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(guided, 8) if (masterCount >= parallelInteractionThreshold)
 #endif
         for (int masterIndex = 0; masterIndex < masterCount; ++masterIndex)
         {
             std::vector<particlePair>& localPairs = particlePairs[masterIndex];
-            const gridCell center = calculateCell(masterPositions[masterIndex]);
-            const int cellRange = searchCellRange(masterRadii[masterIndex] + maximumSlaveRadius);
-            for (int zOffset = -cellRange; zOffset <= cellRange; ++zOffset)
-            {
-                for (int yOffset = -cellRange; yOffset <= cellRange; ++yOffset)
-                {
-                    for (int xOffset = -cellRange; xOffset <= cellRange; ++xOffset)
-                    {
-                        const occupiedCell* cell = findCell({center.x_ + xOffset, center.y_ + yOffset, center.z_ + zOffset});
-                        if (cell == nullptr)
-                        {
-                            continue;
-                        }
-                        for (int sortedParticleIndex = cell->sortedParticleIndexBegin_; sortedParticleIndex < cell->sortedParticleIndexEnd_; ++sortedParticleIndex)
-                        {
-                            const int slaveIndex = gridParticles_[sortedParticleIndex].particleIndex_;
-                            if (execution::boundingSpheresOverlap(masterPositions[masterIndex], masterRadii[masterIndex], slavePositions[slaveIndex], slaveRadii[slaveIndex]))
-                            {
-                                localPairs.push_back({masterIndex, slaveIndex});
-                            }
-                        }
-                    }
-                }
-            }
+            pointGrid_.forEachCandidate(masterPositions[masterIndex], masterRadii[masterIndex] + maximumSlaveRadius, [&](int slaveIndex) {
+                if (execution::boundingSpheresOverlap(masterPositions[masterIndex], masterRadii[masterIndex], slavePositions[slaveIndex], slaveRadii[slaveIndex]))
+                    localPairs.push_back({masterIndex, slaveIndex});
+            });
         }
     }
     mergeLocalValues(candidatePairs_, particlePairs);
@@ -753,10 +641,7 @@ int contactSearch::findContacts(contactContainer& contacts, const LSParticleCont
 void contactSearch::clear() noexcept
 {
     effectiveCellSize_ = 1.0;
-    inverseCellSize_ = 1.0;
-    gridOrigin_ = Vec3::zero();
-    gridParticles_.clear();
-    cells_.clear();
+    pointGrid_.clear();
     candidatePairs_.clear();
     surfaceNodeWorkBlocks_.clear();
     surfaceNodeBlockContacts_.clear();

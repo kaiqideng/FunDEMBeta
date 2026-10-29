@@ -199,6 +199,7 @@ cmake --build build-cuda-debug --parallel
 | `FUNDEM_INSTALL` | `ON` | Generate installation and exported CMake package rules |
 | `FUNDEM_BUILD_TUTORIALS` | `ON` | Build the CPU LSDEM tutorials |
 | `FUNDEM_BUILD_EXAMPLES` | `ON` | Build the larger validation and application cases |
+| `FUNDEM_BUILD_VALIDATIONS` | `ON` | Build the analytical/reference validation executables; full ON-DEM long runs remain opt-in |
 | `FUNDEM_CUDA_ARCHITECTURES` | empty | Override the CUDA architectures selected by CMake/compiler |
 | `BUILD_TESTING` | `ON` | Build tests registered with CTest |
 | `CMAKE_BUILD_TYPE` | generator-dependent | Common values are `Release`, `RelWithDebInfo`, and `Debug` |
@@ -549,12 +550,31 @@ Geometry is built through `fundem::levelset::LSInfo` implementations:
 | --- | --- |
 | `Sphere` | `Sphere(radius)` then `buildSurfaceNode()` |
 | `Superellipsoid` | Five shape parameters then `buildSurfaceNode()` |
+| `HexagonalPrism`, `TriangularPrism` | Polygon circumradius and full Z height; refine with `buildSurfaceNode(surfaceSpacing)` |
+| `RegularPolygonPrism` | Circumradius, full Z height and at least three sides |
+| `Tetrahedron`, `Dodecahedron`, `Icosahedron` | Positive circumscribed-sphere radius; spacing-refined planar faces |
+| `Octahedron` | Positive X/Y/Z center-to-vertex distances |
+| `Pyramid` | Full rectangular base size and full height |
+| `CutSphere` | Sphere radius and native Z cut height; retained solid lies below the cap |
+| `Torus` | Major radius and smaller positive tube radius |
+| `Link` | Bend radius, smaller positive tube radius and nonnegative straight length |
+| `Capsule` | Radius and straight cylindrical length; total Z length includes both caps |
 | `TriangleMesh` | Vertex/triangle arrays or `loadOBJ()` |
 | `PlaneWall` | Outward normal and finite surface size |
 | `BoxWall` | Box size; use `reverseSDFSign()` for an enclosing tank |
 | `BoxParticle` | Box size then `buildSurfaceNode(surfaceSpacing)` |
 | `CylinderWall` | Bottom center, top center, and radius |
 | `ConeWall` | Bottom/top centers and bottom/top radii |
+
+The faceted and ring/capsule shapes use positive physical `surfaceSpacing`,
+not an icosphere subdivision level. Surface refinement and Cartesian SDF grid
+spacing are independent. `CutSphere(R, 0)` is a lower hemisphere in its native
+construction frame; movable grid construction recenters its surface and grid
+at the computed mass centroid. A closed `Torus` or `Link` uses a welded ring
+mesh, not a star-shaped projection that would fill its hole. `TriangleMesh`
+also supplies irregular shapes generated from a superellipsoid base. See the
+[input-geometry catalogue](../src/data/README.md) for exact parameter meanings,
+limits, mesh construction and random-shape controls.
 
 Build the surface representation first, then build a signed-distance grid before passing the geometry to the solver. Grid construction accepts a resolution across the largest bounding-box extent (default `50`) or explicit spacing with optional padding (default `2`):
 
@@ -590,6 +610,15 @@ const int wallGeometryIndex = simulation.addGeometry(wall);
 For fixed geometry, `LSInfo` preserves the input local frame and stores zero volume and unit-density inertia. An `LSParticle` using that descriptor consequently has infinite mass and is written to the `fixedLSParticle` output.
 
 `LSDEM::addGeometry(const LSInfo&)` and `LSGeometryContainer::add(const LSInfo&)` accept only the built geometry. The container validates and copies its arrays and cached metadata, and computes nodal areas; insertion does not integrate mass properties or apply another centroid shift.
+
+For an already prepared geometry, use `LSInfo::fromPreparedData()` with its
+accepted surface positions/triangles, SDF origin/spacing/size/samples, bounding
+radius, volume and unit-density inertia. This data-only restoration preserves
+the supplied local frame verbatim: it does not infer an original shape or
+repeat centroid correction. Its `signedDistance(localPoint)` interpolates the
+saved grid, including boundary nodes, and rejects queries outside it. Such an
+object cannot rebuild an analytic surface/grid; retain the original shape
+parameters separately when regeneration is needed.
 
 ### 6.3 Level-set particles
 
@@ -703,6 +732,16 @@ The CUDA rigid-particle search supports at most four grid levels:
 
 Particles are not reordered in the user container. The grid maintains a separate sorted particle-index array, so existing particle indices, contacts, and bonds remain stable. Infinite-mass particles are placed in the final grid level and are selected as the slave side of generated pairs. CPU contact search applies the same infinite-mass slave convention.
 
+CPU contact search and independent center-distance queries reuse the occupied
+cell index in `execution/cpu/pointGrid.h`. `cpu::findPointPairs(points, radius)`
+returns exact self pairs with `i < j`; its two-array overload returns local
+indices in the respective input arrays. Results are deterministically sorted
+and do not reorder either input. Radius zero selects distinct coincident
+points. These CPU utilities know nothing about particle radii, masses,
+materials, contacts, bonds or periodic boundaries. Use `pointGrid` directly
+only when the caller supplies its own exact candidate test; see the
+[CPU execution guide](../src/execution/cpu/README.md).
+
 ### 8.2 Contact types
 
 - Sphere–sphere uses the complete spherical contact model.
@@ -720,6 +759,14 @@ For sphere–LS contact:
 - With the linear group off, rolling and torsional spring stiffness each equal the default sliding stiffness; they cannot be overridden independently. With it on, all four stored stiffnesses apply. The separate damping group supplies explicit rotational dashpots when enabled, subject to the friction limits.
 
 This keeps sphere–sphere and sphere–LS force evaluation on one complete contact path while preserving the area-based LS–LS model.
+
+For positive overlap, the shared force function retains the signed normal
+spring-dashpot response, including a possible negative unloading tail; the
+former zero-force clamp is disabled. Nonpositive overlap still ends the
+contact and clears its sliding history. `normalForceMagnitude()` reports the
+absolute normal response for friction/resistance limits and magnitude output,
+not its signed projection. A clipped/no-tension model is therefore not
+equivalent to the current implementation.
 
 ## 9. Bonds
 
@@ -1090,15 +1137,13 @@ The returned list contains that source's seeds and particles actually appended s
 
 At each SPH acoustic substep, active buffer particles receive inlet velocity, reference density, and equation-of-state pressure before optional advection preparation and again after velocity integration. They skip their own continuity-equation update while contributing to neighbors' interactions. Crossing the outlet permanently releases a particle; it is not constrained again if the fluid later carries it back into the pipe. The finite layer count prevents an extra trailing reservoir after the requested duration. Once the final jet ends, the completion fast path skips later source work. `SPHJetsCompleted()` reports completion at the solver's visible time, even while the leading internal fluid state represents a later acoustic endpoint. CPU, GPU, and Hybrid use the same source timing and preserve emitted ownership through output, pause, and continuation. GPU capacity growth preserves already integrated device particles and initializes only the new tail.
 
-The inlet also masks virtual SPH wall samples inside its finite upstream buffer cylinder, with half-spacing axial and radial clearance. Masked samples have zero quadrature volume and wall load; moving samples recover their normal volume when outside the opening. This virtual-only nozzle opening persists after emission stops and never follows the downstream fluid to remove target walls. It does not modify signed-distance grids, visible solid surfaces, or DEM contacts. A genuine geometric hole for other physics must therefore still be modeled explicitly. Moving-wall mask changes refresh SPH neighborhoods and viscous prior forces; output and paused views do not change the actual integration mask.
-
 Each finite source also opens its short inlet cylinder in the **SPH virtual-boundary samples only**. Samples inside the buffer, expanded radially and axially by half a particle spacing, receive zero quadrature volume. The opening covers the outlet plane but ends after the half-spacing downstream clearance, so a downstream target wall is not removed. Several sources form a union of these finite openings. Sample indices, owner mappings, level-set grids, and DEM contacts are unchanged; this is not a geometric hole or a modification of the LS signed-distance field.
 
 Openings remain after a finite source stops emitting. Moving wall samples are tested again at acoustic starts; samples leaving an opening regain their normal volume. A changed mask refreshes the neighborhood and cached viscous loads before fluid integration. CPU, GPU, and Hybrid apply the same rule. Current-time observations rebuild only the visible host mask and do not advance the physical source or coupling state.
 
 ### 14.4 Level-set walls
 
-SPH walls use fixed `LSParticle` geometry. `SPHDEM` samples internal virtual particles on the same uniform lattice and spacing as the fluid, then interpolates the level-set grid to retain solid-side samples within the kernel boundary band. Users do not add virtual particles directly.
+SPH boundaries use fixed or movable `LSParticle` owners. `SPHDEM` samples internal virtual particles on the same uniform lattice and spacing as the fluid, then interpolates the level-set grid to retain solid-side samples within the kernel boundary band. Users do not add virtual particles directly.
 
 An enclosing box reverses the signed-distance convention:
 
@@ -1128,6 +1173,32 @@ SPH uses DKD (position half-step, velocity full-step, position half-step); solid
 For current-time host observations between common acoustic endpoints, use `observeCurrentState(callback)` rather than reading leading integration buffers directly. Interior fluid positions use the DKD quadratic through the stored endpoint positions and velocities; velocity and density use linear interpolation, and pressure follows the equation of state. These interior values are a dense-output approximation, not an independent SPH solve at the observation time. At a common endpoint the committed fluid solution is used. Observation leaves the force evaluation schedule, device state, and solid histories unchanged.
 
 `solve()` returns current-time host data even if it stops inside an acoustic interval. An unchanged subsequent solve on the same solver object continues the same interval, while append-only model changes or configuration changes restart from the synchronized visible state. Loading only a saved visible frame into a new solver is a restart, not restoration of the private leading endpoint and multirate phase; its future trajectory is not guaranteed to be bitwise identical to uninterrupted integration. See [SPH state and coupling corrections](SPH_CORRECTIONS.md) for the full observation contract, held-load convention, and focused regression coverage.
+
+### 14.6 Optional periodic SPH neighbor images
+
+Configure the translational cell independently of the integration coordinates:
+
+```cpp
+math::periodicDomain domain;
+domain.minimum_ = {0.0, 0.0, 0.0};
+domain.length_ = {1.0, 1.0, 1.0};
+domain.periodicAxes_[0] = true;
+simulation.setSPHPeriodicDomain(domain);
+```
+
+Each enabled length must be finite, positive and strictly larger than `4*h`,
+the diameter of the physical SPH kernel support. CPU and CUDA searches visit
+wrapped cells without duplicate neighbor contributions; physical interaction
+distances and inlet openings use the nearest translated image. Integrated
+particle positions remain continuous rather than being wrapped in place.
+`math::periodicDomain` also exposes checked metadata, `wrapPosition()`,
+`minimumImage()` and `imagePosition()` for frontend use.
+
+This does not automatically periodicize rigid-body contacts or particle
+integration. A derived solver/frontend remains responsible for solid wrapping,
+cross-boundary DEM contacts and admissible interaction ranges. The separate
+ON-DEM validation runner has its own CPU periodic contact law and is not a
+general implementation of these boundary policies.
 
 ## 15. Performance and scaling
 

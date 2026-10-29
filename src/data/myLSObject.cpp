@@ -1,4 +1,5 @@
 #include "myLSObject.h"
+#include "execution/contactDetection.h"
 #include "math/Indexing.h"
 
 #include <algorithm>
@@ -43,7 +44,245 @@ void orthogonalBasis(const Vec3& normal, Vec3& tangent1, Vec3& tangent2) noexcep
 
 bool finitePositive(Real value) noexcept { return math::isFinite(value) && value > 0.0; }
 
+/** Mesh limits checked before allocating spacing-controlled primitive surfaces. */
+constexpr std::size_t maximumPrimitiveTriangles = 2'000'000;
+constexpr std::size_t maximumPrimitiveNodes = 1'000'002;
+
+void checkPrimitiveBudget(std::size_t nodes, std::size_t faces)
+{
+    if (nodes > maximumPrimitiveNodes || faces > maximumPrimitiveTriangles)
+        throw std::length_error("Surface spacing is too small: primitive surface exceeds its mesh budget.");
+}
+
+/** Converts an arc/length target into an overflow-checked segment count. */
+int surfaceSegments(Real length, Real spacing, int minimum)
+{
+    if (!finitePositive(spacing))
+        throw std::invalid_argument("Surface spacing must be positive and finite.");
+    const Real count = std::ceil(length / spacing);
+    if (!math::isFinite(count) || count > static_cast<Real>(maximumPrimitiveNodes))
+        throw std::length_error("Surface spacing is too small for this primitive.");
+    return std::max(minimum, static_cast<int>(count));
+}
+
+/** Exact Euclidean distance to a triangle, including its edges and vertices. */
+Real primitiveTriangleDistance(const Vec3& point, const Vec3& first, const Vec3& second, const Vec3& third) noexcept
+{
+    const Vec3 firstSecond = second - first;
+    const Vec3 firstThird = third - first;
+    const Vec3 firstPoint = point - first;
+    const Real d1 = math::dot(firstSecond, firstPoint);
+    const Real d2 = math::dot(firstThird, firstPoint);
+    if (d1 <= 0.0 && d2 <= 0.0) return math::norm(firstPoint);
+    const Vec3 secondPoint = point - second;
+    const Real d3 = math::dot(firstSecond, secondPoint);
+    const Real d4 = math::dot(firstThird, secondPoint);
+    if (d3 >= 0.0 && d4 <= d3) return math::norm(secondPoint);
+    const Real vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0)
+        return math::norm(firstPoint - firstSecond * (d1 / (d1 - d3)));
+    const Vec3 thirdPoint = point - third;
+    const Real d5 = math::dot(firstSecond, thirdPoint);
+    const Real d6 = math::dot(firstThird, thirdPoint);
+    if (d6 >= 0.0 && d5 <= d6) return math::norm(thirdPoint);
+    const Real vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0)
+        return math::norm(firstPoint - firstThird * (d2 / (d2 - d6)));
+    const Real va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && d4 >= d3 && d5 >= d6)
+        return math::norm(secondPoint - (third - second) * ((d4 - d3) / ((d4 - d3) + (d5 - d6))));
+    const Vec3 normal = math::cross(firstSecond, firstThird);
+    return std::abs(math::dot(firstPoint, normal)) / math::norm(normal);
+}
+
+/** Welded cap and side triangles of a centered regular N-sided prism. */
+std::pair<std::vector<Vec3>, std::vector<int3>> regularPrism(Real circumradius, Real height, int sides)
+{
+    if (!finitePositive(circumradius) || !finitePositive(height))
+        throw std::invalid_argument("Prism circumradius and height must be positive and finite.");
+    if (sides < 3) throw std::invalid_argument("A regular polygon prism requires at least three sides.");
+    checkPrimitiveBudget(static_cast<std::size_t>(2) * sides, static_cast<std::size_t>(4) * sides - 4);
+    std::vector<Vec3> vertices;
+    vertices.reserve(static_cast<std::size_t>(2) * sides);
+    for (int cap = 0; cap < 2; ++cap)
+        for (int i = 0; i < sides; ++i)
+        {
+            const Real angle = 2.0 * math::pi * i / sides;
+            vertices.push_back({circumradius * std::cos(angle), circumradius * std::sin(angle), (cap - 0.5) * height});
+        }
+    std::vector<int3> faces;
+    faces.reserve(static_cast<std::size_t>(4) * sides - 4);
+    for (int i = 1; i + 1 < sides; ++i)
+    {
+        faces.push_back(triangle(0, i + 1, i));
+        faces.push_back(triangle(sides, sides + i, sides + i + 1));
+    }
+    for (int i = 0; i < sides; ++i)
+    {
+        const int next = (i + 1) % sides;
+        faces.push_back(triangle(i, next, sides + next));
+        faces.push_back(triangle(i, sides + next, sides + i));
+    }
+    return {std::move(vertices), std::move(faces)};
+}
+
+/** Builds convex hull facets for the small canonical regular-polyhedron vertex sets.
+ * Coplanar triples are merged before angular sorting and face triangulation, so pentagonal
+ * faces do not produce overlapping triangles. The construction runs at unit scale.
+ */
+std::vector<int3> regularPolyhedronFaces(const std::vector<Vec3>& vertices)
+{
+    const Real tolerance = 128.0 * std::numeric_limits<Real>::epsilon();
+    std::vector<std::uint64_t> facets;
+    std::vector<int3> faces;
+    const int count = static_cast<int>(vertices.size());
+    for (int first = 0; first < count; ++first)
+        for (int second = first + 1; second < count; ++second)
+            for (int third = second + 1; third < count; ++third)
+            {
+                Vec3 normal = math::cross(vertices[second] - vertices[first], vertices[third] - vertices[first]);
+                const Real normalLength = math::norm(normal);
+                if (normalLength <= tolerance) continue;
+                normal /= normalLength;
+                bool positive = false;
+                bool negative = false;
+                std::uint64_t mask = 0;
+                for (int i = 0; i < count; ++i)
+                {
+                    const Real distance = math::dot(normal, vertices[i] - vertices[first]);
+                    positive = positive || distance > tolerance;
+                    negative = negative || distance < -tolerance;
+                    if (std::abs(distance) <= tolerance) mask |= std::uint64_t{1} << i;
+                }
+                if ((positive && negative) || std::find(facets.begin(), facets.end(), mask) != facets.end()) continue;
+                facets.push_back(mask);
+                std::vector<int> polygon;
+                Vec3 center = Vec3::zero();
+                for (int i = 0; i < count; ++i)
+                    if (mask & (std::uint64_t{1} << i))
+                    {
+                        polygon.push_back(i);
+                        center += vertices[i];
+                    }
+                center /= static_cast<Real>(polygon.size());
+                if (math::dot(normal, center) < 0.0) normal = -normal;
+                const Vec3 direction = vertices[polygon.front()] - center;
+                const Vec3 tangent = direction / math::norm(direction);
+                const Vec3 bitangent = math::cross(normal, tangent);
+                std::sort(polygon.begin(), polygon.end(), [&](int left, int right)
+                {
+                    const Vec3 a = vertices[left] - center;
+                    const Vec3 b = vertices[right] - center;
+                    return std::atan2(math::dot(a, bitangent), math::dot(a, tangent)) < std::atan2(math::dot(b, bitangent), math::dot(b, tangent));
+                });
+                for (std::size_t i = 1; i + 1 < polygon.size(); ++i)
+                    faces.push_back(triangle(polygon[0], polygon[i], polygon[i + 1]));
+            }
+    return faces;
+}
+
+/** Scales a canonical regular solid to its circumradius without changing face topology. */
+std::pair<std::vector<Vec3>, std::vector<int3>> regularPolyhedron(std::vector<Vec3> vertices, Real circumradius)
+{
+    if (!finitePositive(circumradius)) throw std::invalid_argument("Regular polyhedron circumradius must be positive and finite.");
+    auto faces = regularPolyhedronFaces(vertices);
+    for (Vec3& vertex : vertices) vertex *= circumradius / math::norm(vertex);
+    return {std::move(vertices), std::move(faces)};
+}
+
+/** Closes both parameter seams of a row-major periodic swept surface with outward winding. */
+void periodicSurfaceTriangles(std::vector<int3>& faces, int rows, int columns)
+{
+    for (int row = 0; row < rows; ++row)
+        for (int column = 0; column < columns; ++column)
+        {
+            const int first = row * columns + column;
+            const int nextRow = ((row + 1) % rows) * columns + column;
+            const int nextBoth = ((row + 1) % rows) * columns + (column + 1) % columns;
+            const int nextColumn = row * columns + (column + 1) % columns;
+            faces.push_back(triangle(first, nextRow, nextBoth));
+            faces.push_back(triangle(first, nextBoth, nextColumn));
+        }
+}
+
+/** Owns one accepted grid; no original implicit surface or native frame is reconstructed. */
+class PreparedGeometry final : public LSInfo
+{
+private:
+    bool supportsGridRebuild() const noexcept override { return false; }
+    bool isValid() const noexcept override { return configured_; }
+    Vec3 boundingBoxMin() const noexcept override { return gridNodeOrigin(); }
+    Vec3 boundingBoxMax() const noexcept override
+    {
+        const auto size = gridNodeSize3D();
+        return gridNodeOrigin() + gridNodeSpacing() * Vec3{Real(size.x - 1), Real(size.y - 1), Real(size.z - 1)};
+    }
+    Real evaluateSFD(const Vec3& point) const noexcept override
+    {
+        const auto size = gridNodeSize3D();
+        Vec3 position = (point - gridNodeOrigin()) / gridNodeSpacing();
+        const Real tolerance = 8.0 * std::numeric_limits<Real>::epsilon() * std::max({size.x, size.y, size.z});
+        if (!math::isFinite(position) || position.x < -tolerance || position.y < -tolerance || position.z < -tolerance || position.x > size.x - 1 + tolerance || position.y > size.y - 1 + tolerance ||
+            position.z > size.z - 1 + tolerance)
+            return std::numeric_limits<Real>::quiet_NaN();
+        position.x = std::clamp(position.x, Real{0.0}, Real(size.x - 1));
+        position.y = std::clamp(position.y, Real{0.0}, Real(size.y - 1));
+        position.z = std::clamp(position.z, Real{0.0}, Real(size.z - 1));
+        const int x = std::min(static_cast<int>(std::floor(position.x)), size.x - 2);
+        const int y = std::min(static_cast<int>(std::floor(position.y)), size.y - 2);
+        const int z = std::min(static_cast<int>(std::floor(position.z)), size.z - 2);
+        const auto& samples = gridNodeSFD();
+        const auto value = [&](int dx, int dy, int dz) { return samples[math::linearIndex(x + dx, y + dy, z + dz, size.x, size.y)]; };
+        return execution::interpolateLevelSetValue(position - Vec3{Real(x), Real(y), Real(z)}, value(0, 0, 0), value(1, 0, 0), value(0, 1, 0), value(1, 1, 0), value(0, 0, 1), value(1, 0, 1),
+                                                   value(0, 1, 1), value(1, 1, 1));
+    }
+    const char* objectName() const noexcept override { return "Prepared Grid"; }
+};
+
 } // namespace
+
+std::unique_ptr<LSInfo> LSInfo::fromPreparedData(const Vec3& gridNodeOrigin, Real gridNodeSpacing, const int3& gridNodeSize, const std::vector<Real>& gridNodeSignedDistance,
+                                                 const std::vector<Vec3>& surfaceNodePositions, const std::vector<int3>& surfaceTriangles, Real boundingRadius, Real volume,
+                                                 const Mat3& unitDensityInertiaTensor)
+{
+    if (!math::isFinite(gridNodeOrigin) || !finitePositive(gridNodeSpacing) || gridNodeSize.x < 2 || gridNodeSize.y < 2 || gridNodeSize.z < 2 || !finitePositive(boundingRadius) ||
+        !math::isFinite(volume) || volume < 0.0 || !math::isFinite(unitDensityInertiaTensor))
+        throw std::invalid_argument("Prepared level-set geometry has invalid grid or mass metadata.");
+    const Vec3 gridMaximum = gridNodeOrigin + gridNodeSpacing * Vec3{Real(gridNodeSize.x - 1), Real(gridNodeSize.y - 1), Real(gridNodeSize.z - 1)};
+    if (!math::isFinite(gridMaximum) || !math::isFinite(1.0 / gridNodeSpacing) || (volume == 0.0 && unitDensityInertiaTensor != Mat3::zero()))
+        throw std::invalid_argument("Prepared level-set geometry has inconsistent bounds or zero-volume inertia.");
+    std::size_t count = 1;
+    for (int extent : {gridNodeSize.x, gridNodeSize.y, gridNodeSize.z})
+    {
+        if (count > static_cast<std::size_t>(std::numeric_limits<int>::max()) / static_cast<std::size_t>(extent))
+            throw std::invalid_argument("Prepared level-set grid exceeds its supported index range.");
+        count *= static_cast<std::size_t>(extent);
+    }
+    if (count != gridNodeSignedDistance.size() || surfaceNodePositions.empty() || surfaceTriangles.empty() || surfaceNodePositions.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        throw std::invalid_argument("Prepared level-set geometry has incomplete arrays.");
+    for (Real value : gridNodeSignedDistance)
+        if (!math::isFinite(value))
+            throw std::invalid_argument("Prepared level-set distances must be finite.");
+    for (const Vec3& point : surfaceNodePositions)
+        if (!math::isFinite(point))
+            throw std::invalid_argument("Prepared level-set surface positions must be finite.");
+    const int surfaceCount = static_cast<int>(surfaceNodePositions.size());
+    for (const auto& face : surfaceTriangles)
+        if (face.x < 0 || face.y < 0 || face.z < 0 || face.x >= surfaceCount || face.y >= surfaceCount || face.z >= surfaceCount)
+            throw std::invalid_argument("Prepared level-set triangle connectivity is invalid.");
+    auto result = std::make_unique<PreparedGeometry>();
+    result->gridNodeOrigin_ = gridNodeOrigin;
+    result->gridNodeSpacing_ = gridNodeSpacing;
+    result->gridNodeSize_ = gridNodeSize;
+    result->gridNodeSignedDistance_ = gridNodeSignedDistance;
+    result->surfaceNodePositions_ = surfaceNodePositions;
+    result->surfaceTriangles_ = surfaceTriangles;
+    result->boundingRadius_ = boundingRadius;
+    result->volume_ = volume;
+    result->unitDensityInertiaTensor_ = unitDensityInertiaTensor;
+    result->configured_ = true;
+    return result;
+}
 
 void LSInfo::clearGrid() noexcept
 {
@@ -86,6 +325,8 @@ void LSInfo::buildLSGrid(int resolutionPerDiameter, bool isFixed)
 
 void LSInfo::buildLSGrid(Real spacing, int paddingSize, bool isFixed)
 {
+    if (!supportsGridRebuild())
+        throw std::logic_error("A prepared level-set grid cannot be rebuilt. Reconfigure its source geometry instead.");
     if (!isValid())
     {
         throw std::logic_error("Configure the level-set geometry before building its grid.");
@@ -548,54 +789,7 @@ struct TriangleMesh::accelerationData {
 
     static Real pointTriangleDistance(const Vec3& point, const Vec3& first, const Vec3& second, const Vec3& third) noexcept
     {
-        const Vec3 firstSecond = second - first;
-        const Vec3 firstThird = third - first;
-        const Vec3 firstPoint = point - first;
-        const Real d1 = math::dot(firstSecond, firstPoint);
-        const Real d2 = math::dot(firstThird, firstPoint);
-        if (d1 <= 0.0 && d2 <= 0.0)
-        {
-            return math::norm(firstPoint);
-        }
-
-        const Vec3 secondPoint = point - second;
-        const Real d3 = math::dot(firstSecond, secondPoint);
-        const Real d4 = math::dot(firstThird, secondPoint);
-        if (d3 >= 0.0 && d4 <= d3)
-        {
-            return math::norm(secondPoint);
-        }
-
-        const Real vc = d1 * d4 - d3 * d2;
-        if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0)
-        {
-            return math::norm(firstPoint - firstSecond * (d1 / (d1 - d3)));
-        }
-
-        const Vec3 thirdPoint = point - third;
-        const Real d5 = math::dot(firstSecond, thirdPoint);
-        const Real d6 = math::dot(firstThird, thirdPoint);
-        if (d6 >= 0.0 && d5 <= d6)
-        {
-            return math::norm(thirdPoint);
-        }
-
-        const Real vb = d5 * d2 - d1 * d6;
-        if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0)
-        {
-            return math::norm(firstPoint - firstThird * (d2 / (d2 - d6)));
-        }
-
-        const Real va = d3 * d6 - d5 * d4;
-        if (va <= 0.0 && d4 >= d3 && d5 >= d6)
-        {
-            const Vec3 secondThird = third - second;
-            const Real weight = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-            return math::norm(secondPoint - weight * secondThird);
-        }
-
-        const Vec3 normal = math::cross(firstSecond, firstThird);
-        return std::abs(math::dot(firstPoint, normal)) / math::norm(normal);
+        return primitiveTriangleDistance(point, first, second, third);
     }
 
     Real queryDistance(const Vec3& point, int nodeIndex, Real best) const noexcept
@@ -1006,6 +1200,439 @@ std::unique_ptr<TriangleMesh> makeRandomShape(const Vec3& semiAxes, Real equator
     Superellipsoid base(semiAxes.x, semiAxes.y, semiAxes.z, equatorialExponent, polarExponent);
     base.buildSurfaceNode(subdivisionLevel);
     return deformRandomSurface(base, minimumSurfaceHeight, maximumSurfaceHeight, seed);
+}
+
+void ConvexPolyhedron::setPolyhedron(std::vector<Vec3> vertices, std::vector<int3> triangles)
+{
+    if (vertices.empty() || triangles.empty())
+        throw std::invalid_argument("A convex primitive requires a closed non-empty surface.");
+    Vec3 minimum = vertices.front();
+    Vec3 maximum = minimum;
+    Vec3 interior = Vec3::zero();
+    for (const Vec3& vertex : vertices)
+    {
+        if (!math::isFinite(vertex)) throw std::invalid_argument("Primitive dimensions must be finite.");
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            minimum[axis] = std::min(minimum[axis], vertex[axis]);
+            maximum[axis] = std::max(maximum[axis], vertex[axis]);
+        }
+        interior += vertex / static_cast<Real>(vertices.size());
+    }
+    for (int3& face : triangles)
+    {
+        const Vec3& first = vertices[face.x];
+        const Vec3 normal = math::cross(vertices[face.y] - first, vertices[face.z] - first);
+        if (!finitePositive(math::norm(normal)))
+            throw std::invalid_argument("Primitive dimensions produce a degenerate or non-finite face.");
+        if (math::dot(normal, first - interior) < 0.0) std::swap(face.y, face.z);
+    }
+    clearGrid();
+    vertices_ = std::move(vertices);
+    triangles_ = std::move(triangles);
+    minimum_ = minimum;
+    maximum_ = maximum;
+    surfaceNodePositions_ = vertices_;
+    surfaceTriangles_ = triangles_;
+    configured_ = true;
+}
+
+void ConvexPolyhedron::buildSurfaceNode(Real surfaceSpacing)
+{
+    if (!configured_) throw std::logic_error("Configure the convex primitive before creating its surface.");
+    if (!finitePositive(surfaceSpacing)) throw std::invalid_argument("Surface spacing must be positive and finite.");
+    Real longestEdge = 0.0;
+    for (const int3& face : triangles_)
+        longestEdge = std::max({longestEdge, math::norm(vertices_[face.x] - vertices_[face.y]),
+                                math::norm(vertices_[face.y] - vertices_[face.z]), math::norm(vertices_[face.z] - vertices_[face.x])});
+    std::size_t faces = triangles_.size();
+    int levels = 0;
+    while (longestEdge > surfaceSpacing)
+    {
+        if (faces > maximumPrimitiveTriangles / 4)
+            throw std::length_error("Surface spacing is too small for the convex primitive mesh.");
+        faces *= 4;
+        checkPrimitiveBudget(faces / 2 + 2, faces);
+        longestEdge *= 0.5;
+        ++levels;
+    }
+    clearGrid();
+    surfaceNodePositions_ = vertices_;
+    surfaceTriangles_ = triangles_;
+    for (int level = 0; level < levels; ++level) subdivideSurface();
+}
+
+LSInfo::Real ConvexPolyhedron::evaluateSFD(const Vec3& point) const noexcept
+{
+    Real distance = std::numeric_limits<Real>::max();
+    bool outside = false;
+    for (const int3& face : triangles_)
+    {
+        const Vec3& first = vertices_[face.x];
+        const Vec3& second = vertices_[face.y];
+        const Vec3& third = vertices_[face.z];
+        distance = std::min(distance, primitiveTriangleDistance(point, first, second, third));
+        outside = outside || math::dot(math::cross(second - first, third - first), point - first) > 0.0;
+    }
+    return outside ? distance : -distance;
+}
+
+void RegularPolygonPrism::setParameter(Real circumradius, Real height, int sides)
+{
+    auto mesh = regularPrism(circumradius, height, sides);
+    setPolyhedron(std::move(mesh.first), std::move(mesh.second));
+}
+
+void Tetrahedron::setParameter(Real circumradius)
+{
+    auto mesh = regularPolyhedron({{1.0, 1.0, 1.0}, {-1.0, -1.0, 1.0}, {-1.0, 1.0, -1.0}, {1.0, -1.0, -1.0}}, circumradius);
+    setPolyhedron(std::move(mesh.first), std::move(mesh.second));
+}
+
+void Dodecahedron::setParameter(Real circumradius)
+{
+    const Real goldenRatio = 0.5 * (1.0 + std::sqrt(5.0));
+    const Real inverseGoldenRatio = 1.0 / goldenRatio;
+    std::vector<Vec3> vertices;
+    for (Real x : {-1.0, 1.0})
+        for (Real y : {-1.0, 1.0})
+            for (Real z : {-1.0, 1.0}) vertices.push_back({x, y, z});
+    for (Real first : {-1.0, 1.0})
+        for (Real second : {-1.0, 1.0})
+        {
+            vertices.push_back({0.0, first * inverseGoldenRatio, second * goldenRatio});
+            vertices.push_back({first * inverseGoldenRatio, second * goldenRatio, 0.0});
+            vertices.push_back({first * goldenRatio, 0.0, second * inverseGoldenRatio});
+        }
+    auto mesh = regularPolyhedron(std::move(vertices), circumradius);
+    setPolyhedron(std::move(mesh.first), std::move(mesh.second));
+}
+
+void Icosahedron::setParameter(Real circumradius)
+{
+    const Real goldenRatio = 0.5 * (1.0 + std::sqrt(5.0));
+    std::vector<Vec3> vertices;
+    for (Real first : {-1.0, 1.0})
+        for (Real second : {-1.0, 1.0})
+        {
+            vertices.push_back({0.0, first, second * goldenRatio});
+            vertices.push_back({first, second * goldenRatio, 0.0});
+            vertices.push_back({first * goldenRatio, 0.0, second});
+        }
+    auto mesh = regularPolyhedron(std::move(vertices), circumradius);
+    setPolyhedron(std::move(mesh.first), std::move(mesh.second));
+}
+
+void HexagonalPrism::setParameter(Real circumradius, Real height)
+{
+    auto mesh = regularPrism(circumradius, height, 6);
+    setPolyhedron(std::move(mesh.first), std::move(mesh.second));
+}
+
+void TriangularPrism::setParameter(Real circumradius, Real height)
+{
+    auto mesh = regularPrism(circumradius, height, 3);
+    setPolyhedron(std::move(mesh.first), std::move(mesh.second));
+}
+
+void Octahedron::setParameter(const Vec3& halfLengths)
+{
+    if (!finitePositive(halfLengths.x) || !finitePositive(halfLengths.y) || !finitePositive(halfLengths.z))
+        throw std::invalid_argument("Octahedron half-lengths must be positive and finite.");
+    std::vector<Vec3> vertices{{halfLengths.x, 0.0, 0.0}, {-halfLengths.x, 0.0, 0.0}, {0.0, halfLengths.y, 0.0},
+                              {0.0, -halfLengths.y, 0.0}, {0.0, 0.0, halfLengths.z}, {0.0, 0.0, -halfLengths.z}};
+    std::vector<int3> faces{{0, 2, 4}, {2, 1, 4}, {1, 3, 4}, {3, 0, 4},
+                            {2, 0, 5}, {1, 2, 5}, {3, 1, 5}, {0, 3, 5}};
+    setPolyhedron(std::move(vertices), std::move(faces));
+}
+
+void Pyramid::setParameter(Real baseSizeX, Real baseSizeY, Real height)
+{
+    if (!finitePositive(baseSizeX) || !finitePositive(baseSizeY) || !finitePositive(height))
+        throw std::invalid_argument("Pyramid base sizes and height must be positive and finite.");
+    const Real x = baseSizeX * 0.5;
+    const Real y = baseSizeY * 0.5;
+    const Real z = height * 0.5;
+    setPolyhedron({{-x, -y, -z}, {x, -y, -z}, {x, y, -z}, {-x, y, -z}, {0.0, 0.0, z}},
+                  {{0, 2, 1}, {0, 3, 2}, {0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}});
+}
+
+void CutSphere::setParameter(Real radius, Real cutHeight)
+{
+    if (!finitePositive(radius) || !math::isFinite(cutHeight) || cutHeight <= -radius || cutHeight >= radius)
+        throw std::invalid_argument("Cut sphere requires radius > 0 and -radius < cut height < radius, all finite.");
+    const Real ratio = cutHeight / radius;
+    const Real rim = radius * std::sqrt((1.0 - ratio) * (1.0 + ratio));
+    if (!finitePositive(rim)) throw std::invalid_argument("Cut sphere rim must have a positive finite radius.");
+    clearGrid();
+    radius_ = radius;
+    cutHeight_ = cutHeight;
+    rimRadius_ = rim;
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    configured_ = true;
+}
+
+LSInfo::Vec3 CutSphere::boundingBoxMin() const noexcept
+{
+    const Real extent = cutHeight_ >= 0.0 ? radius_ : rimRadius_;
+    return {-extent, -extent, -radius_};
+}
+
+LSInfo::Vec3 CutSphere::boundingBoxMax() const noexcept
+{
+    const Real extent = cutHeight_ >= 0.0 ? radius_ : rimRadius_;
+    return {extent, extent, cutHeight_};
+}
+
+LSInfo::Real CutSphere::evaluateSFD(const Vec3& point) const noexcept
+{
+    const Real radial = std::hypot(point.x, point.y);
+    const Real length = std::hypot(radial, point.z);
+    const Real diskDistance = std::hypot(std::max(radial - rimRadius_, Real{0.0}), point.z - cutHeight_);
+    const Real sphereDistance = length == 0.0 || radius_ * (point.z / length) <= cutHeight_
+                                    ? std::abs(length - radius_) : std::hypot(radial - rimRadius_, point.z - cutHeight_);
+    const Real distance = std::min(diskDistance, sphereDistance);
+    return length <= radius_ && point.z <= cutHeight_ ? -distance : distance;
+}
+
+void CutSphere::buildSurfaceNode(Real surfaceSpacing)
+{
+    if (!configured_) throw std::logic_error("Configure the cut sphere before creating its surface.");
+    const Real edgeSpacing = surfaceSpacing * 0.5;
+    const Real polarAngle = std::acos(-cutHeight_ / radius_);
+    const Real radialExtent = cutHeight_ >= 0.0 ? radius_ : rimRadius_;
+    const int circumferenceSegments = surfaceSegments(2.0 * math::pi * radialExtent, edgeSpacing, 8);
+    const int polarSegments = surfaceSegments(radius_ * polarAngle, edgeSpacing, 2);
+    const int diskSegments = surfaceSegments(rimRadius_, edgeSpacing, 1);
+    const std::size_t ringCount = static_cast<std::size_t>(polarSegments) + diskSegments - 1;
+    const std::size_t ringNodes = ringCount * circumferenceSegments;
+    checkPrimitiveBudget(ringNodes + 2, 2 * ringNodes);
+    clearGrid();
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    surfaceNodePositions_.reserve(ringNodes + 2);
+    surfaceTriangles_.reserve(2 * ringNodes);
+    surfaceNodePositions_.push_back({0.0, 0.0, -radius_});
+    const auto ring = [&](Real radial, Real z)
+    {
+        for (int i = 0; i < circumferenceSegments; ++i)
+        {
+            const Real angle = 2.0 * math::pi * i / circumferenceSegments;
+            surfaceNodePositions_.push_back({radial * std::cos(angle), radial * std::sin(angle), z});
+        }
+    };
+    for (int i = 1; i < polarSegments; ++i)
+    {
+        const Real angle = polarAngle * i / polarSegments;
+        ring(radius_ * std::sin(angle), -radius_ * std::cos(angle));
+    }
+    ring(rimRadius_, cutHeight_);
+    for (int i = 1; i < diskSegments; ++i)
+        ring(rimRadius_ * (1.0 - static_cast<Real>(i) / diskSegments), cutHeight_);
+    const int capCenter = static_cast<int>(surfaceNodePositions_.size());
+    surfaceNodePositions_.push_back({0.0, 0.0, cutHeight_});
+    for (int i = 0; i < circumferenceSegments; ++i)
+    {
+        const int next = (i + 1) % circumferenceSegments;
+        surfaceTriangles_.push_back(triangle(0, 1 + next, 1 + i));
+        const int innerRing = 1 + static_cast<int>(ringCount - 1) * circumferenceSegments;
+        surfaceTriangles_.push_back(triangle(capCenter, innerRing + i, innerRing + next));
+    }
+    for (std::size_t row = 0; row + 1 < ringCount; ++row)
+        for (int i = 0; i < circumferenceSegments; ++i)
+        {
+            const int next = (i + 1) % circumferenceSegments;
+            const int first = 1 + static_cast<int>(row) * circumferenceSegments;
+            const int second = first + circumferenceSegments;
+            surfaceTriangles_.push_back(triangle(first + i, first + next, second + next));
+            surfaceTriangles_.push_back(triangle(first + i, second + next, second + i));
+        }
+}
+
+void Link::setParameter(Real bendRadius, Real tubeRadius, Real straightLength)
+{
+    if (!finitePositive(bendRadius) || !finitePositive(tubeRadius) || tubeRadius >= bendRadius || !math::isFinite(straightLength) || straightLength < 0.0 ||
+        !finitePositive(0.5 * straightLength + bendRadius + tubeRadius))
+        throw std::invalid_argument("Link requires bend radius > tube radius > 0 and a finite non-negative straight length.");
+    clearGrid();
+    bendRadius_ = bendRadius;
+    tubeRadius_ = tubeRadius;
+    straightLength_ = straightLength;
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    configured_ = true;
+}
+
+LSInfo::Vec3 Link::boundingBoxMin() const noexcept { return {-bendRadius_ - tubeRadius_, -0.5 * straightLength_ - bendRadius_ - tubeRadius_, -tubeRadius_}; }
+LSInfo::Vec3 Link::boundingBoxMax() const noexcept { return {bendRadius_ + tubeRadius_, 0.5 * straightLength_ + bendRadius_ + tubeRadius_, tubeRadius_}; }
+LSInfo::Real Link::evaluateSFD(const Vec3& point) const noexcept
+{
+    const Real axial = std::max(std::abs(point.y) - 0.5 * straightLength_, Real{0.0});
+    return std::hypot(std::hypot(point.x, axial) - bendRadius_, point.z) - tubeRadius_;
+}
+
+void Link::buildSurfaceNode(Real surfaceSpacing)
+{
+    if (!configured_) throw std::logic_error("Configure the link before creating its surface.");
+    const Real edgeSpacing = surfaceSpacing * 0.5;
+    const int arcSegments = surfaceSegments(math::pi * (bendRadius_ + tubeRadius_), edgeSpacing, 6);
+    const int straightSegments = straightLength_ > 0.0 ? surfaceSegments(straightLength_, edgeSpacing, 1) : 0;
+    const int tubeSegments = surfaceSegments(2.0 * math::pi * tubeRadius_, edgeSpacing, 8);
+    const int rows = 2 * (arcSegments + straightSegments);
+    const std::size_t nodeCount = static_cast<std::size_t>(rows) * tubeSegments;
+    checkPrimitiveBudget(nodeCount, 2 * nodeCount);
+    clearGrid();
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    surfaceNodePositions_.reserve(nodeCount);
+    surfaceTriangles_.reserve(2 * nodeCount);
+    const Real halfLength = 0.5 * straightLength_;
+    const auto ring = [&](const Vec3& center, const Vec3& normal)
+    {
+        for (int tube = 0; tube < tubeSegments; ++tube)
+        {
+            const Real angle = 2.0 * math::pi * tube / tubeSegments;
+            surfaceNodePositions_.push_back(center + tubeRadius_ * (std::cos(angle) * normal + std::sin(angle) * Vec3::unitZ()));
+        }
+    };
+    for (int i = 0; i < straightSegments; ++i)
+        ring({bendRadius_, -halfLength + straightLength_ * i / straightSegments, 0.0}, Vec3::unitX());
+    for (int i = 0; i < arcSegments; ++i)
+    {
+        const Real angle = math::pi * i / arcSegments;
+        const Vec3 normal{std::cos(angle), std::sin(angle), 0.0};
+        ring(Vec3{0.0, halfLength, 0.0} + bendRadius_ * normal, normal);
+    }
+    for (int i = 0; i < straightSegments; ++i)
+        ring({-bendRadius_, halfLength - straightLength_ * i / straightSegments, 0.0}, -Vec3::unitX());
+    for (int i = 0; i < arcSegments; ++i)
+    {
+        const Real angle = math::pi + math::pi * i / arcSegments;
+        const Vec3 normal{std::cos(angle), std::sin(angle), 0.0};
+        ring(Vec3{0.0, -halfLength, 0.0} + bendRadius_ * normal, normal);
+    }
+    periodicSurfaceTriangles(surfaceTriangles_, rows, tubeSegments);
+}
+
+void Torus::setParameter(Real majorRadius, Real tubeRadius)
+{
+    if (!finitePositive(tubeRadius) || !finitePositive(majorRadius) || majorRadius <= tubeRadius || !finitePositive(majorRadius + tubeRadius))
+        throw std::invalid_argument("Torus requires finite radii with major radius greater than tube radius greater than zero.");
+    clearGrid();
+    majorRadius_ = majorRadius;
+    tubeRadius_ = tubeRadius;
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    configured_ = true;
+}
+
+LSInfo::Vec3 Torus::boundingBoxMin() const noexcept { return {-majorRadius_ - tubeRadius_, -majorRadius_ - tubeRadius_, -tubeRadius_}; }
+LSInfo::Vec3 Torus::boundingBoxMax() const noexcept { return {majorRadius_ + tubeRadius_, majorRadius_ + tubeRadius_, tubeRadius_}; }
+LSInfo::Real Torus::evaluateSFD(const Vec3& point) const noexcept { return std::hypot(std::hypot(point.x, point.y) - majorRadius_, point.z) - tubeRadius_; }
+
+void Torus::buildSurfaceNode(Real surfaceSpacing)
+{
+    if (!configured_) throw std::logic_error("Configure the torus before creating its surface.");
+    // Each parameter edge receives half the spacing budget so diagonal chords also satisfy the target.
+    const Real edgeSpacing = surfaceSpacing * 0.5;
+    const int majorSegments = surfaceSegments(2.0 * math::pi * (majorRadius_ + tubeRadius_), edgeSpacing, 12);
+    const int tubeSegments = surfaceSegments(2.0 * math::pi * tubeRadius_, edgeSpacing, 8);
+    const std::size_t nodeCount = static_cast<std::size_t>(majorSegments) * tubeSegments;
+    checkPrimitiveBudget(nodeCount, 2 * nodeCount);
+    clearGrid();
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    surfaceNodePositions_.reserve(nodeCount);
+    surfaceTriangles_.reserve(2 * nodeCount);
+    for (int major = 0; major < majorSegments; ++major)
+    {
+        const Real u = 2.0 * math::pi * major / majorSegments;
+        for (int tube = 0; tube < tubeSegments; ++tube)
+        {
+            const Real v = 2.0 * math::pi * tube / tubeSegments;
+            const Real radial = majorRadius_ + tubeRadius_ * std::cos(v);
+            surfaceNodePositions_.push_back({radial * std::cos(u), radial * std::sin(u), tubeRadius_ * std::sin(v)});
+        }
+    }
+    periodicSurfaceTriangles(surfaceTriangles_, majorSegments, tubeSegments);
+}
+
+void Capsule::setParameter(Real radius, Real straightLength)
+{
+    if (!finitePositive(radius) || !math::isFinite(straightLength) || straightLength < 0.0 || !finitePositive(radius + 0.5 * straightLength))
+        throw std::invalid_argument("Capsule radius must be positive and straight length non-negative, with finite total extent.");
+    clearGrid();
+    radius_ = radius;
+    straightLength_ = straightLength;
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    configured_ = true;
+}
+
+LSInfo::Vec3 Capsule::boundingBoxMin() const noexcept { return {-radius_, -radius_, -radius_ - 0.5 * straightLength_}; }
+LSInfo::Vec3 Capsule::boundingBoxMax() const noexcept { return {radius_, radius_, radius_ + 0.5 * straightLength_}; }
+LSInfo::Real Capsule::evaluateSFD(const Vec3& point) const noexcept
+{
+    const Real axial = point.z - std::clamp(point.z, -0.5 * straightLength_, 0.5 * straightLength_);
+    return std::hypot(std::hypot(point.x, point.y), axial) - radius_;
+}
+
+void Capsule::buildSurfaceNode(Real surfaceSpacing)
+{
+    if (!configured_) throw std::logic_error("Configure the capsule before creating its surface.");
+    const Real edgeSpacing = surfaceSpacing * 0.5;
+    const int circumferenceSegments = surfaceSegments(2.0 * math::pi * radius_, edgeSpacing, 8);
+    const int capSegments = surfaceSegments(0.5 * math::pi * radius_, edgeSpacing, 2);
+    const int cylinderSegments = straightLength_ > 0.0 ? surfaceSegments(straightLength_, edgeSpacing, 1) : 0;
+    const std::size_t ringCount = static_cast<std::size_t>(2) * capSegments + cylinderSegments - 1;
+    const std::size_t ringNodes = ringCount * circumferenceSegments;
+    checkPrimitiveBudget(ringNodes + 2, 2 * ringNodes);
+    clearGrid();
+    surfaceNodePositions_.clear();
+    surfaceTriangles_.clear();
+    surfaceNodePositions_.reserve(ringNodes + 2);
+    surfaceTriangles_.reserve(2 * ringNodes);
+    const Real halfLength = 0.5 * straightLength_;
+    surfaceNodePositions_.push_back({0.0, 0.0, -halfLength - radius_});
+    const auto ring = [&](Real radial, Real z)
+    {
+        for (int i = 0; i < circumferenceSegments; ++i)
+        {
+            const Real angle = 2.0 * math::pi * i / circumferenceSegments;
+            surfaceNodePositions_.push_back({radial * std::cos(angle), radial * std::sin(angle), z});
+        }
+    };
+    for (int i = 1; i <= capSegments; ++i)
+    {
+        const Real angle = 0.5 * math::pi * i / capSegments;
+        ring(radius_ * std::sin(angle), -halfLength - radius_ * std::cos(angle));
+    }
+    for (int i = 1; i <= cylinderSegments; ++i)
+        ring(radius_, -halfLength + straightLength_ * i / cylinderSegments);
+    for (int i = 1; i < capSegments; ++i)
+    {
+        const Real angle = 0.5 * math::pi * i / capSegments;
+        ring(radius_ * std::cos(angle), halfLength + radius_ * std::sin(angle));
+    }
+    const int northPole = static_cast<int>(surfaceNodePositions_.size());
+    surfaceNodePositions_.push_back({0.0, 0.0, halfLength + radius_});
+    for (int i = 0; i < circumferenceSegments; ++i)
+    {
+        const int next = (i + 1) % circumferenceSegments;
+        surfaceTriangles_.push_back(triangle(0, 1 + next, 1 + i));
+        const int topRing = 1 + static_cast<int>(ringCount - 1) * circumferenceSegments;
+        surfaceTriangles_.push_back(triangle(northPole, topRing + i, topRing + next));
+    }
+    for (std::size_t ringIndex = 0; ringIndex + 1 < ringCount; ++ringIndex)
+        for (int i = 0; i < circumferenceSegments; ++i)
+        {
+            const int next = (i + 1) % circumferenceSegments;
+            const int lower = 1 + static_cast<int>(ringIndex) * circumferenceSegments;
+            const int upper = lower + circumferenceSegments;
+            surfaceTriangles_.push_back(triangle(lower + i, lower + next, upper + next));
+            surfaceTriangles_.push_back(triangle(lower + i, upper + next, upper + i));
+        }
 }
 
 Sphere::Sphere(Real radius) { setParameter(radius); }

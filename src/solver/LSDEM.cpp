@@ -342,7 +342,6 @@ void LSDEM::assembleLSParticleForceAndTorque(Real historyTimeStep, gpu::mode, cu
         host_device_detail::checkCuda(cudaMemsetAsync(LSParticles_.device<rigidBody::forceField>(), 0, particleCount * sizeof(math::Vec3), stream), "cudaMemsetAsync LSParticle force");
         host_device_detail::checkCuda(cudaMemsetAsync(LSParticles_.device<rigidBody::torqueField>(), 0, particleCount * sizeof(math::Vec3), stream), "cudaMemsetAsync LSParticle torque");
     }
-    cuda::launchBuildSpatialGrid(LSParticleSpatialGrid_, LSParticles_, stream);
     calculateLSParticleForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     addLSParticleExternalForceAndTorque(deviceFields(LSParticles_), stream);
 #else
@@ -355,8 +354,13 @@ void LSDEM::calculateLSParticleForceAndTorque(Real historyTimeStep, cpu::mode)
 {
     beforeLSParticleContactDetection(cpu::mode{});
     LSParticleSearch_.findContacts(LSParticleInteractions_.contacts(), LSParticles_);
-    cpu::addContactForceAndTorque(LSParticleInteractions_.contacts(), LSParticles_, LSParticles_, materialPairs_, historyTimeStep);
+    addLSParticleContactForceAndTorque(historyTimeStep, cpu::mode{});
     cpu::addBondForceAndTorque(LSParticleInteractions_.bonds(), LSParticles_);
+}
+
+void LSDEM::addLSParticleContactForceAndTorque(Real historyTimeStep, cpu::mode)
+{
+    cpu::addContactForceAndTorque(LSParticleInteractions_.contacts(), LSParticles_, LSParticles_, materialPairs_, historyTimeStep);
 }
 
 double LSDEM::systemDeviceMemoryGB() const noexcept
@@ -383,9 +387,15 @@ void LSDEM::initializeLSParticleDevice(cudaStream_t stream)
 void LSDEM::calculateLSParticleForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream)
 {
     beforeLSParticleContactDetection(gpu::mode{}, stream);
+    cuda::launchBuildSpatialGrid(LSParticleSpatialGrid_, LSParticles_, stream);
     cuda::launchLevelSetLevelSetContactDetection(LSParticleInteractions_, LSParticles_, geometries_, LSParticleSpatialGrid_.device(), stream);
-    cuda::launchContactForce(LSParticleInteractions_.contacts(), LSParticles_, materials_, materialPairs_, historyTimeStep, stream);
+    addLSParticleContactForceAndTorque(historyTimeStep, gpu::mode{}, stream);
     cuda::launchBondForce(LSParticleInteractions_.bonds(), LSParticles_, stream);
+}
+
+void LSDEM::addLSParticleContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream)
+{
+    cuda::launchContactForce(LSParticleInteractions_.contacts(), LSParticles_, materials_, materialPairs_, historyTimeStep, stream);
 }
 
 void LSDEM::copyLSParticleForceAndTorqueToHost(cudaStream_t stream)
@@ -408,6 +418,7 @@ void LSDEM::copySystemDeviceToHost(cudaStream_t stream)
 
 void LSDEM::initializeLSParticleDevice(cudaStream_t) { throw std::runtime_error("The GPU backend is unavailable in this FunDEM build."); }
 void LSDEM::calculateLSParticleForceAndTorque(Real, gpu::mode, cudaStream_t) {}
+void LSDEM::addLSParticleContactForceAndTorque(Real, gpu::mode, cudaStream_t) { throw std::runtime_error("The GPU backend is unavailable in this FunDEM build."); }
 void LSDEM::copyLSParticleForceAndTorqueToHost(cudaStream_t) {}
 void LSDEM::copySystemDeviceToHost(cudaStream_t) {}
 

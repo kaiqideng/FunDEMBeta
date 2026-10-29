@@ -40,7 +40,7 @@ Typical call order:
 3. Select the solver execution mode.
 4. Call `solve(numberOfSteps)`.
 
-The first `solve()` initializes automatically. At completion, device state and interactions are synchronized to the host and `initialized()` returns to false. Objects may then be added, and the next solve rebuilds storage for the new container sizes. Configuration that would invalidate device state cannot change while initialized.
+The first `solve()` initializes automatically. At completion, device state and interactions are synchronized to the host and `initialized()` returns to false. An unchanged next solve resumes the retained continuation; appending objects or changing model configuration invalidates it and initializes the required storage from the synchronized host state. Configuration that would invalidate device state cannot change while initialized.
 
 Solver-owned containers are exposed to users only as const references. Existing elements must never be swapped, reordered, replaced, or erased; add valid objects through the solver's `add...` interfaces so every insertion index remains stable.
 
@@ -94,17 +94,50 @@ Births occur only at common acoustic starts, before saving the acoustic-start st
 
 `addSPHJet()` returns the first seed particle index. Use `SPHJetParticleIndices(firstIndex)` to obtain the source's current append-only membership. Multiple sources and ordinary blocks can be interleaved, so later source particles are not necessarily one contiguous interval. `SPHJetsCompleted()` reports completion at the public visible time, independently of the leading fluid endpoint. Output and paused continuation preserve source schedules and membership instead of reinjecting particles.
 
-An inlet opening is applied only to virtual SPH wall samples. Samples inside the finite upstream buffer cylinder, expanded by half a particle spacing axially and radially, receive zero quadrature volume. Their force, viscous prior force, and coupling torque are cleared when the mask changes. The nominal volume is restored when a moving sample leaves the opening. The opening remains after emission ends, never extends along the downstream jet path, and does not alter LS signed-distance grids, surface triangles, or DEM contacts. Moving-wall mask changes restart SPH advection preparation so no old viscous wall force survives the changed quadrature; the preceding held hydraulic load is removed before masked load fields are cleared. Observation applies this rule only to its reversible host view.
+An inlet opening is applied only to virtual SPH wall samples. Samples inside the finite upstream buffer cylinder, expanded by half a particle spacing axially and radially, receive zero quadrature volume. Their force, viscous prior force, and coupling torque are cleared when the mask changes. The nominal volume is restored when a moving sample leaves the opening. The opening remains after emission ends, never extends along the downstream jet path, and does not alter LS signed-distance grids, surface triangles, or DEM contacts. Moving-wall mask changes restart SPH advection preparation so no old viscous wall force survives the changed quadrature; the preceding held hydraulic load is removed before masked load fields are cleared. Observation applies this rule only to its reversible host view. With an SPH periodic domain, the virtual opening is also tested in the corresponding translated cell images; its source schedule and stored fluid coordinates remain unchanged.
 
 The SPH acoustic time step is an integer multiple of the DEM time step without exceeding the acoustic limit; its minimum is one DEM step. If one DEM step already exceeds the acoustic or advection/viscous limit, initialization rejects the configuration. At the start of each advection step, `SPHDEM` builds the fluid and virtual-wall neighborhood on the selected SPH backend, updates the free-surface state, reinitializes density, and stores the viscous force as a prior force. Neighbor queries include a relative-displacement buffer derived from the maximum fluid and virtual-wall velocity and acceleration. Acoustic substeps reuse the search structures while `interaction/SPHNeighborhood` confirms that actual displacement remains within half that buffer. Before each density or pressure stage, exhausted or invalid references trigger a search rebuild without reinitializing density, refreshing the viscous prior force, or restarting the advection step.
 
 SPH retains its drift-kick-drift (DKD) position/velocity update and two density half-steps. DEM retains kick-drift-kick (KDK). At a common acoustic boundary, the solver refreshes virtual-wall geometry from the current solid pose, uses completed-interval average wall velocity/acceleration (instantaneous kinematics at startup), and advances the fluid over `H = N * DEM_dt` first. The resulting pressure and viscous reaction force and world torque replace only the old hydraulic part of each solid's cached load, before the first solid half kick. DEM then takes `N` ordinary KDK substeps with this same hydraulic load; contacts, bonds, gravity, and external fields retain their normal DEM schedule. No endpoint velocity or angular-velocity impulse correction is applied. This is explicit partitioned coupling, not a claim of exact energy conservation, unconditional added-mass stability, or global second-order accuracy.
 
+### Optional SPH Periodic Neighbors
+
+`SPHDEM::setSPHPeriodicDomain(const math::periodicDomain&)` enables selected
+axes for fluid/fluid and fluid/virtual-wall interactions on CPU, GPU and Hybrid.
+The default domain disables every axis, preserving ordinary behavior. For example,
+after configuring the usual SPH properties:
+
+```cpp
+fundem::math::periodicDomain periodic;
+periodic.minimum_ = {0.0, 0.0, 0.0};
+periodic.length_ = {1.0, 1.0, 1.0};
+periodic.periodicAxes_[0] = true;
+periodic.periodicAxes_[1] = true;
+solver.setSPHPeriodicDomain(periodic);
+```
+
+Each enabled period L must have finite valid bounds and satisfy `4h < L`,
+where h is the smoothing length: physical support `2h` is strictly less than
+half a period. Both this setter and `setSPHProperties()` enforce that condition.
+Changing the domain invalidates deferred continuation/search state and is
+rejected while `initialized()` is true. Setting an identical value is a no-op,
+including while initialized. Apply actual changes at the ordinary synchronized
+lifecycle boundary, not concurrently with a running stage.
+
+The API changes SPH neighbor images and translated virtual inlet openings only. Fluid integration, inlet constraints and
+dense-output endpoint buffers keep continuous real coordinates, without ghost
+particles or mass. An application that wants wrapped display/file coordinates
+must wrap a detached observation/output copy; never feed those wrapped values
+back into the retained integration or inlet buffers. This SPH setting does not
+automatically make LS/DEM contacts or Bonds periodic; a boundary adapter must
+provide the corresponding solid policy. All device grid/interaction helpers
+use the caller's stream; the public setter configures metadata, not device work.
+
 ### Output
 
 After `setOutputDirectory()` and `setOutputStepInterval()`, each output frame reports the calculated step count, frame index, physical time, and device memory usage. VTU output is binary by default; use `setVTUOutputFormat(vtuFormat::ascii)` for ASCII.
 
-Core solvers enable VTU files by default. `setVTUOutputEnabled(false)` suppresses all particle and interaction VTU files without changing synchronization, frame indices, output cadence, selected optional fields, or `energy.dat`. Re-enable it to emit the normal default fields plus the retained optional selections. FunDEMSoftware explicitly defaults this switch to off for new projects.
+Core solvers enable VTU files by default. `setVTUOutputEnabled(false)` suppresses all particle and interaction VTU files without changing synchronization, frame indices, output cadence, selected optional fields, or `energy.dat`. Re-enable it to emit the normal default fields plus the retained optional selections. A graphical frontend may use `observeCurrentState()` for its own result format without enabling core VTU output; that frontend's file policy is not a core-library default.
 
 - Sphere defaults: position, radius, and velocity.
 - Movable LS-particle defaults: surface-node position and velocity. Fixed LS particles are written separately as `fixedLSParticle`; distance to center is optional.

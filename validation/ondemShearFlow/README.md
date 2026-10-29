@@ -312,5 +312,7 @@ or substitute coarse-graining kernel is imposed by this runner.
 Optional VTU particle frames include radius, velocity, angular velocity, force,
 original source ID, and an infinite-mass flag. In ParaView, use the radius with
 a sphere glyph. These are visualization outputs, not the benchmark's continuum
-profiles. The default software project serializer has no periodic-boundary
-contract, so no misleading runnable `.fundem.json` is generated.
+profiles. This standalone core benchmark does not generate a desktop project.
+The current FunDEM desktop application has its own event-based periodic module
+and project schema; those do not make this CPU-only reference-law runner a
+general GPU/Hybrid benchmark.

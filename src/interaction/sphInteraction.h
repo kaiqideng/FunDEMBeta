@@ -33,7 +33,8 @@ public:
                            const math::Vec3& minimumBoundary,
                            const math::Vec3& maximumBoundary,
                            math::Real cellSize,
-                           math::Real searchRadius);
+                           math::Real searchRadius,
+                           const math::periodicDomain& periodicDomain = {});
     /** Marks free-surface particles from kernel-support deficiency. */
     void updateFreeSurface(SPHParticleContainer& particles, const virtualParticleContainer& virtualParticles, const SPHInteractionParameters& parameters) const;
     /** Reinitializes density using the current fixed neighborhood. */

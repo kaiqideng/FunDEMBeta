@@ -67,7 +67,7 @@ resolutions:
 | Series | Surface subdivision levels | Surface-node counts |
 | --- | --- | --- |
 | Surface convergence | 2, 3, 4, 5 | 162, 642, 2,562, 10,242 |
-| Volume-grid convergence | Hold level 5 | 20, 40, 80 nodes per diameter |
+| Volume-grid convergence | Hold level 5 | 20, 40, 80 cells across the largest extent |
 
 The node counts follow the icosphere relation used by
 `levelset::Sphere::buildSurfaceNode`. They do not need to equal the paper's

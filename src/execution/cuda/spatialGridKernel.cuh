@@ -8,6 +8,7 @@
 #include "particle/SPHParticle.h"
 #include "particle/spatialGrid.h"
 #include "particle/virtualParticle.h"
+#include "math/PeriodicDomain.h"
 
 #include <cuda_runtime_api.h>
 
@@ -17,7 +18,11 @@ namespace detail
 {
 
 /** Builds and sorts one spatial grid without synchronizing @p stream. */
-void launchBuildSpatialGrid(spatialGridContainer& spatialGrid, const math::Vec3* particlePositions, int particleCount, cudaStream_t stream);
+void launchBuildSpatialGrid(spatialGridContainer& spatialGrid, const math::Vec3* particlePositions, int particleCount, const math::periodicDomain& periodicDomain, cudaStream_t stream);
+inline void launchBuildSpatialGrid(spatialGridContainer& spatialGrid, const math::Vec3* particlePositions, int particleCount, cudaStream_t stream)
+{
+    launchBuildSpatialGrid(spatialGrid, particlePositions, particleCount, {}, stream);
+}
 
 } // namespace detail
 
@@ -33,10 +38,22 @@ inline void launchBuildSPHSpatialGrid(spatialGridContainer& spatialGrid, const S
     detail::launchBuildSpatialGrid(spatialGrid, particles.device<pointMass::positionField>(), static_cast<int>(particles.deviceSize()), stream);
 }
 
+/** Builds canonical periodic grid keys without moving the fluid particles. */
+inline void launchBuildSPHSpatialGrid(spatialGridContainer& spatialGrid, const SPHParticleContainer& particles, const math::periodicDomain& periodicDomain, cudaStream_t stream)
+{
+    detail::launchBuildSpatialGrid(spatialGrid, particles.device<pointMass::positionField>(), static_cast<int>(particles.deviceSize()), periodicDomain, stream);
+}
+
 /** Builds the virtual-boundary-particle background grid on @p stream. */
 inline void launchBuildVirtualParticleSpatialGrid(spatialGridContainer& spatialGrid, const virtualParticleContainer& particles, cudaStream_t stream = nullptr)
 {
     detail::launchBuildSpatialGrid(spatialGrid, particles.device<pointMass::positionField>(), static_cast<int>(particles.deviceSize()), stream);
+}
+
+/** Builds periodic boundary-sample keys while retaining each original owner and torque arm. */
+inline void launchBuildVirtualParticleSpatialGrid(spatialGridContainer& spatialGrid, const virtualParticleContainer& particles, const math::periodicDomain& periodicDomain, cudaStream_t stream)
+{
+    detail::launchBuildSpatialGrid(spatialGrid, particles.device<pointMass::positionField>(), static_cast<int>(particles.deviceSize()), periodicDomain, stream);
 }
 
 } // namespace fundem::cuda

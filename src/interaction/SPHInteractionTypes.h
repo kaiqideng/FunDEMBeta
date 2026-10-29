@@ -5,6 +5,7 @@
 #pragma once
 
 #include "math/Vector3.h"
+#include "math/PeriodicDomain.h"
 
 namespace fundem
 {
@@ -34,6 +35,7 @@ struct SPHInteractionParameters {
     math::Real soundSpeed_{0.0};             ///< Artificial speed of sound.
     math::Real dynamicViscosity_{0.0};       ///< Uniform dynamic viscosity.
     math::Vec3 gravity_{math::Vec3::zero()}; ///< Uniform gravitational acceleration.
+    math::periodicDomain periodicDomain_{};  ///< Translational images; physical particles are never duplicated.
 };
 
 } // namespace fundem

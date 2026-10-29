@@ -11,6 +11,7 @@
 | `Matrix3.h` | Row-major `Mat3`, matrix operations, and conditioned inversion |
 | `Quaternion.h` | Unit quaternions, rotation, inverse rotation, and normalization |
 | `Indexing.h` | Conversion from three-dimensional grid coordinates to x-major linear indices |
+| `PeriodicDomain.h` | Optional host/device coordinate wrapping and minimum-image displacements |
 
 ## Key Rules
 
@@ -19,6 +20,25 @@
 - `rotateUnit()` and `inverseRotateUnit()` are fast paths that require an already normalized quaternion.
 - Prefer `tryNormalize()`, `normalizedOrZero()`, `normalizedOrIdentity()`, and `tryInverse()` when inputs are uncertain.
 - Use `defaultTolerance` for degeneracy checks instead of scattering hard-coded tiny values through the algorithms.
+
+`math::periodicDomain` defaults to all axes disabled. Set `minimum_`, positive
+`length_`, and the selected `periodicAxes_`; `valid()` checks enabled-axis
+metadata. `minimumImage(displacement)` and `imagePosition(point, reference)`
+select a single nearest translational image. `wrapPosition(point)` returns a
+coordinate in the half-open fundamental cell without changing its argument.
+These helpers do not wrap particle containers, generate ghosts, choose an
+interaction cutoff, or change a force law. The caller must keep physical
+interaction support strictly smaller than half each enabled period.
+
+Positions passed to these helpers must be finite, and callers must reject an
+invalid domain before calling its transforms. Disabled axes are left untouched.
+At exactly half a period, `minimumImage()` follows `round()`'s tie convention;
+the strict support bound avoids ambiguous interacting images at that limit.
+`SPHDEM::setSPHPeriodicDomain()` applies this coordinate policy to SPH neighbor
+queries and validates `4 * smoothingLength < enabled period`. It retains
+continuous physical integration coordinates rather than wrapping the solver's
+particle positions. The value type alone does not enable periodic DEM contact
+search or a periodic boundary condition on every solver.
 
 ## Extension Guide
 

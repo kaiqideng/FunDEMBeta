@@ -13,6 +13,7 @@ target_sources(
             Vector3.h
             Matrix3.h
             Quaternion.h
+            PeriodicDomain.h
 )
 
 target_include_directories(

@@ -507,7 +507,9 @@ __global__ void countLevelSetNeighborsKernel(neighborRange::device_type ranges, 
     int slaveLevel;
     while (search.next(slaveIndex, slaveLevel))
     {
-        if (slaveLevel == firstLevel && masterIndex >= slaveIndex)
+        const math::Real slaveRadius = particles.body_.radius_[slaveIndex];
+        if (particles.body_.inverseMass_[slaveIndex] != 0.0 &&
+            (masterRadius > slaveRadius || (masterRadius == slaveRadius && masterIndex >= slaveIndex)))
         {
             continue;
         }
@@ -541,7 +543,9 @@ __global__ void writeLevelSetNeighborsKernel(neighborRange::device_type ranges,
     int slaveLevel;
     while (search.next(slaveIndex, slaveLevel))
     {
-        if (slaveLevel == firstLevel && masterIndex >= slaveIndex)
+        const math::Real slaveRadius = particles.body_.radius_[slaveIndex];
+        if (particles.body_.inverseMass_[slaveIndex] != 0.0 &&
+            (masterRadius > slaveRadius || (masterRadius == slaveRadius && masterIndex >= slaveIndex)))
         {
             continue;
         }

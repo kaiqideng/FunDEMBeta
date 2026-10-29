@@ -1,6 +1,6 @@
 # SPH State, Coupling, and Search Corrections
 
-Updated October 24, 2026. The search and robustness notes originated in the September 2026 review; the coupling schedule below supersedes its endpoint impulse correction.
+Documentation reviewed against the source on October 30, 2026. The search and robustness notes originated in the September 2026 review; the current coupling schedule below supersedes its endpoint impulse correction. This review updates the description, not the numerical algorithm, and is not a new simulation-validation result.
 
 This note distinguishes committed numerical integration from current-time observations. FunDEM keeps SPH drift-kick-drift (DKD) and DEM kick-drift-kick (KDK); it does not claim to implement every feature of SPHinXsys.
 
@@ -92,22 +92,47 @@ Source end time, public handle, and created-layer count are derived from the sou
 
 Nozzle clearance changes virtual-wall quadrature only. A finite cylinder spanning the upstream buffer is expanded by `spacing/2` in the radial and axial directions; virtual samples inside it receive zero volume and no SPH wall load. The mask is independent of emission completion and does not cut a downstream target wall. It does not modify an LS SDF, triangle mesh, or DEM contact boundary and is not a CAD-level hole. Moving samples regain their nominal lattice volume outside the mask. A changed mask clears its old sample loads and refreshes advection preparation, including viscous prior force. The owner-level old hydraulic load is removed before clearing those sample loads. Current-time observation changes only its temporary host mask, never device state or the actual neighbor/advection phase.
 
-Finite inlets mask virtual-boundary quadrature rather than changing LS geometry: a sample inside any short upstream buffer, with half-spacing radial/axial clearance, has zero effective volume. Slots and owner indices remain stable, and samples outside the finite cut retain their usual volume. The mask persists after emission ends. Moving-boundary mask changes invalidate the neighborhood and restart advection preparation so previously cached viscous loads cannot survive a newly opened or restored sample. Observation updates only the displayed host mask; it never changes integration phases. The LS grid, surface geometry, and DEM contact detection are not cut by this SPH-only policy.
+## 8. Optional minimum-image SPH neighbors
 
-## 8. Workbench history and resumed fluid properties
+Affected code: `math/PeriodicDomain.h`, `execution/sphSpatialGridFunctions.h`,
+CPU `interaction/sphInteraction.cpp`, CUDA `spatialGridKernel.*` and
+`sphInteractionKernel.*`, and the `SPHDEM::setSPHPeriodicDomain()` API.
 
-These changes belong to FunDEMSoftware rather than the solver library:
+An optional `math::periodicDomain` enables individual Cartesian directions for
+fluid/fluid and fluid/virtual-wall interactions in CPU, GPU, and Hybrid modes.
+It defaults to all directions disabled. Enabled lengths and bounds must be
+finite and valid, and the physical support must satisfy `4h < L` in every
+periodic direction. Both SPH-property setup and the domain setter enforce that
+condition. The setter rejects changes while initialized, but an identical value
+is a no-op. A real change invalidates retained continuation and search state.
 
-- Recorded display frames and full restart checkpoints are stored in a process-owned temporary disk spool. Frame time/step metadata stays resident. The initial implementation accompanying this 1.0.1 review used a byte-bounded playback cache with a 32 MiB default. Oversized individual frames could be loaded without being permanently cached.
-- Geometry resources are stored separately and reused. Both frame files must be written successfully before a frame is published. Records have format, count, and checksum checks; read or disk-full errors are reported rather than silently dropping history.
-- Reset/project replacement releases the old spool after any in-progress reader finishes. Normal application shutdown removes it. This is temporary session storage, not a substitute for exporting a project or scientific files; abnormal process termination can leave temporary files behind.
-- A frame checkpoint records its original uniform SPH properties. Those properties are read-only when resuming its saved SPH model, and project compilation rejects mismatches. Old JSON files without this metadata establish the baseline from their stored solver settings on import; earlier manual tampering cannot be reconstructed.
+Search hashes use wrapped cell coordinates, but physical integration and
+acoustic snapshots retain continuous real coordinates. Free-surface, density,
+pressure, and viscous terms use minimum-image separations. Shared bounded cell
+queries avoid duplicate particle visits when the search skin spans an entire
+periodic direction. Wall forces return to the original LS owner with its
+physical local torque arm, not an image-length lever arm. Inlet-opening masks
+also test the applicable translated cylinder images without moving the source.
 
-### Subsequent workbench update: FunDEMSoftware 0.3.27
+This is not a generic periodic-solid solver or an inlet/outlet boundary model.
+It does not wrap, delete, recycle, or create fluid particles, and it does not
+make ordinary LS/DEM contact detection or bonds periodic. Applications requiring
+periodic solid contacts must supply that separate boundary policy. Device grids,
+copies, and interaction launchers use the caller's stream.
 
-The current workbench uses a configurable multi-frame LRU playback cache with a 256 MiB default. **Settings > Display Storage** exposes separate **Viewport** and **Playback Cache** budgets; the latter applies immediately, persists as an application preference across Reset/project replacement, and accepts **Off** to disable retention. Cached frames reuse immutable LS geometry, whose retained allocation is counted once across frames. Reducing the limit evicts cache entries, while oversized frames remain readable without retention. Complete render/checkpoint disk records and the temporary-spool cleanup policy are unchanged.
+## 9. Library observations versus application result storage
 
-This follow-up changes workbench memory retention, not the numerical corrections recorded for core version 1.0.1 above. The default is an engineering tradeoff rather than a measured optimum: more retained frames can avoid repeated disk reads, but uncached reads and large frame copies may still delay playback. It is not a total-process RAM or GPU-memory limit and does not introduce lossy scientific history.
+FunDEMBeta exposes `observeCurrentState()` and the core VTU/DAT output path. A
+workbench can build its own frame archive, playback cache, or export format on
+top of that observation interface; those formats and UI settings are not
+implemented or versioned by this library. In particular, a visible-state frame
+must not be described as a complete hidden multirate restart checkpoint unless
+the application actually serializes the leading endpoint, interval counters,
+held loads, source ownership, and search phase described in section 1.
+
+Refer to the application's current user documentation for its storage limits,
+cleanup policy, and supported reload behavior, rather than using historical
+workbench-version notes as a core-library contract.
 
 ## Focused verification
 
@@ -117,10 +142,22 @@ The regression suites cover:
 - `SPHCouplingTest`: held torque under rotation, changing-load reaction impulse with a known external-force budget, first-half-kick installation, complete wall kinematics, and non-mutating observations;
 - `SPHRobustnessTest`: invalid-rate latching, approaching particles crossing cells, boundary displacement, and extreme interval/jet conversion;
 - `SPHJetTest`: bounded initial buffers, scheduled growth to exact finite counts, two-source/block ownership, preserved device prefixes, no early births during observation, permanent outlet release, non-grid births after a DEM-step change, finite virtual openings with unchanged LS grids/stable sample slots, static/moving-wall mask updates, and uninterrupted versus observed/segmented continuation;
-- software engine/JSON checks: paused and recorded positions, checkpoint time consistency, and frozen resumed SPH properties;
-- `frameHistoryTest`: serialization, bounded cache, failure atomicity, corrupt/truncated records, concurrent access, and spool lifetime.
 
-The September review verified its earlier CPU/CUDA corrections and software history behavior. Those historical results are not evidence that a later coupling change has been tested: the leading-fluid schedule must pass the focused suites for the actual CPU, GPU, and Hybrid builds being delivered. Native Windows and macOS package checks are additionally required before publishing their binaries. Tiny regression tests are not substitutes for a full hydrostatic, impact-force, or long-duration FSI convergence study.
+The current CTest names are `FunDEM.SPHState.CPU`, `FunDEM.SPHCoupling`,
+`FunDEM.SPHRobustness`, and `FunDEM.SPHJet`; CUDA-enabled builds additionally
+register `FunDEM.SPHState` and `FunDEM.SPHRobustness.GPU`. Coupling and jet tests
+also exercise GPU/Hybrid branches when compiled with CUDA. See
+[`src/tests/CMakeLists.txt`](../src/tests/CMakeLists.txt) for the actual registered
+targets. Periodic backend and application integration checks belong to the
+corresponding application suites; their existence is not a claim that a run
+passed in this documentation review.
+
+The September review verified its earlier CPU/CUDA corrections. Those historical
+results are not evidence that a later coupling change has been tested: the
+focused suites must be run for the actual CPU, GPU, and Hybrid builds being
+delivered. Packaging also requires checks on the actual supported delivery
+platform. Tiny regression tests are not substitutes for full hydrostatic,
+impact-force, periodic-flow, or long-duration FSI convergence studies.
 
 ## Deliberately unchanged model choices
 

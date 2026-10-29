@@ -108,6 +108,9 @@ protected:
     virtual void beforeLSParticleContactDetection(cpu::mode) {}
     /** Optional streamed frontend kinematics at the force-evaluation pose. */
     virtual void beforeLSParticleContactDetection(gpu::mode, cudaStream_t) {}
+    /** Evaluates detected LS contacts; boundary adapters may append image contacts while reusing the native response. */
+    virtual void addLSParticleContactForceAndTorque(Real historyTimeStep, cpu::mode);
+    virtual void addLSParticleContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream);
     /** Device counterpart of the external LS load hook; work must use @p stream. */
     virtual void addLSParticleExternalForceAndTorque(LSParticle::device_type, cudaStream_t) {}
     /** Shared validated append path used by derived solvers. */

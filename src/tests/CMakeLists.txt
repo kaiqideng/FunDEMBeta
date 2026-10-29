@@ -39,6 +39,11 @@ fundem_add_cpp_test(
 fundem_add_cpp_test(fundem_random_shape_test FunDEM.RandomShape RandomShapeTest.cpp)
 fundem_add_cpp_test(fundem_material_pair_test FunDEM.MaterialPair MaterialPairTest.cpp)
 fundem_add_cpp_test(fundem_contact_pair_response_test FunDEM.ContactPairResponse ContactPairResponseTest.cpp)
+fundem_add_cpp_test(fundem_point_grid_test FunDEM.PointGrid PointGridTest.cpp)
+if(FUNDEM_HAS_OPENMP)
+    target_link_libraries(fundem_point_grid_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+set_tests_properties(FunDEM.PointGrid PROPERTIES ENVIRONMENT "OMP_NUM_THREADS=2" TIMEOUT 60)
 
 find_package(Threads REQUIRED)
 fundem_add_cpp_test(fundem_host_container_binding_test FunDEM.HostContainerBinding HostContainerBindingTest.cpp)
@@ -46,6 +51,9 @@ target_link_libraries(fundem_host_container_binding_test PRIVATE Threads::Thread
 
 fundem_add_cpp_test(fundem_ls_geometry_test FunDEM.LSGeometry LSGeometryTest.cpp)
 set_tests_properties(FunDEM.LSGeometry PROPERTIES ENVIRONMENT "OMP_NUM_THREADS=2" TIMEOUT 120)
+
+fundem_add_cpp_test(fundem_ls_primitive_test FunDEM.LSPrimitive LSPrimitiveTest.cpp)
+set_tests_properties(FunDEM.LSPrimitive PROPERTIES ENVIRONMENT "OMP_NUM_THREADS=2" TIMEOUT 120)
 
 fundem_add_cpp_test(fundem_ls_contact_parallel_test FunDEM.LSContactParallel LSContactParallelTest.cpp)
 if(FUNDEM_HAS_OPENMP)

@@ -34,6 +34,14 @@ public:
     LSInfo& operator=(LSInfo&&) noexcept = default;
     virtual ~LSInfo() = default;
 
+    /** Restores an already prepared local frame verbatim, without sampling, centroid correction or mass integration.
+     * The returned data-only object accepts signed-distance queries within its saved grid, including boundary nodes.
+     * Queries outside that grid and attempts to rebuild it are rejected; no analytic shape or source frame is inferred.
+     */
+    static std::unique_ptr<LSInfo> fromPreparedData(const Vec3& gridNodeOrigin, Real gridNodeSpacing, const int3& gridNodeSize, const std::vector<Real>& gridNodeSignedDistance,
+                                                    const std::vector<Vec3>& surfaceNodePositions, const std::vector<int3>& surfaceTriangles, Real boundingRadius, Real volume,
+                                                    const Mat3& unitDensityInertiaTensor);
+
     /** Reports whether the concrete shape has enough valid parameters to build a grid. */
     bool valid() const noexcept { return isValid(); }
     /** Builds the grid from cells across the diameter; Wall types default to fixed, other shapes to movable. */
@@ -45,6 +53,8 @@ public:
     /** Builds at explicit spacing/padding with the shape's default fixed/movable policy, including through LSInfo references. */
     void buildLSGrid(Real spacing, int paddingSize = 2);
     /** Builds the grid with explicit spacing/padding, then computes radius, volume, and unit-density inertia.
+     * @param spacing Positive Cartesian grid-node spacing in the geometry's length unit.
+     * @param paddingSize Non-negative number of extra grid cells around the native bounds.
      * @param isFixed Skip centroid correction and volume/inertia integration when true.
      * Surface points and the grid origin share the returned local frame; rebuilding never accumulates centroid shifts.
      */
@@ -54,8 +64,9 @@ public:
     /** Writes the generated Cartesian signed-distance grid as a VTI file. */
     void outputGridVTI(const std::string& fileName) const;
 
-    /** Evaluates the native signed distance at a point in the returned, possibly centroid-corrected local frame.
-     * reverseSDFSign() affects stored samples only, not this native shape query or integrated properties.
+    /** Evaluates signed distance at a point in the returned, possibly centroid-corrected local frame.
+     * Shapes query their native definition; data-only objects interpolate their saved grid and reject points outside it.
+     * reverseSDFSign() affects stored samples, not native shape queries or integrated properties.
      * @param localPoint Point in the current local frame, centroid-corrected when a movable grid has been built.
      */
     Real signedDistance(const Vec3& localPoint) const;
@@ -78,6 +89,13 @@ public:
     const std::vector<Vec3>& surfaceNodePosition() const noexcept { return surfaceNodePositions_; }
     const std::vector<int3>& surfaceNodeConnectivity() const noexcept { return surfaceTriangles_; }
 
+    /** Unpadded lower extent used for grid sampling, expressed in the current local frame.
+     * This is the shape's sampling box, not necessarily a tight surface AABB (notably for PlaneWall).
+     */
+    Vec3 gridSamplingBoundsMin() const noexcept { return boundingBoxMin() - centroidOffset_; }
+    /** Unpadded upper sampling extent in the same possibly centroid-corrected frame as the surface. */
+    Vec3 gridSamplingBoundsMax() const noexcept { return boundingBoxMax() - centroidOffset_; }
+
 protected:
     /** Restores native-frame surface positions and clears generated grid data and integrated properties. */
     void clearGrid() noexcept;
@@ -93,6 +111,8 @@ protected:
     bool configured_{false};                 ///< Whether shape parameters define a valid object.
 
 private:
+    /** Data-only restored grids cannot regenerate a shape or integrate their accepted frame again. */
+    virtual bool supportsGridRebuild() const noexcept { return true; }
     /** Selects the default integration policy dynamically; wall subclasses skip inertial integration. */
     virtual bool defaultFixedGeometry() const noexcept { return false; }
     /** Validates the concrete shape parameters. */
@@ -243,6 +263,223 @@ private:
     Real radiusZ_{0.0};            ///< Semi-axis length along z.
     Real equatorialExponent_{0.0}; ///< Equatorial shape exponent.
     Real polarExponent_{0.0};      ///< Polar shape exponent.
+};
+
+/** Exact signed-distance base shared by sharp convex polyhedra.
+ * Surface refinement bisects shared edges without projecting away from planar faces.
+ */
+class ConvexPolyhedron : public LSInfo
+{
+public:
+    /** Refines the welded base mesh until all triangle edges meet the positive spacing target. */
+    void buildSurfaceNode(Real surfaceSpacing);
+protected:
+    /** Replaces native vertices and outward triangles, invalidating generated surface/grid data. */
+    void setPolyhedron(std::vector<Vec3> vertices, std::vector<int3> triangles);
+private:
+    bool isValid() const noexcept override { return configured_; }
+    Vec3 boundingBoxMin() const noexcept override { return minimum_; }
+    Vec3 boundingBoxMax() const noexcept override { return maximum_; }
+    Real evaluateSFD(const Vec3& point) const noexcept override;
+    std::vector<Vec3> vertices_; ///< Native base vertices retained for exact distance queries.
+    std::vector<int3> triangles_; ///< Outward base faces, independent of surface refinement.
+    Vec3 minimum_{Vec3::zero()}; ///< Native bounding-box lower extent.
+    Vec3 maximum_{Vec3::zero()}; ///< Native bounding-box upper extent.
+};
+
+/** Regular N-sided prism with its axis along Z and caps at +/- height/2. */
+class RegularPolygonPrism final : public ConvexPolyhedron
+{
+public:
+    RegularPolygonPrism() = default;
+    /** Configures positive circumradius/full height and at least three polygon sides. */
+    RegularPolygonPrism(Real circumradius, Real height, int sides) { setParameter(circumradius, height, sides); }
+    /** Replaces the polygon circumradius, full height and integer side count. */
+    void setParameter(Real circumradius, Real height, int sides);
+private:
+    const char* objectName() const noexcept override { return "Regular Polygon Prism"; }
+};
+
+/** Regular tetrahedron centered at the origin, sized by its circumscribed sphere. */
+class Tetrahedron final : public ConvexPolyhedron
+{
+public:
+    Tetrahedron() = default;
+    /** Configures the positive center-to-vertex distance. */
+    explicit Tetrahedron(Real circumradius) { setParameter(circumradius); }
+    /** Replaces the circumradius while retaining the canonical four-vertex orientation. */
+    void setParameter(Real circumradius);
+private:
+    const char* objectName() const noexcept override { return "Tetrahedron"; }
+};
+
+/** Regular dodecahedron with twelve planar pentagonal faces and twenty shared vertices. */
+class Dodecahedron final : public ConvexPolyhedron
+{
+public:
+    Dodecahedron() = default;
+    /** Configures the positive circumscribed-sphere radius. */
+    explicit Dodecahedron(Real circumradius) { setParameter(circumradius); }
+    /** Replaces the center-to-vertex distance, preserving the canonical orientation. */
+    void setParameter(Real circumradius);
+private:
+    const char* objectName() const noexcept override { return "Dodecahedron"; }
+};
+
+/** Regular icosahedron with twenty triangular faces and twelve shared vertices. */
+class Icosahedron final : public ConvexPolyhedron
+{
+public:
+    Icosahedron() = default;
+    /** Configures the positive circumscribed-sphere radius. */
+    explicit Icosahedron(Real circumradius) { setParameter(circumradius); }
+    /** Replaces the center-to-vertex distance, preserving the canonical orientation. */
+    void setParameter(Real circumradius);
+private:
+    const char* objectName() const noexcept override { return "Icosahedron"; }
+};
+
+/** Regular hexagonal prism with its axis along Z and caps at +/- height/2. */
+class HexagonalPrism final : public ConvexPolyhedron
+{
+public:
+    HexagonalPrism() = default;
+    /** Configures a positive circumradius (center to polygon vertex) and full height. */
+    HexagonalPrism(Real circumradius, Real height) { setParameter(circumradius, height); }
+    /** Replaces the regular cross-section circumradius and full height. */
+    void setParameter(Real circumradius, Real height);
+private:
+    const char* objectName() const noexcept override { return "Hexagonal Prism"; }
+};
+
+/** Equilateral triangular prism, extruded along Z with caps at +/- height/2. */
+class TriangularPrism final : public ConvexPolyhedron
+{
+public:
+    TriangularPrism() = default;
+    /** Configures a positive circumradius (center to triangle vertex) and full height. */
+    TriangularPrism(Real circumradius, Real height) { setParameter(circumradius, height); }
+    /** Replaces the equilateral cross-section circumradius and full height. */
+    void setParameter(Real circumradius, Real height);
+private:
+    const char* objectName() const noexcept override { return "Triangular Prism"; }
+};
+
+/** Convex octahedron with vertices at the positive and negative Cartesian half-lengths. */
+class Octahedron final : public ConvexPolyhedron
+{
+public:
+    Octahedron() = default;
+    /** Configures three positive vertex distances along X, Y and Z. */
+    explicit Octahedron(const Vec3& halfLengths) { setParameter(halfLengths); }
+    /** Replaces the axial vertex distances; equal values produce a regular octahedron. */
+    void setParameter(const Vec3& halfLengths);
+private:
+    const char* objectName() const noexcept override { return "Octahedron"; }
+};
+
+/** Right rectangular pyramid, with its base at -height/2 and apex at +height/2. */
+class Pyramid final : public ConvexPolyhedron
+{
+public:
+    Pyramid() = default;
+    /** Configures two full base edge lengths and the full height, all positive. */
+    Pyramid(Real baseSizeX, Real baseSizeY, Real height) { setParameter(baseSizeX, baseSizeY, height); }
+    /** Replaces the base sizes and height; movable grid construction recenters the centroid. */
+    void setParameter(Real baseSizeX, Real baseSizeY, Real height);
+private:
+    const char* objectName() const noexcept override { return "Pyramid"; }
+};
+
+/** Sphere intersected with z <= cutHeight, with an exact distance and a welded planar cap.
+ * cutHeight=0 is a lower hemisphere; the two degenerate cuts at +/- radius are excluded.
+ */
+class CutSphere final : public LSInfo
+{
+public:
+    CutSphere() = default;
+    /** Requires a positive radius and a finite cut height strictly between -radius and radius. */
+    CutSphere(Real radius, Real cutHeight) { setParameter(radius, cutHeight); }
+    /** Replaces native sphere/cut parameters and invalidates any generated data. */
+    void setParameter(Real radius, Real cutHeight);
+    /** Samples spherical latitude rings and concentric disk rings, sharing their exact cut rim. */
+    void buildSurfaceNode(Real surfaceSpacing);
+private:
+    bool isValid() const noexcept override { return configured_; }
+    Vec3 boundingBoxMin() const noexcept override;
+    Vec3 boundingBoxMax() const noexcept override;
+    Real evaluateSFD(const Vec3& point) const noexcept override;
+    const char* objectName() const noexcept override { return "Cut Sphere"; }
+    Real radius_{0.0}; ///< Radius of the native uncut sphere.
+    Real cutHeight_{0.0}; ///< Native Z coordinate of the planar cap; retained solid lies below it.
+    Real rimRadius_{0.0}; ///< Radius of the shared spherical/disk boundary.
+};
+
+/** Elongated closed ring formed by a circular tube around a stadium centerline in the XY plane.
+ * Straight centerline segments lie at x=+/- bendRadius; straightLength is their length along Y.
+ * A zero straight length reduces to a circular torus, not a solid capsule.
+ */
+class Link final : public LSInfo
+{
+public:
+    Link() = default;
+    /** Requires bendRadius > tubeRadius > 0 and a finite non-negative straight length. */
+    Link(Real bendRadius, Real tubeRadius, Real straightLength) { setParameter(bendRadius, tubeRadius, straightLength); }
+    /** Replaces the tube/stadium dimensions and invalidates generated data. */
+    void setParameter(Real bendRadius, Real tubeRadius, Real straightLength);
+    /** Creates a periodic welded tube mesh with shared tangent-continuous arc/straight junctions. */
+    void buildSurfaceNode(Real surfaceSpacing);
+private:
+    bool isValid() const noexcept override { return configured_; }
+    Vec3 boundingBoxMin() const noexcept override;
+    Vec3 boundingBoxMax() const noexcept override;
+    Real evaluateSFD(const Vec3& point) const noexcept override;
+    const char* objectName() const noexcept override { return "Link"; }
+    Real bendRadius_{0.0}; ///< Radius of both centerline semicircles.
+    Real tubeRadius_{0.0}; ///< Radius of the tube cross-section.
+    Real straightLength_{0.0}; ///< Length of each straight centerline segment along Y.
+};
+
+/** Ring torus in the XY plane, with a tube radius smaller than its major radius. */
+class Torus final : public LSInfo
+{
+public:
+    Torus() = default;
+    /** Requires majorRadius > tubeRadius > 0; major radius is measured to the tube centerline. */
+    Torus(Real majorRadius, Real tubeRadius) { setParameter(majorRadius, tubeRadius); }
+    /** Replaces the two radii and invalidates generated data. */
+    void setParameter(Real majorRadius, Real tubeRadius);
+    /** Creates a welded periodic mesh with a positive target edge length independent of the LS grid. */
+    void buildSurfaceNode(Real surfaceSpacing);
+private:
+    bool isValid() const noexcept override { return configured_; }
+    Vec3 boundingBoxMin() const noexcept override;
+    Vec3 boundingBoxMax() const noexcept override;
+    Real evaluateSFD(const Vec3& point) const noexcept override;
+    const char* objectName() const noexcept override { return "Torus"; }
+    Real majorRadius_{0.0}; ///< Distance from Z axis to tube centerline.
+    Real tubeRadius_{0.0}; ///< Circular tube radius.
+};
+
+/** Capsule along Z, consisting of a straight cylinder and welded hemispherical caps. */
+class Capsule final : public LSInfo
+{
+public:
+    Capsule() = default;
+    /** Configures a positive radius and non-negative straight length; zero straight length is a sphere. */
+    Capsule(Real radius, Real straightLength) { setParameter(radius, straightLength); }
+    /** Replaces dimensions; total length is straightLength + 2 * radius. */
+    void setParameter(Real radius, Real straightLength);
+    /** Builds welded latitude/cylinder rings with unique poles and a positive edge-length target. */
+    void buildSurfaceNode(Real surfaceSpacing);
+private:
+    bool isValid() const noexcept override { return configured_; }
+    Vec3 boundingBoxMin() const noexcept override;
+    Vec3 boundingBoxMax() const noexcept override;
+    Real evaluateSFD(const Vec3& point) const noexcept override;
+    const char* objectName() const noexcept override { return "Capsule"; }
+    Real radius_{0.0}; ///< Cylinder and hemispherical-cap radius.
+    Real straightLength_{0.0}; ///< Distance between cap centers, excluding their radii.
 };
 
 /** Finite square plane representing an infinite-mass wall. */

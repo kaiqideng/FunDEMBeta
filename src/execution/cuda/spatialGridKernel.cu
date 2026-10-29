@@ -39,7 +39,7 @@ __device__ int calculateSpatialGridHash(const math::Vec3& position, const math::
     return math::linearIndex(x, y, z, level.size_.x, level.size_.y);
 }
 
-__global__ void calculateParticleHashKernel(spatialGridContainer::device_type spatialGrid, const math::Vec3* particlePositions, int levelIndex)
+__global__ void calculateParticleHashKernel(spatialGridContainer::device_type spatialGrid, const math::Vec3* particlePositions, int levelIndex, math::periodicDomain periodicDomain)
 {
     const spatialGridLevel level = spatialGrid.levels_[levelIndex];
     const int gridParticleIndex = level.particleBegin_ + static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -48,7 +48,7 @@ __global__ void calculateParticleHashKernel(spatialGridContainer::device_type sp
         return;
     }
     const int particleIndex = spatialGrid.particleIndex_[gridParticleIndex];
-    spatialGrid.particleHash_[gridParticleIndex] = calculateSpatialGridHash(particlePositions[particleIndex], spatialGrid.minimumBoundary_, level);
+    spatialGrid.particleHash_[gridParticleIndex] = calculateSpatialGridHash(periodicDomain.wrapPosition(particlePositions[particleIndex]), spatialGrid.minimumBoundary_, level);
 }
 
 __global__ void buildDenseCellRangesKernel(spatialGridContainer::device_type spatialGrid, int levelIndex)
@@ -76,7 +76,7 @@ __global__ void buildDenseCellRangesKernel(spatialGridContainer::device_type spa
 
 } // namespace
 
-void launchBuildSpatialGrid(spatialGridContainer& spatialGrid, const math::Vec3* particlePositions, int particleCount, cudaStream_t stream)
+void launchBuildSpatialGrid(spatialGridContainer& spatialGrid, const math::Vec3* particlePositions, int particleCount, const math::periodicDomain& periodicDomain, cudaStream_t stream)
 {
     if (particleCount != spatialGrid.particleCount())
     {
@@ -107,7 +107,7 @@ void launchBuildSpatialGrid(spatialGridContainer& spatialGrid, const math::Vec3*
         }
 
         const int blockCount = (levelParticleCount + blockSize - 1) / blockSize;
-        calculateParticleHashKernel<<<blockCount, blockSize, 0, stream>>>(spatialGridDevice, particlePositions, levelIndex);
+        calculateParticleHashKernel<<<blockCount, blockSize, 0, stream>>>(spatialGridDevice, particlePositions, levelIndex, periodicDomain);
         host_device_detail::checkCuda(cudaGetLastError(), "calculateParticleHashKernel launch");
 
         auto policy = thrust::cuda::par.on(stream);

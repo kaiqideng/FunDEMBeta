@@ -1,6 +1,7 @@
 #include "sphInteraction.h"
 
 #include "execution/sphFunctions.h"
+#include "execution/sphSpatialGridFunctions.h"
 #include "math/Indexing.h"
 #include "execution/cpu/parallelPolicy.h"
 
@@ -27,11 +28,20 @@ class uniformSpatialGrid
 {
 public:
     template <class PositionGetter>
-    uniformSpatialGrid(int particleCount, PositionGetter position, const Vec3& minimumBoundary, const Vec3& maximumBoundary, Real cellSize)
-        : minimumBoundary_(minimumBoundary), inverseCellSize_(1.0 / cellSize)
+    uniformSpatialGrid(int particleCount, PositionGetter position, Vec3 minimumBoundary, Vec3 maximumBoundary, Real cellSize, const math::periodicDomain& periodicDomain)
+        : minimumBoundary_(minimumBoundary), inverseCellSize_{1.0 / cellSize, 1.0 / cellSize, 1.0 / cellSize}, periodicDomain_(periodicDomain)
     {
-        const Vec3 extent = (maximumBoundary - minimumBoundary) * inverseCellSize_;
+        for (int axis = 0; axis < 3; ++axis)
+            if (periodicDomain_.periodicAxes_[axis])
+            {
+                minimumBoundary_[axis] = periodicDomain_.minimum_[axis];
+                maximumBoundary[axis] = periodicDomain_.minimum_[axis] + periodicDomain_.length_[axis];
+            }
+        const Vec3 extent = math::hadamardProduct(maximumBoundary - minimumBoundary_, inverseCellSize_);
         size_ = make_int3(std::max(1, static_cast<int>(std::ceil(extent.x))), std::max(1, static_cast<int>(std::ceil(extent.y))), std::max(1, static_cast<int>(std::ceil(extent.z))));
+        for (int axis = 0; axis < 3; ++axis)
+            if (periodicDomain_.periodicAxes_[axis])
+                inverseCellSize_[axis] = (axis == 0 ? size_.x : axis == 1 ? size_.y : size_.z) / periodicDomain_.length_[axis];
 
         std::vector<gridEntry> entries(static_cast<std::size_t>(particleCount));
 #if defined(_OPENMP)
@@ -61,21 +71,23 @@ public:
 
     template <class Function> void forEachCandidate(const Vec3& position, Real searchRadius, Function function) const
     {
-        const Vec3 local = (position - minimumBoundary_) * inverseCellSize_;
-        const Real searchExtent = searchRadius * inverseCellSize_;
-        const int3 begin = make_int3(clampCoordinate(static_cast<int>(std::floor(local.x - searchExtent)), size_.x),
-                                     clampCoordinate(static_cast<int>(std::floor(local.y - searchExtent)), size_.y),
-                                     clampCoordinate(static_cast<int>(std::floor(local.z - searchExtent)), size_.z));
-        const int3 end = make_int3(clampCoordinate(static_cast<int>(std::floor(local.x + searchExtent)), size_.x),
-                                   clampCoordinate(static_cast<int>(std::floor(local.y + searchExtent)), size_.y),
-                                   clampCoordinate(static_cast<int>(std::floor(local.z + searchExtent)), size_.z));
+        const Vec3 local = math::hadamardProduct(periodicDomain_.wrapPosition(position) - minimumBoundary_, inverseCellSize_);
+        const Vec3 searchExtent = searchRadius * inverseCellSize_;
+        int3 begin, end;
+        execution::SPHGridAxisRange(begin.x, end.x, local.x, searchExtent.x, size_.x, periodicDomain_.periodicAxes_[0]);
+        execution::SPHGridAxisRange(begin.y, end.y, local.y, searchExtent.y, size_.y, periodicDomain_.periodicAxes_[1]);
+        execution::SPHGridAxisRange(begin.z, end.z, local.z, searchExtent.z, size_.z, periodicDomain_.periodicAxes_[2]);
         for (int z = begin.z; z <= end.z; ++z)
         {
             for (int y = begin.y; y <= end.y; ++y)
             {
                 for (int x = begin.x; x <= end.x; ++x)
                 {
-                    const int cellHash = math::linearIndex(x, y, z, size_.x, size_.y);
+                    const int cellHash = math::linearIndex(execution::SPHGridCell(x, size_.x, periodicDomain_.periodicAxes_[0]),
+                                                           execution::SPHGridCell(y, size_.y, periodicDomain_.periodicAxes_[1]),
+                                                           execution::SPHGridCell(z, size_.z, periodicDomain_.periodicAxes_[2]),
+                                                           size_.x,
+                                                           size_.y);
                     const auto location = std::lower_bound(cellHashes_.begin(), cellHashes_.end(), cellHash);
                     if (location == cellHashes_.end() || *location != cellHash)
                     {
@@ -96,7 +108,7 @@ private:
 
     int hash(const Vec3& position) const noexcept
     {
-        const Vec3 local = (position - minimumBoundary_) * inverseCellSize_;
+        const Vec3 local = math::hadamardProduct(periodicDomain_.wrapPosition(position) - minimumBoundary_, inverseCellSize_);
         const int x = clampCoordinate(static_cast<int>(std::floor(local.x)), size_.x);
         const int y = clampCoordinate(static_cast<int>(std::floor(local.y)), size_.y);
         const int z = clampCoordinate(static_cast<int>(std::floor(local.z)), size_.z);
@@ -104,7 +116,8 @@ private:
     }
 
     Vec3 minimumBoundary_{Vec3::zero()};
-    Real inverseCellSize_{0.0};
+    Vec3 inverseCellSize_{Vec3::zero()};
+    math::periodicDomain periodicDomain_{};
     int3 size_{1, 1, 1};
     std::vector<int> cellHashes_;
     std::vector<int> cellOffsets_;
@@ -175,14 +188,16 @@ void SPHInteraction::buildNeighborhood(const SPHParticleContainer& particles,
                                        const Vec3& minimumBoundary,
                                        const Vec3& maximumBoundary,
                                        Real cellSize,
-                                       Real searchRadius)
+                                       Real searchRadius,
+                                       const math::periodicDomain& periodicDomain)
 {
     const auto& particleHost = particles.host();
     const auto& virtualParticleHost = virtualParticles.host();
     const int particleCount = static_cast<int>(particleHost.size());
     const int virtualParticleCount = static_cast<int>(virtualParticleHost.size());
-    const uniformSpatialGrid particleGrid(particleCount, [&](int index) -> const Vec3& { return particleHost[index].position(); }, minimumBoundary, maximumBoundary, cellSize);
-    const uniformSpatialGrid virtualParticleGrid(virtualParticleCount, [&](int index) -> const Vec3& { return virtualParticleHost[index].position(); }, minimumBoundary, maximumBoundary, cellSize);
+    const uniformSpatialGrid particleGrid(particleCount, [&](int index) -> const Vec3& { return particleHost[index].position(); }, minimumBoundary, maximumBoundary, cellSize, periodicDomain);
+    const uniformSpatialGrid
+    virtualParticleGrid(virtualParticleCount, [&](int index) -> const Vec3& { return virtualParticleHost[index].position(); }, minimumBoundary, maximumBoundary, cellSize, periodicDomain);
 
     buildNeighborList(particleNeighbors_.offsets_, particleNeighbors_.indices_, particleCount, [&](int index) -> const Vec3& { return particleHost[index].position(); }, particleGrid, searchRadius);
     buildNeighborList(
@@ -214,12 +229,15 @@ void SPHInteraction::updateFreeSurface(SPHParticleContainer& particles, const vi
             }
             const SPHParticle& neighborParticle = particleHost[*neighbor];
             const Real neighborVolume = parameters.particleMass_ / execution::nonZeroDensity(neighborParticle.density());
-            positionDivergence += execution::freeSurfacePositionDivergenceContribution(particle.position() - neighborParticle.position(), neighborVolume, parameters.smoothingLength_);
+            positionDivergence += execution::freeSurfacePositionDivergenceContribution(parameters.periodicDomain_.minimumImage(particle.position() - neighborParticle.position()),
+                                                                                       neighborVolume,
+                                                                                       parameters.smoothingLength_);
         }
         for (const int* neighbor = virtualParticleNeighbors_.begin(particleIndex); neighbor != virtualParticleNeighbors_.end(particleIndex); ++neighbor)
         {
             const virtualParticle& wall = virtualParticleHost[*neighbor];
-            positionDivergence += execution::freeSurfacePositionDivergenceContribution(particle.position() - wall.position(), wall.volume(), parameters.smoothingLength_);
+            positionDivergence +=
+                execution::freeSurfacePositionDivergenceContribution(parameters.periodicDomain_.minimumImage(particle.position() - wall.position()), wall.volume(), parameters.smoothingLength_);
         }
         particle.setFreeSurface(execution::isFreeSurface(positionDivergence));
     }
@@ -249,7 +267,7 @@ void SPHInteraction::reinitializeDensity(SPHParticleContainer& particles, const 
             {
                 continue;
             }
-            const Real distance = math::norm(particle.position() - particleHost[*neighbor].position());
+            const Real distance = math::norm(parameters.periodicDomain_.minimumImage(particle.position() - particleHost[*neighbor].position()));
             if (distance < supportRadius)
             {
                 kernelSum += execution::wendlandKernel3D(distance, parameters.smoothingLength_);
@@ -258,7 +276,8 @@ void SPHInteraction::reinitializeDensity(SPHParticleContainer& particles, const 
         for (const int* neighbor = virtualParticleNeighbors_.begin(particleIndex); neighbor != virtualParticleNeighbors_.end(particleIndex); ++neighbor)
         {
             const virtualParticle& wall = virtualParticleHost[*neighbor];
-            kernelSum += wall.volume() / referenceVolume * execution::wendlandKernel3D(math::norm(particle.position() - wall.position()), parameters.smoothingLength_);
+            kernelSum +=
+                wall.volume() / referenceVolume * execution::wendlandKernel3D(math::norm(parameters.periodicDomain_.minimumImage(particle.position() - wall.position())), parameters.smoothingLength_);
         }
         const Real density = execution::reinitializedDensity(kernelSum, parameters.latticeKernelSum3D_, parameters.referenceDensity_);
         particle.setDensity(density);
@@ -295,7 +314,7 @@ void SPHInteraction::updateDensity(SPHParticleContainer& particles, const virtua
                                                                 particle.velocity(),
                                                                 particle.density(),
                                                                 particle.pressure(),
-                                                                neighborParticle.position(),
+                                                                parameters.periodicDomain_.imagePosition(neighborParticle.position(), particle.position()),
                                                                 neighborParticle.velocity(),
                                                                 neighborParticle.density(),
                                                                 neighborParticle.pressure(),
@@ -311,7 +330,7 @@ void SPHInteraction::updateDensity(SPHParticleContainer& particles, const virtua
                                                                particle.velocity(),
                                                                particle.density(),
                                                                particle.pressure(),
-                                                               wall.position(),
+                                                               parameters.periodicDomain_.imagePosition(wall.position(), particle.position()),
                                                                wall.normal(),
                                                                wall.velocity(),
                                                                wall.acceleration(),
@@ -372,7 +391,7 @@ void SPHInteraction::updatePriorForceAndBoundaryForce(SPHParticleContainer& part
             acceleration += execution::calculateFluidViscousAcceleration(particle.position(),
                                                                          particle.velocity(),
                                                                          particle.density(),
-                                                                         neighborParticle.position(),
+                                                                         parameters.periodicDomain_.imagePosition(neighborParticle.position(), particle.position()),
                                                                          neighborParticle.velocity(),
                                                                          neighborParticle.density(),
                                                                          parameters.particleMass_,
@@ -385,7 +404,7 @@ void SPHInteraction::updatePriorForceAndBoundaryForce(SPHParticleContainer& part
             const Vec3 wallAcceleration = execution::calculateWallViscousAcceleration(particle.position(),
                                                                                       particle.velocity(),
                                                                                       particle.density(),
-                                                                                      wall.position(),
+                                                                                      parameters.periodicDomain_.imagePosition(wall.position(), particle.position()),
                                                                                       wall.velocity(),
                                                                                       wall.volume(),
                                                                                       parameters.dynamicViscosity_,
@@ -427,7 +446,7 @@ void SPHInteraction::updatePressureForceAndBoundaryForce(SPHParticleContainer& p
                                                                           particle.velocity(),
                                                                           particle.density(),
                                                                           particle.pressure(),
-                                                                          neighborParticle.position(),
+                                                                          parameters.periodicDomain_.imagePosition(neighborParticle.position(), particle.position()),
                                                                           neighborParticle.velocity(),
                                                                           neighborParticle.density(),
                                                                           neighborParticle.pressure(),
@@ -443,7 +462,7 @@ void SPHInteraction::updatePressureForceAndBoundaryForce(SPHParticleContainer& p
                                                                                        particle.velocity(),
                                                                                        particle.density(),
                                                                                        particle.pressure(),
-                                                                                       wall.position(),
+                                                                                       parameters.periodicDomain_.imagePosition(wall.position(), particle.position()),
                                                                                        wall.normal(),
                                                                                        wall.velocity(),
                                                                                        wall.acceleration(),

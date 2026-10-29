@@ -74,6 +74,9 @@ public:
 
     /** Sets uniform SPH discretization and fluid properties shared by all SPH particles. */
     void setSPHProperties(Real spacing, Real smoothingLength, Real referenceDensity, Real dynamicViscosity);
+    /** Sets optional translational images for native fluid and virtual-boundary interactions. */
+    void setSPHPeriodicDomain(const math::periodicDomain& value);
+    const math::periodicDomain& SPHPeriodicDomain() const noexcept { return SPHPeriodicDomain_; }
     /** Sets the configured SPH velocity scale and resets the sound speed to ten times this value. */
     void setSPHMaximumVelocity(Real value);
     void setSPHSoundSpeed(Real value);
@@ -129,9 +132,9 @@ private:
         /** Returns the uniform mass represented by one initially spaced particle. */
         Real particleMass() const noexcept { return referenceDensity_ * spacing_ * spacing_ * spacing_; }
         /** Creates stage inputs from current properties and gravity, without a second cached copy. */
-        SPHInteractionParameters interactionParameters(const Vec3& gravity) const noexcept
+        SPHInteractionParameters interactionParameters(const Vec3& gravity, const math::periodicDomain& periodicDomain) const noexcept
         {
-            return {smoothingLength_, particleMass(), referenceDensity_, latticeKernelSum3D_, soundSpeed_, dynamicViscosity_, gravity};
+            return {smoothingLength_, particleMass(), referenceDensity_, latticeKernelSum3D_, soundSpeed_, dynamicViscosity_, gravity, periodicDomain};
         }
 
         Real maximumVelocity_{1.0};    ///< Configured design velocity scale.
@@ -179,12 +182,12 @@ private:
     struct SPHJetState {
         /** Finite supply, short inlet and stable ownership for one emitter. */
         struct constraint {
-            SPHJet value_;              ///< Outlet, direction, radius, speed and duration.
-            Real startTime_{0.0};       ///< Absolute source registration time.
-            int axialCount_{0};         ///< Total finite supply, including initial buffer layers.
-            int bufferLayerCount_{0};   ///< Bounded upstream inlet depth in particle layers.
-            int firstInletLayer_{0};    ///< Released chronological prefix; never re-enters the inlet.
-            std::vector<Vec3> offsets_; ///< World-space transverse lattice offsets for one layer.
+            SPHJet value_;                     ///< Outlet, direction, radius, speed and duration.
+            Real startTime_{0.0};              ///< Absolute source registration time.
+            int axialCount_{0};                ///< Total finite supply, including initial buffer layers.
+            int bufferLayerCount_{0};          ///< Bounded upstream inlet depth in particle layers.
+            int firstInletLayer_{0};           ///< Released chronological prefix; never re-enters the inlet.
+            std::vector<Vec3> offsets_;        ///< World-space transverse lattice offsets for one layer.
             std::vector<int> particleIndices_; ///< Append-only ownership, independent of other sources.
 
             int layerSize() const noexcept { return static_cast<int>(offsets_.size()); }
@@ -244,7 +247,11 @@ private:
     /** Invalidates only search caches, without changing fluid phase or forces. */
     void invalidateSPHNeighborhood() noexcept { SPHNeighborhood_.invalidate(); }
     /** Refreshes searches, density and viscous forces after births or changed inlet holes. */
-    void invalidateSPHAdvection() noexcept { invalidateSPHNeighborhood(); SPHStepState_.timeInAdvectionStep_ = 0.0; }
+    void invalidateSPHAdvection() noexcept
+    {
+        invalidateSPHNeighborhood();
+        SPHStepState_.timeInAdvectionStep_ = 0.0;
+    }
     /** Rebuilds host neighbors only when motion has exhausted the search skin. */
     void ensureSPHNeighborhood(cpu::mode);
     /** Rebuilds device grids only when motion has exhausted the search skin. */
@@ -294,10 +301,11 @@ private:
     virtualParticleCoupling virtualParticleCoupling_;       ///< Host aggregation by LS owner.
     std::unique_ptr<cpu::SPHInteraction> SPHInteractions_;  ///< CPU neighborhood and interaction engine.
     SPHJetState SPHJets_;                                   ///< Finite-jet definitions and completion cache.
-    execution::SPHJetOpeningContainer SPHJetOpenings_;       ///< Immutable short-port geometry; wall slots remain stable.
+    execution::SPHJetOpeningContainer SPHJetOpenings_;      ///< Immutable short-port geometry; wall slots remain stable.
     SPHProperties SPHProperties_;                           ///< Uniform fluid configuration.
+    math::periodicDomain SPHPeriodicDomain_{};              ///< Neighbor images; integration keeps continuous physical coordinates.
     SPHStepState SPHStepState_;                             ///< Mutable multirate integration state.
-    bool SPHBoundaryStatic_{false};                        ///< Whether all LS owners are stationary infinite-mass boundaries.
+    bool SPHBoundaryStatic_{false};                         ///< Whether all LS owners are stationary infinite-mass boundaries.
     bool SPHBoundaryMotionExpected_{false};                 ///< Whether a currently stationary boundary is scheduled to move.
     outputSnapshot outputSnapshot_;                         ///< Non-destructive synchronization snapshot.
 };

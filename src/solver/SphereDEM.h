@@ -90,6 +90,9 @@ protected:
     /** Evaluates native sphere contacts; frontends may replace only their force law. */
     virtual void addSphereContactForceAndTorque(Real historyTimeStep, cpu::mode);
     virtual void addSphereContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream);
+    /** Evaluates detected cross-family contacts, with spheres always ordered as masters. */
+    virtual void addSphereLevelSetContactForceAndTorque(Real historyTimeStep, cpu::mode);
+    virtual void addSphereLevelSetContactForceAndTorque(Real historyTimeStep, gpu::mode, cudaStream_t stream);
 
 private:
     /** Returns one mutable sphere after checked stable-index lookup. */

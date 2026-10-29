@@ -37,13 +37,20 @@ Set `-DFUNDEM_BUILD_VALIDATIONS=OFF` only when a minimal library build is requir
 | Executable | Reference and primary checks | Default output |
 | --- | --- | --- |
 | `freeFall` | Constant-acceleration translation, constant-axis torque, angular velocity, and orientation | `freeFall.dat` |
-| `normalCollision` | Unilateral linear-dashpot rebound, analytical contact duration, and pair momentum | `normalCollision.dat` |
+| `normalCollision` | Signed linear-dashpot rebound, analytical contact duration, and pair momentum | `normalCollision.dat` |
 | `frictionLaw` | Tangential history, Coulomb-disk return, and history removal when contact opens | `frictionLaw.dat` |
 | `bondModes` | Single-bond axial, shear, pure-bending, and pure-torsion responses | `bondModes.dat` |
 | `LSCentralCompression` | Two LS spheres, nodal-force integration, surface refinement, and the small-overlap continuum reference | `LSCentralCompression.dat` |
 | `backendConsistency` | Identical sphere–LS trajectory in CPU, GPU, and Sphere-GPU/LS-CPU Hybrid modes | `backendConsistency.dat` |
 
-`normalCollision` reports both the configured restitution parameter and the analytical rebound after the noncohesive normal force is truncated at zero. These values differ slightly because damping stops before geometric separation; the acceptance check uses the analytical response of the force law that is actually implemented.
+`normalCollision` uses the implemented signed spring-dashpot force while overlap
+is positive; normal-force truncation is disabled. The full damped-oscillator
+solution therefore supplies the configured restitution and contact duration
+as analytical targets. Its force history records the signed normal projection,
+including a possible negative unloading tail, rather than its absolute magnitude.
+The separate `contact::normalForceMagnitude()` getter remains nonnegative for
+friction limits and magnitude-based output. This case does not validate a
+no-tension/clipped normal-force model.
 
 `backendConsistency` always records the CPU result. GPU comparisons are skipped only when CUDA was not built or no CUDA device is present.
 
@@ -69,7 +76,11 @@ law.
 [ondemShearFlow](ondemShearFlow/README.md) is an isolated CPU benchmark adaptation
 with X/Y periodic contacts, the author's original particle coordinates, explicit
 normal/tangential dashpots, and MercuryCG-compatible discrete output. It does not
-change the default `SphereDEM` contact law or enable periodic Workbench projects.
+change the default `SphereDEM` contact law or provide a general periodic DEM
+solver API. Separately, the core supplies reusable `math::periodicDomain`
+transforms and an SPH neighbor-image domain; a caller still owns rigid-particle
+wrapping and cross-boundary contact assembly. Workbench periodic force modules
+are implemented in the separate desktop application, not by this isolated runner.
 Its small periodic-contact and file-format checks are included in
 `runValidations`; the full 200-million-step simulation is never run implicitly.
 The benchmark notes distinguish published inputs, implementation choices, and
