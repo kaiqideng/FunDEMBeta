@@ -1,0 +1,4 @@
+add_library(fundem_comparison_runtime STATIC comparisonCommon.cpp)
+target_link_libraries(fundem_comparison_runtime PUBLIC FunDEM::FunDEM)
+target_include_directories(fundem_comparison_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(fundem_comparison_runtime PUBLIC cxx_std_17)

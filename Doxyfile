@@ -3,7 +3,7 @@ PROJECT_NAME           = "FunDEMBeta"
 PROJECT_NUMBER         = 1.0.2
 PROJECT_BRIEF          = "Unified CPU/CUDA DEM and SPH-DEM framework"
 
-OUTPUT_DIRECTORY       = docs/api
+OUTPUT_DIRECTORY       = ../build-api
 CREATE_SUBDIRS         = NO
 ALLOW_UNICODE_NAMES    = YES
 OUTPUT_LANGUAGE        = English
@@ -58,8 +58,8 @@ RECURSIVE              = YES
 EXCLUDE                = docs/api
 EXCLUDE_PATTERNS       = */build/* */build-*/*
 EXAMPLE_PATH           = tutorial
-IMAGE_PATH             = docs/assets
-HTML_EXTRA_FILES       = docs/assets/tutorial0.mp4
+IMAGE_PATH             =
+HTML_EXTRA_FILES       =
 
 QUIET                  = YES
 WARNINGS               = YES

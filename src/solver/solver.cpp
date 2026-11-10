@@ -228,15 +228,16 @@ void solver::writeOutput()
         throw std::logic_error("Output has not been configured.");
     }
     ensureOutputDirectory();
-    observeCurrentState([this](const solver&)
-    {
-        const int frameIndex = outputFrameCount_;
-        if (vtuOutputEnabled_)
-            writeSystemVTU(frameIndex);
-        appendEnergyDAT((std::filesystem::path(outputDirectory_) / "energy.dat").string(), time_, systemEnergy(), frameIndex > 0);
-        std::cout << "[Solver] Calculated steps: " << stepCount_ << ", current time: " << time_ << ", current frame: " << frameIndex << ", device memory: " << std::fixed << std::setprecision(6)
-                  << deviceMemoryGB() << " GB" << std::defaultfloat << std::endl;
-    });
+    observeCurrentState(
+        [this](const solver&)
+        {
+            const int frameIndex = outputFrameCount_;
+            if (vtuOutputEnabled_)
+                writeSystemVTU(frameIndex);
+            appendEnergyDAT((std::filesystem::path(outputDirectory_) / "energy.dat").string(), time_, systemEnergy(), frameIndex > 0);
+            std::cout << "[Solver] Calculated steps: " << stepCount_ << ", current time: " << time_ << ", current frame: " << frameIndex << ", device memory: " << std::fixed << std::setprecision(6)
+                      << deviceMemoryGB() << " GB" << std::defaultfloat << std::endl;
+        });
     ++outputFrameCount_;
     nextOutputStep_ = stepCount_ + outputStepInterval_;
 }
@@ -346,6 +347,26 @@ void solver::initialize()
         return;
     }
     continuationValid_ = false;
+    if (runtimeMutationPending_)
+    {
+        initializeRuntimeState();
+        switch (executionMode_)
+        {
+        case executionMode::CPU:
+            advanceTemplate_ = &solver::advanceCPU;
+            break;
+        case executionMode::GPU:
+            advanceTemplate_ = &solver::advanceGPU;
+            break;
+        case executionMode::Hybrid:
+            advanceTemplate_ = &solver::advanceHybrid;
+            break;
+        }
+        runtimeMutationPending_ = false;
+        synchronize();
+        initialized_ = true;
+        return;
+    }
     switch (executionMode_)
     {
     case executionMode::CPU:
@@ -363,6 +384,35 @@ void solver::initialize()
     }
     synchronize();
     initialized_ = true;
+}
+
+void solver::prepareRuntimeMutation()
+{
+    requireNoCurrentStateObservation();
+    if (runtimeMutationPending_ || advanceTemplate_ == nullptr)
+        return;
+    activateGPUDevice();
+    synchronizeHostState();
+    commitDeferredStateForMutation();
+    initialized_ = false;
+    continuationValid_ = false;
+    runtimeMutationPending_ = true;
+}
+
+void solver::initializeRuntimeState()
+{
+    switch (executionMode_)
+    {
+    case executionMode::CPU:
+        initialize(cpu::mode{});
+        break;
+    case executionMode::GPU:
+        initialize(gpu::mode{}, gpuStream());
+        break;
+    case executionMode::Hybrid:
+        initialize(hybrid::mode{}, gpuStream());
+        break;
+    }
 }
 
 void solver::ensureOutputDirectory() const { fs::create_directories(outputDirectory_); }

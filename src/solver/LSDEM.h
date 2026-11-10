@@ -69,12 +69,21 @@ public:
     void setLSParticleVelocity(int particleIndex, const Vec3& value);
     /** Replaces one LS-particle angular velocity before or between solve calls. */
     void setLSParticleAngularVelocity(int particleIndex, const Vec3& value);
+    /** Completed-step reset: independently select linear/angular velocity; pose and interaction memory remain. */
+    Real resetLSParticleVelocities(const std::vector<int>& indices, bool resetLinear = true, bool resetAngular = true);
+    /** Removes complete particles between advances, returning old-to-new indices (-1 for removed). */
+    virtual std::vector<int> removeLSParticles(const std::vector<int>& indices);
 
     void setLSParticleVTUFields(std::vector<LSParticleVTUField> fields);
     void setContactVTUFields(std::vector<contactVTUField> fields);
     void setBondVTUFields(std::vector<bondVTUField> fields);
 
 protected:
+    void initializeRuntimeState() override;
+    /** Uploads accepted host runtime state and reconstructs device search histories only. */
+    virtual void uploadRuntimeState(cudaStream_t stream);
+    bool preservingInteractionHistory() const noexcept { return preservingInteractionHistory_; }
+    void setPreservingInteractionHistory(bool value) noexcept { preservingInteractionHistory_ = value; }
     /** Constructs an LS base directly in a derived solver's execution mode. */
     LSDEM(int device, executionMode mode) : solver(device, mode) { LSParticles_.setUseDevice(mode == executionMode::GPU); }
     /** Aggregates LS-particle, contact, and bond energy. */
@@ -145,6 +154,7 @@ protected:
     void copyLSParticleForceAndTorqueToHost(cudaStream_t stream);
 
 private:
+    bool preservingInteractionHistory_{false}; ///< Suppress irreversible updates during an explicit runtime cache refresh.
     /** Returns one mutable LS particle after checked stable-index lookup. */
     LSParticle& mutableLSParticle(int particleIndex);
 

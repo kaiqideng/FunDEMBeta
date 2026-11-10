@@ -23,6 +23,14 @@ enum class bondType
     LSParticleLSParticle
 };
 
+/** Selects unbreakable elastic response, strength-only fracture, or progressive damage. */
+enum class fractureMode : int
+{
+    unbreakable,
+    brittle,
+    damage
+};
+
 /** One body-local endpoint frame required to continue a deformed bond. */
 struct bondEndpointState {
     math::Vec3 normal_{math::Vec3::unitX()};
@@ -61,14 +69,22 @@ public:
     /** Reports whether endpoint body snapshots were refreshed for the next force evaluation. */
     bool particleCopiesUpdated() const noexcept { return particleCopiesUpdated_; }
     const Vec3& force() const noexcept { return force_; }
-    const Vec3& masterTorque() const noexcept { return masterTorque_; }
-    const Vec3& slaveTorque() const noexcept { return slaveTorque_; }
+    /** Bond-point bending/torsion moment from the EVM formula, reduced by current damage. */
+    const Vec3& torque() const noexcept { return torque_; }
+    /** Derived particle torques; owning host particles must match the evaluated state. */
+    Vec3 masterTorque() const noexcept { return particleTorque(true); }
+    Vec3 slaveTorque() const noexcept { return particleTorque(false); }
     int masterParticleIndex() const noexcept { return masterParticleIndex_; }
     int slaveParticleIndex() const noexcept { return slaveParticleIndex_; }
     bondType type() const noexcept { return type_; }
     const Vec3& point() const noexcept { return point_; }
     const Vec3& normal() const noexcept { return normal_; }
     Real equivalentLength() const noexcept { return equivalentLength_; }
+    /** Original undamaged physical stiffness inputs, preserved without coefficient inversion. */
+    Real normalStiffness() const noexcept { return normalStiffness_; }
+    Real shearStiffness() const noexcept { return shearStiffness_; }
+    Real bendingStiffness() const noexcept { return bendingStiffness_; }
+    Real torsionalStiffness() const noexcept { return torsionalStiffness_; }
     Real coefficientB1() const noexcept { return coefficientB1_; }
     Real coefficientB2() const noexcept { return coefficientB2_; }
     Real coefficientB3() const noexcept { return coefficientB3_; }
@@ -86,12 +102,26 @@ public:
     const Vec3& slaveEndpointLocalTangent2() const noexcept { return slaveEndpointLocalTangent2_; }
     const Vec3& slaveEndpointLocalPosition() const noexcept { return slaveEndpointLocalPosition_; }
     Real crossSectionArea() const noexcept { return crossSectionArea_; }
+    fundem::fractureMode fractureMode() const noexcept { return fractureMode_; }
     Real damageFactor() const noexcept { return damageFactor_; }
     Real modeICriticalEnergy() const noexcept { return modeICriticalEnergy_; }
     Real modeIICriticalEnergy() const noexcept { return modeIICriticalEnergy_; }
     Real modeMixityExponent() const noexcept { return modeMixityExponent_; }
-    Real damageInitiationRatio() const noexcept { return damageInitiationRatio_; }
-    Real maximumEnergyReleaseRatio() const noexcept { return maximumEnergyReleaseRatio_; }
+    Real tensileStrength() const noexcept { return tensileStrength_; }
+    Real cohesion() const noexcept { return cohesion_; }
+    Real internalFrictionCoefficient() const noexcept { return internalFrictionCoefficient_; }
+    bool getDamageStarted() const noexcept { return damageStarted_ != 0; }
+    Real getOnsetEffectiveStress() const noexcept { return onsetEffectiveStress_; }
+    Real getOnsetEffectiveDisplacement() const noexcept { return onsetEffectiveDisplacement_; }
+    Real getMaximumEffectiveDisplacement() const noexcept { return maximumEffectiveDisplacement_; }
+    Real getFailureEffectiveDisplacement() const noexcept { return failureEffectiveDisplacement_; }
+    Real getEffectiveFractureEnergy() const noexcept { return effectiveFractureEnergy_; }
+    /** Reports brittle onset because the configured toughness cannot fit a softening interval. */
+    bool hasInsufficientFractureEnergy() const noexcept
+    {
+        return damageStarted_ != 0 && effectiveFractureEnergy_ > 0.0 && onsetEffectiveDisplacement_ > 0.0 &&
+               failureEffectiveDisplacement_ <= onsetEffectiveDisplacement_;
+    }
     bondReferenceState referenceState() const noexcept
     {
         return {{masterEndpointLocalNormal_, masterEndpointLocalTangent1_, masterEndpointLocalTangent2_, masterEndpointLocalPosition_},
@@ -143,8 +173,8 @@ public:
         return setConnectionForType(masterSpheres, slaveLSParticles, singleContact, bondType::sphereLSParticle);
     }
     /**
-     * Converts physical normal, shear, bending, and torsional stiffness values
-     * into the four stored bond coefficients.
+     * Preserves the four physical stiffness inputs and derives B1--B4.
+     * Inputs and coefficients are assigned together only after validation.
      * The derived bending coupling coefficient B3 may be negative.
      * @return False until equivalent length is set, when an input stiffness is
      * non-finite or negative, or when a derived coefficient is non-finite.
@@ -166,6 +196,10 @@ public:
             return false;
         }
 
+        normalStiffness_ = normalStiffness;
+        shearStiffness_ = shearStiffness;
+        bendingStiffness_ = bendingStiffness;
+        torsionalStiffness_ = torsionalStiffness;
         coefficientB1_ = coefficientB1;
         coefficientB2_ = coefficientB2;
         coefficientB3_ = coefficientB3;
@@ -174,9 +208,20 @@ public:
         return true;
     }
     bool setCrossSectionArea(Real value) noexcept { return setNonNegativeFinite(value, crossSectionArea_); }
+    /** Selects fracture behaviour without clearing existing irreversible history. */
+    bool setFractureMode(fundem::fractureMode value) noexcept
+    {
+        if (value != fundem::fractureMode::unbreakable && value != fundem::fractureMode::brittle && value != fundem::fractureMode::damage)
+            return false;
+        fractureMode_ = value;
+        return true;
+    }
     bool setModeICriticalEnergy(Real value) noexcept { return setNonNegativeFinite(value, modeICriticalEnergy_); }
     bool setModeIICriticalEnergy(Real value) noexcept { return setNonNegativeFinite(value, modeIICriticalEnergy_); }
-    bool setMaximumEnergyReleaseRatio(Real value) noexcept { return setNonNegativeFinite(value, maximumEnergyReleaseRatio_); }
+    /** Zero strengths are unconfigured; a fracture-enabled bond requires positive values. */
+    bool setTensileStrength(Real value) noexcept { return setNonNegativeFinite(value, tensileStrength_); }
+    bool setCohesion(Real value) noexcept { return setNonNegativeFinite(value, cohesion_); }
+    bool setInternalFrictionCoefficient(Real value) noexcept { return setNonNegativeFinite(value, internalFrictionCoefficient_); }
     bool setDamageFactor(Real value) noexcept
     {
         if (!math::isFinite(value) || value < 0.0 || value > 1.0)
@@ -193,15 +238,6 @@ public:
             return false;
         }
         modeMixityExponent_ = value;
-        return true;
-    }
-    bool setDamageInitiationRatio(Real value) noexcept
-    {
-        if (!math::isFinite(value) || value <= 0.0 || value > 1.0)
-        {
-            return false;
-        }
-        damageInitiationRatio_ = value;
         return true;
     }
 
@@ -239,8 +275,14 @@ public:
 
     /** Reports whether a finite positive reference length has been accepted. */
     bool hasEquivalentLength() const noexcept { return equivalentLengthSet_; }
-    /** Reports whether connection ownership, reference length, and stiffness are complete. */
-    bool isValid() const noexcept { return type_ != bondType::undefined && equivalentLengthSet_ && stiffnessSet_ && masterParticleContainer_ != nullptr && slaveParticleContainer_ != nullptr; }
+    /** Active fracture requires strengths; progressive softening also needs positive normal/shear stiffness. */
+    bool isValid() const noexcept
+    {
+        const bool connected = type_ != bondType::undefined && equivalentLengthSet_ && stiffnessSet_ && masterParticleContainer_ != nullptr && slaveParticleContainer_ != nullptr;
+        const bool fractureEnabled = fractureMode_ != fundem::fractureMode::unbreakable && crossSectionArea_ > 0.0;
+        const bool softeningEnabled = fractureEnabled && fractureMode_ == fundem::fractureMode::damage && (modeICriticalEnergy_ > 0.0 || modeIICriticalEnergy_ > 0.0);
+        return connected && (!fractureEnabled || (tensileStrength_ > 0.0 && cohesion_ > 0.0)) && (!softeningEnabled || (normalStiffness_ > 0.0 && shearStiffness_ > 0.0));
+    }
 
     /** Checks that both endpoints refer to @p particles. */
     template <class ParticleStorage> bool referencesParticleContainer(const ParticleStorage& particles) const noexcept
@@ -271,8 +313,8 @@ public:
             return false;
         }
         force_ = Vec3::zero();
-        masterTorque_ = Vec3::zero();
-        slaveTorque_ = Vec3::zero();
+        torque_ = Vec3::zero();
+        normal_ = Vec3::zero();
         particleCopiesUpdated_ = true;
         return true;
     }
@@ -291,27 +333,30 @@ public:
             return false;
         }
         force_ = Vec3::zero();
-        masterTorque_ = Vec3::zero();
-        slaveTorque_ = Vec3::zero();
+        torque_ = Vec3::zero();
+        normal_ = Vec3::zero();
         particleCopiesUpdated_ = true;
         return true;
     }
 
     /**
-     * Evaluates bond force, master/slave torque, elastic energy, and BK damage.
+     * Evaluates undamaged trial loads, strength onset, BK softening and current damaged loads.
      * @return False unless the bond belongs to a container and its particle
      * snapshots were refreshed for the current assembly.
      */
-    bool calculateForce() noexcept;
+    bool calculateForce(bool updateDamage = true) noexcept;
 
     struct masterParticleIndexField;
     struct slaveParticleIndexField;
     struct forceField;
-    struct masterTorqueField;
-    struct slaveTorqueField;
+    struct torqueField;
     struct pointField;
     struct normalField;
     struct equivalentLengthField;
+    struct normalStiffnessField;
+    struct shearStiffnessField;
+    struct bendingStiffnessField;
+    struct torsionalStiffnessField;
     struct coefficientB1Field;
     struct coefficientB2Field;
     struct coefficientB3Field;
@@ -329,14 +374,25 @@ public:
     struct slaveEndpointLocalTangent2Field;
     struct slaveEndpointLocalPositionField;
     struct crossSectionAreaField;
+    struct fractureModeField;
     struct damageFactorField;
     struct modeICriticalEnergyField;
     struct modeIICriticalEnergyField;
     struct modeMixityExponentField;
-    struct damageInitiationRatioField;
-    struct maximumEnergyReleaseRatioField;
+    struct tensileStrengthField;
+    struct cohesionField;
+    struct internalFrictionCoefficientField;
+    struct damageStartedField;
+    struct onsetEffectiveStressField;
+    struct onsetEffectiveDisplacementField;
+    struct maximumEffectiveDisplacementField;
+    struct failureEffectiveDisplacementField;
+    struct effectiveFractureEnergyField;
 
 private:
+    /** Reconstructs an endpoint load from the current synchronized owning particle. */
+    Vec3 particleTorque(bool master) const noexcept;
+
     /** Clears every connection and stiffness value derived from reference length. */
     void invalidateLengthDependentValues() noexcept
     {
@@ -347,6 +403,10 @@ private:
         type_ = bondType::undefined;
         masterParticleIndex_ = -1;
         slaveParticleIndex_ = -1;
+        normalStiffness_ = 0.0;
+        shearStiffness_ = 0.0;
+        bendingStiffness_ = 0.0;
+        torsionalStiffness_ = 0.0;
         coefficientB1_ = 0.0;
         coefficientB2_ = 0.0;
         coefficientB3_ = 0.0;
@@ -525,7 +585,7 @@ private:
     rigidBody slaveParticle_;                      ///< Host snapshot of the slave body.
     bool particleCopiesUpdated_{false};            ///< Force-evaluation readiness flag.
     bool equivalentLengthSet_{false};              ///< Whether reference length is usable.
-    bool stiffnessSet_{false};                     ///< Whether all four coefficients are current.
+    bool stiffnessSet_{false};                     ///< Whether original stiffnesses and all four coefficients are current.
     const void* masterParticleContainer_{nullptr}; ///< Owning master container identity.
     const void* slaveParticleContainer_{nullptr};  ///< Owning slave container identity.
     bondType type_{bondType::undefined};           ///< Stored particle-type pairing.
@@ -533,11 +593,14 @@ private:
     int masterParticleIndex_{-1};                     ///< Master particle-container index.
     int slaveParticleIndex_{-1};                      ///< Slave particle-container index.
     Vec3 force_{Vec3::zero()};                        ///< Force applied to the master.
-    Vec3 masterTorque_{Vec3::zero()};                 ///< Torque applied to the master.
-    Vec3 slaveTorque_{Vec3::zero()};                  ///< Torque applied to the slave.
+    Vec3 torque_{Vec3::zero()};                       ///< Bond-point bending/torsion moment, scaled by current damage.
     Vec3 point_{Vec3::zero()};                        ///< Reference bond-center position.
     Vec3 normal_{Vec3::zero()};                       ///< Reference normal from slave to master.
     Real equivalentLength_{0.0};                      ///< Reference endpoint separation.
+    Real normalStiffness_{0.0};                     ///< Original undamaged normal stiffness, N/m.
+    Real shearStiffness_{0.0};                      ///< Original undamaged shear stiffness, N/m.
+    Real bendingStiffness_{0.0};                    ///< Original undamaged bending stiffness, N m/rad.
+    Real torsionalStiffness_{0.0};                  ///< Original undamaged torsional stiffness, N m/rad.
     Real coefficientB1_{0.0};                         ///< Normal stiffness coefficient.
     Real coefficientB2_{0.0};                         ///< Length-scaled shear coefficient.
     Real coefficientB3_{0.0};                         ///< Bending coupling coefficient.
@@ -555,12 +618,20 @@ private:
     Vec3 slaveEndpointLocalTangent2_{Vec3::unitZ()};  ///< Slave-frame second tangent.
     Vec3 slaveEndpointLocalPosition_{Vec3::zero()};   ///< Slave-frame endpoint position.
     Real crossSectionArea_{0.0};                      ///< Nominal cross-sectional area; zero disables fracture.
-    Real damageFactor_{0.0};                          ///< Current damage in [0,1].
-    Real modeICriticalEnergy_{0.0};                   ///< Mode-I critical energy release rate.
-    Real modeIICriticalEnergy_{0.0};                  ///< Mode-II critical energy release rate.
+    fundem::fractureMode fractureMode_{fundem::fractureMode::damage}; ///< Default preserves existing area/energy-selected damage behaviour.
+    Real damageFactor_{0.0};                                          ///< Current damage in [0,1].
+    Real modeICriticalEnergy_{0.0};                                   ///< Mode-I critical energy release rate.
+    Real modeIICriticalEnergy_{0.0};                                  ///< Mode-II critical energy release rate.
     Real modeMixityExponent_{1.75};                   ///< BK mixed-mode exponent.
-    Real damageInitiationRatio_{0.9};                 ///< Fraction of critical energy at damage onset.
-    Real maximumEnergyReleaseRatio_{0.0};             ///< Largest normalized release reached.
+    Real tensileStrength_{0.0};                      ///< Tensile initiation strength, Pa; zero is unconfigured.
+    Real cohesion_{0.0};                             ///< Shear cohesion, Pa; zero is unconfigured.
+    Real internalFrictionCoefficient_{0.0};          ///< Dimensionless pressure sensitivity of bond strength.
+    int damageStarted_{0};                           ///< Whether the strength threshold has been reached.
+    Real onsetEffectiveStress_{0.0};                 ///< Bond-section stress norm at strength onset, not the energy-conjugate traction, Pa.
+    Real onsetEffectiveDisplacement_{0.0};           ///< Ordinary norm of the normal/shear energy-equivalent components at onset, m.
+    Real maximumEffectiveDisplacement_{0.0};         ///< Largest Euclidean energy-equivalent separation since onset, m.
+    Real failureEffectiveDisplacement_{0.0};         ///< Onset-radial rupture separation; d_f <= d_0 diagnoses an insufficient budget, m.
+    Real effectiveFractureEnergy_{0.0};               ///< Frozen onset BK toughness, never silently raised, J/m2.
 
 public:
     struct masterParticleIndexField {
@@ -572,11 +643,8 @@ public:
     struct forceField {
         inline static constexpr auto member = &bond::force_;
     };
-    struct masterTorqueField {
-        inline static constexpr auto member = &bond::masterTorque_;
-    };
-    struct slaveTorqueField {
-        inline static constexpr auto member = &bond::slaveTorque_;
+    struct torqueField {
+        inline static constexpr auto member = &bond::torque_;
     };
     struct pointField {
         inline static constexpr auto member = &bond::point_;
@@ -586,6 +654,18 @@ public:
     };
     struct equivalentLengthField {
         inline static constexpr auto member = &bond::equivalentLength_;
+    };
+    struct normalStiffnessField {
+        inline static constexpr auto member = &bond::normalStiffness_;
+    };
+    struct shearStiffnessField {
+        inline static constexpr auto member = &bond::shearStiffness_;
+    };
+    struct bendingStiffnessField {
+        inline static constexpr auto member = &bond::bendingStiffness_;
+    };
+    struct torsionalStiffnessField {
+        inline static constexpr auto member = &bond::torsionalStiffness_;
     };
     struct coefficientB1Field {
         inline static constexpr auto member = &bond::coefficientB1_;
@@ -638,6 +718,9 @@ public:
     struct crossSectionAreaField {
         inline static constexpr auto member = &bond::crossSectionArea_;
     };
+    struct fractureModeField {
+        inline static constexpr auto member = &bond::fractureMode_;
+    };
     struct damageFactorField {
         inline static constexpr auto member = &bond::damageFactor_;
     };
@@ -650,21 +733,45 @@ public:
     struct modeMixityExponentField {
         inline static constexpr auto member = &bond::modeMixityExponent_;
     };
-    struct damageInitiationRatioField {
-        inline static constexpr auto member = &bond::damageInitiationRatio_;
+    struct tensileStrengthField {
+        inline static constexpr auto member = &bond::tensileStrength_;
     };
-    struct maximumEnergyReleaseRatioField {
-        inline static constexpr auto member = &bond::maximumEnergyReleaseRatio_;
+    struct cohesionField {
+        inline static constexpr auto member = &bond::cohesion_;
+    };
+    struct internalFrictionCoefficientField {
+        inline static constexpr auto member = &bond::internalFrictionCoefficient_;
+    };
+    struct damageStartedField {
+        inline static constexpr auto member = &bond::damageStarted_;
+    };
+    struct onsetEffectiveStressField {
+        inline static constexpr auto member = &bond::onsetEffectiveStress_;
+    };
+    struct onsetEffectiveDisplacementField {
+        inline static constexpr auto member = &bond::onsetEffectiveDisplacement_;
+    };
+    struct maximumEffectiveDisplacementField {
+        inline static constexpr auto member = &bond::maximumEffectiveDisplacement_;
+    };
+    struct failureEffectiveDisplacementField {
+        inline static constexpr auto member = &bond::failureEffectiveDisplacement_;
+    };
+    struct effectiveFractureEnergyField {
+        inline static constexpr auto member = &bond::effectiveFractureEnergy_;
     };
 
     using DeviceLayout = deviceLayout<masterParticleIndexField,
                                       slaveParticleIndexField,
                                       forceField,
-                                      masterTorqueField,
-                                      slaveTorqueField,
+                                      torqueField,
                                       pointField,
                                       normalField,
                                       equivalentLengthField,
+                                      normalStiffnessField,
+                                      shearStiffnessField,
+                                      bendingStiffnessField,
+                                      torsionalStiffnessField,
                                       coefficientB1Field,
                                       coefficientB2Field,
                                       coefficientB3Field,
@@ -682,12 +789,20 @@ public:
                                       slaveEndpointLocalTangent2Field,
                                       slaveEndpointLocalPositionField,
                                       crossSectionAreaField,
+                                      fractureModeField,
                                       damageFactorField,
                                       modeICriticalEnergyField,
                                       modeIICriticalEnergyField,
                                       modeMixityExponentField,
-                                      damageInitiationRatioField,
-                                      maximumEnergyReleaseRatioField>;
+                                      tensileStrengthField,
+                                      cohesionField,
+                                      internalFrictionCoefficientField,
+                                      damageStartedField,
+                                      onsetEffectiveStressField,
+                                      onsetEffectiveDisplacementField,
+                                      maximumEffectiveDisplacementField,
+                                      failureEffectiveDisplacementField,
+                                      effectiveFractureEnergyField>;
 };
 
 using bondContainer = hostAoSDeviceSoA<bond, bond::DeviceLayout>;

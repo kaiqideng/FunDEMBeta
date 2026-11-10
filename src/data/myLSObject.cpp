@@ -211,8 +211,8 @@ class PreparedGeometry final : public LSInfo
 private:
     bool supportsGridRebuild() const noexcept override { return false; }
     bool isValid() const noexcept override { return configured_; }
-    Vec3 boundingBoxMin() const noexcept override { return gridNodeOrigin(); }
-    Vec3 boundingBoxMax() const noexcept override
+    Vec3 nativeSamplingBoundsMin() const noexcept override { return gridNodeOrigin(); }
+    Vec3 nativeSamplingBoundsMax() const noexcept override
     {
         const auto size = gridNodeSize3D();
         return gridNodeOrigin() + gridNodeSpacing() * Vec3{Real(size.x - 1), Real(size.y - 1), Real(size.z - 1)};
@@ -314,7 +314,7 @@ void LSInfo::buildLSGrid(int resolutionPerDiameter, bool isFixed)
         throw std::invalid_argument("Level-set resolution must be positive.");
     }
 
-    const Vec3 extent = boundingBoxMax() - boundingBoxMin();
+    const Vec3 extent = nativeSamplingBoundsMax() - nativeSamplingBoundsMin();
     const Real referenceDiameter = std::max({extent.x, extent.y, extent.z});
     if (!finitePositive(referenceDiameter))
     {
@@ -324,6 +324,28 @@ void LSInfo::buildLSGrid(int resolutionPerDiameter, bool isFixed)
 }
 
 void LSInfo::buildLSGrid(Real spacing, int paddingSize, bool isFixed)
+{
+    const GridLayout layout = calculateGridLayout(spacing, paddingSize);
+    clearGrid();
+    gridNodeSpacing_ = spacing;
+    try
+    {
+        buildLSGridKernel(layout);
+        updateGeometryProperties(isFixed);
+    }
+    catch (...)
+    {
+        clearGrid();
+        throw;
+    }
+}
+
+int3 LSInfo::estimateGridNodeSize(Real spacing, int paddingSize) const
+{
+    return calculateGridLayout(spacing, paddingSize).size_;
+}
+
+LSInfo::GridLayout LSInfo::calculateGridLayout(Real spacing, int paddingSize) const
 {
     if (!supportsGridRebuild())
         throw std::logic_error("A prepared level-set grid cannot be rebuilt. Reconfigure its source geometry instead.");
@@ -335,38 +357,45 @@ void LSInfo::buildLSGrid(Real spacing, int paddingSize, bool isFixed)
     {
         throw std::invalid_argument("Level-set spacing must be positive and padding must be non-negative.");
     }
-    clearGrid();
-    gridNodeSpacing_ = spacing;
-    try
-    {
-        buildLSGridKernel(paddingSize);
-        updateGeometryProperties(isFixed);
-    }
-    catch (...)
-    {
-        clearGrid();
-        throw;
-    }
-}
-
-void LSInfo::buildLSGridKernel(int paddingSize)
-{
-    const Vec3 boxMin = boundingBoxMin();
-    const Vec3 boxMax = boundingBoxMax();
+    const Vec3 boxMin = nativeSamplingBoundsMin();
+    const Vec3 boxMax = nativeSamplingBoundsMax();
     if (!math::isFinite(boxMin) || !math::isFinite(boxMax) || boxMax.x <= boxMin.x || boxMax.y <= boxMin.y || boxMax.z <= boxMin.z)
     {
         throw std::domain_error("Level-set bounding box is invalid.");
     }
 
-    const Real padding = paddingSize * gridNodeSpacing_;
+    const Real padding = paddingSize * spacing;
     const Vec3 center = 0.5 * (boxMin + boxMax);
     const Vec3 halfExtent = 0.5 * (boxMax - boxMin) + Vec3{padding};
-    const int halfSizeX = static_cast<int>(std::ceil(halfExtent.x / gridNodeSpacing_));
-    const int halfSizeY = static_cast<int>(std::ceil(halfExtent.y / gridNodeSpacing_));
-    const int halfSizeZ = static_cast<int>(std::ceil(halfExtent.z / gridNodeSpacing_));
+    if (!math::isFinite(1.0 / spacing))
+        throw std::overflow_error("Level-set grid spacing has an unsupported reciprocal.");
+    Vec3 origin;
+    std::array<int, 3> sizes;
+    std::size_t nodeCount = 1;
+    constexpr int maximumHalfSize = (std::numeric_limits<int>::max() - 1) / 2;
+    constexpr std::size_t maximumNodeCount = static_cast<std::size_t>(std::numeric_limits<int>::max());
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        const Real halfSize = std::ceil(halfExtent[axis] / spacing);
+        if (!math::isFinite(center[axis]) || !math::isFinite(halfSize) || halfSize < 1.0 || halfSize > maximumHalfSize)
+            throw std::overflow_error("Level-set grid dimensions exceed the supported index range.");
+        const int halfSizeInteger = static_cast<int>(halfSize);
+        const int size = 2 * halfSizeInteger + 1;
+        if (nodeCount > maximumNodeCount / static_cast<std::size_t>(size))
+            throw std::overflow_error("Level-set grid node count exceeds the supported index range.");
+        nodeCount *= static_cast<std::size_t>(size);
+        sizes[axis] = size;
+        origin[axis] = center[axis] - spacing * halfSizeInteger;
+        if (!math::isFinite(origin[axis]) || !math::isFinite(origin[axis] + spacing * Real(size - 1)))
+            throw std::overflow_error("Level-set grid coordinates are not finite.");
+    }
+    return {origin, {sizes[0], sizes[1], sizes[2]}};
+}
 
-    gridNodeSize_ = {2 * halfSizeX + 1, 2 * halfSizeY + 1, 2 * halfSizeZ + 1};
-    gridNodeOrigin_ = center - gridNodeSpacing_ * Vec3{Real(halfSizeX), Real(halfSizeY), Real(halfSizeZ)};
+void LSInfo::buildLSGridKernel(const GridLayout& layout)
+{
+    gridNodeSize_ = layout.size_;
+    gridNodeOrigin_ = layout.origin_;
     const int gridNodeCount = gridNodeSize_.x * gridNodeSize_.y * gridNodeSize_.z;
     gridNodeSignedDistance_.resize(gridNodeCount);
 
@@ -463,8 +492,8 @@ void LSInfo::updateGeometryProperties(bool isFixed)
     if (surfaceNodePositions_.empty())
     {
         // Grid-only analytic queries remain supported before surface sampling.
-        const Vec3 minimum = boundingBoxMin();
-        const Vec3 maximum = boundingBoxMax();
+        const Vec3 minimum = nativeSamplingBoundsMin();
+        const Vec3 maximum = nativeSamplingBoundsMax();
         for (int corner = 0; corner < 8; ++corner)
             includeRadius({corner & 1 ? maximum.x : minimum.x, corner & 2 ? maximum.y : minimum.y, corner & 4 ? maximum.z : minimum.z});
     }
@@ -485,6 +514,28 @@ void LSInfo::reverseSDFSign() noexcept
     {
         value = -value;
     }
+}
+
+Vec3 LSInfo::surfaceAABBMin() const
+{
+    if (!isValid() || surfaceNodePositions_.empty())
+        throw std::logic_error("Configure the geometry surface before querying its bounding box.");
+    Vec3 minimum = surfaceNodePositions_.front();
+    for (const Vec3& point : surfaceNodePositions_)
+        for (int axis = 0; axis < 3; ++axis)
+            minimum[axis] = std::min(minimum[axis], point[axis]);
+    return minimum;
+}
+
+Vec3 LSInfo::surfaceAABBMax() const
+{
+    if (!isValid() || surfaceNodePositions_.empty())
+        throw std::logic_error("Configure the geometry surface before querying its bounding box.");
+    Vec3 maximum = surfaceNodePositions_.front();
+    for (const Vec3& point : surfaceNodePositions_)
+        for (int axis = 0; axis < 3; ++axis)
+            maximum[axis] = std::max(maximum[axis], point[axis]);
+    return maximum;
 }
 
 Real LSInfo::signedDistance(const Vec3& localPoint) const
@@ -588,8 +639,8 @@ void LSInfo::buildImplicitSurfaceNode(int subdivisionLevel)
         throw std::invalid_argument("Subdivision level must be non-negative.");
     }
     clearGrid();
-    const Vec3 boxMin = boundingBoxMin();
-    const Vec3 boxMax = boundingBoxMax();
+    const Vec3 boxMin = nativeSamplingBoundsMin();
+    const Vec3 boxMax = nativeSamplingBoundsMax();
     if (!math::isFinite(boxMin) || !math::isFinite(boxMax) || boxMax.x <= boxMin.x || boxMax.y <= boxMin.y || boxMax.z <= boxMin.z)
     {
         throw std::domain_error("Cannot build a surface from an invalid bounding box.");
@@ -864,11 +915,11 @@ TriangleMesh::~TriangleMesh() = default;
 TriangleMesh::TriangleMesh(TriangleMesh&&) noexcept = default;
 TriangleMesh& TriangleMesh::operator=(TriangleMesh&&) noexcept = default;
 
-bool TriangleMesh::isValid() const noexcept { return configured_; }
+bool TriangleMesh::isValid() const noexcept { return configured_ && acceleration_ && !acceleration_->nodes_.empty(); }
 
-Vec3 TriangleMesh::boundingBoxMin() const noexcept { return acceleration_->nodes_.front().minimum_; }
+Vec3 TriangleMesh::nativeSamplingBoundsMin() const noexcept { return acceleration_->nodes_.front().minimum_; }
 
-Vec3 TriangleMesh::boundingBoxMax() const noexcept { return acceleration_->nodes_.front().maximum_; }
+Vec3 TriangleMesh::nativeSamplingBoundsMax() const noexcept { return acceleration_->nodes_.front().maximum_; }
 
 Real TriangleMesh::evaluateSFD(const Vec3& point) const noexcept
 {
@@ -1373,13 +1424,13 @@ void CutSphere::setParameter(Real radius, Real cutHeight)
     configured_ = true;
 }
 
-LSInfo::Vec3 CutSphere::boundingBoxMin() const noexcept
+LSInfo::Vec3 CutSphere::nativeSamplingBoundsMin() const noexcept
 {
     const Real extent = cutHeight_ >= 0.0 ? radius_ : rimRadius_;
     return {-extent, -extent, -radius_};
 }
 
-LSInfo::Vec3 CutSphere::boundingBoxMax() const noexcept
+LSInfo::Vec3 CutSphere::nativeSamplingBoundsMax() const noexcept
 {
     const Real extent = cutHeight_ >= 0.0 ? radius_ : rimRadius_;
     return {extent, extent, cutHeight_};
@@ -1464,8 +1515,8 @@ void Link::setParameter(Real bendRadius, Real tubeRadius, Real straightLength)
     configured_ = true;
 }
 
-LSInfo::Vec3 Link::boundingBoxMin() const noexcept { return {-bendRadius_ - tubeRadius_, -0.5 * straightLength_ - bendRadius_ - tubeRadius_, -tubeRadius_}; }
-LSInfo::Vec3 Link::boundingBoxMax() const noexcept { return {bendRadius_ + tubeRadius_, 0.5 * straightLength_ + bendRadius_ + tubeRadius_, tubeRadius_}; }
+LSInfo::Vec3 Link::nativeSamplingBoundsMin() const noexcept { return {-bendRadius_ - tubeRadius_, -0.5 * straightLength_ - bendRadius_ - tubeRadius_, -tubeRadius_}; }
+LSInfo::Vec3 Link::nativeSamplingBoundsMax() const noexcept { return {bendRadius_ + tubeRadius_, 0.5 * straightLength_ + bendRadius_ + tubeRadius_, tubeRadius_}; }
 LSInfo::Real Link::evaluateSFD(const Vec3& point) const noexcept
 {
     const Real axial = std::max(std::abs(point.y) - 0.5 * straightLength_, Real{0.0});
@@ -1527,8 +1578,8 @@ void Torus::setParameter(Real majorRadius, Real tubeRadius)
     configured_ = true;
 }
 
-LSInfo::Vec3 Torus::boundingBoxMin() const noexcept { return {-majorRadius_ - tubeRadius_, -majorRadius_ - tubeRadius_, -tubeRadius_}; }
-LSInfo::Vec3 Torus::boundingBoxMax() const noexcept { return {majorRadius_ + tubeRadius_, majorRadius_ + tubeRadius_, tubeRadius_}; }
+LSInfo::Vec3 Torus::nativeSamplingBoundsMin() const noexcept { return {-majorRadius_ - tubeRadius_, -majorRadius_ - tubeRadius_, -tubeRadius_}; }
+LSInfo::Vec3 Torus::nativeSamplingBoundsMax() const noexcept { return {majorRadius_ + tubeRadius_, majorRadius_ + tubeRadius_, tubeRadius_}; }
 LSInfo::Real Torus::evaluateSFD(const Vec3& point) const noexcept { return std::hypot(std::hypot(point.x, point.y) - majorRadius_, point.z) - tubeRadius_; }
 
 void Torus::buildSurfaceNode(Real surfaceSpacing)
@@ -1570,8 +1621,8 @@ void Capsule::setParameter(Real radius, Real straightLength)
     configured_ = true;
 }
 
-LSInfo::Vec3 Capsule::boundingBoxMin() const noexcept { return {-radius_, -radius_, -radius_ - 0.5 * straightLength_}; }
-LSInfo::Vec3 Capsule::boundingBoxMax() const noexcept { return {radius_, radius_, radius_ + 0.5 * straightLength_}; }
+LSInfo::Vec3 Capsule::nativeSamplingBoundsMin() const noexcept { return {-radius_, -radius_, -radius_ - 0.5 * straightLength_}; }
+LSInfo::Vec3 Capsule::nativeSamplingBoundsMax() const noexcept { return {radius_, radius_, radius_ + 0.5 * straightLength_}; }
 LSInfo::Real Capsule::evaluateSFD(const Vec3& point) const noexcept
 {
     const Real axial = point.z - std::clamp(point.z, -0.5 * straightLength_, 0.5 * straightLength_);
@@ -1653,8 +1704,8 @@ void Sphere::setParameter(Real radius)
 void Sphere::buildSurfaceNode(int subdivisionLevel) { buildImplicitSurfaceNode(subdivisionLevel); }
 
 bool Sphere::isValid() const noexcept { return configured_; }
-Vec3 Sphere::boundingBoxMin() const noexcept { return Vec3{-radius_}; }
-Vec3 Sphere::boundingBoxMax() const noexcept { return Vec3{radius_}; }
+Vec3 Sphere::nativeSamplingBoundsMin() const noexcept { return Vec3{-radius_}; }
+Vec3 Sphere::nativeSamplingBoundsMax() const noexcept { return Vec3{radius_}; }
 Real Sphere::evaluateSFD(const Vec3& point) const noexcept { return math::norm(point) - radius_; }
 
 Vec3 Sphere::projectToSurface(const Vec3& point) const noexcept
@@ -1688,8 +1739,8 @@ Real Superellipsoid::radius() const noexcept { return std::sqrt(radiusX_ * radiu
 
 bool Superellipsoid::isValid() const noexcept { return configured_; }
 
-Vec3 Superellipsoid::boundingBoxMin() const noexcept { return {-radiusX_, -radiusY_, -radiusZ_}; }
-Vec3 Superellipsoid::boundingBoxMax() const noexcept { return {radiusX_, radiusY_, radiusZ_}; }
+Vec3 Superellipsoid::nativeSamplingBoundsMin() const noexcept { return {-radiusX_, -radiusY_, -radiusZ_}; }
+Vec3 Superellipsoid::nativeSamplingBoundsMax() const noexcept { return {radiusX_, radiusY_, radiusZ_}; }
 
 Real Superellipsoid::evaluateSFD(const Vec3& point) const noexcept
 {
@@ -1801,8 +1852,20 @@ void PlaneWall::buildSurfaceNode()
 }
 
 bool PlaneWall::isValid() const noexcept { return configured_; }
-Vec3 PlaneWall::boundingBoxMin() const noexcept { return Vec3{-0.5 * size_}; }
-Vec3 PlaneWall::boundingBoxMax() const noexcept { return Vec3{0.5 * size_}; }
+Vec3 PlaneWall::nativeSamplingBoundsMin() const noexcept { return -nativeSamplingBoundsMax(); }
+Vec3 PlaneWall::nativeSamplingBoundsMax() const noexcept
+{
+    Vec3 tangent1;
+    Vec3 tangent2;
+    orthogonalBasis(outwardNormal_, tangent1, tangent2);
+    Vec3 halfExtent;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        // Enclose the oriented square without collapsing the 3D SDF sampling domain.
+        halfExtent[axis] = 0.5 * size_ * std::max(1.0, std::abs(tangent1[axis]) + std::abs(tangent2[axis]));
+    }
+    return halfExtent;
+}
 Real PlaneWall::evaluateSFD(const Vec3& point) const noexcept { return math::dot(point, outwardNormal_); }
 
 BoxWall::BoxWall(const Vec3& size) { setParameter(size); }
@@ -1846,8 +1909,8 @@ void BoxWall::buildSurfaceNode()
 }
 
 bool BoxWall::isValid() const noexcept { return configured_; }
-Vec3 BoxWall::boundingBoxMin() const noexcept { return -0.5 * size_; }
-Vec3 BoxWall::boundingBoxMax() const noexcept { return 0.5 * size_; }
+Vec3 BoxWall::nativeSamplingBoundsMin() const noexcept { return -0.5 * size_; }
+Vec3 BoxWall::nativeSamplingBoundsMax() const noexcept { return 0.5 * size_; }
 
 Real BoxWall::evaluateSFD(const Vec3& point) const noexcept
 {
@@ -1998,7 +2061,7 @@ void CylinderWall::buildSurfaceNode(int segmentCount)
 
 bool CylinderWall::isValid() const noexcept { return configured_; }
 
-Vec3 CylinderWall::boundingBoxMin() const noexcept
+Vec3 CylinderWall::nativeSamplingBoundsMin() const noexcept
 {
     const Vec3 axis = math::normalizedOrZero(topCenter_ - bottomCenter_);
     const Vec3 radialExtent{radius_ * std::sqrt(std::max(0.0, 1.0 - axis.x * axis.x)),
@@ -2007,7 +2070,7 @@ Vec3 CylinderWall::boundingBoxMin() const noexcept
     return math::componentMin(bottomCenter_, topCenter_) - radialExtent;
 }
 
-Vec3 CylinderWall::boundingBoxMax() const noexcept
+Vec3 CylinderWall::nativeSamplingBoundsMax() const noexcept
 {
     const Vec3 axis = math::normalizedOrZero(topCenter_ - bottomCenter_);
     const Vec3 radialExtent{radius_ * std::sqrt(std::max(0.0, 1.0 - axis.x * axis.x)),
@@ -2145,14 +2208,14 @@ void ConeWall::buildSurfaceNode(int segmentCount)
 
 bool ConeWall::isValid() const noexcept { return configured_; }
 
-Vec3 ConeWall::boundingBoxMin() const noexcept
+Vec3 ConeWall::nativeSamplingBoundsMin() const noexcept
 {
     const Vec3 axis = math::normalizedOrZero(topCenter_ - bottomCenter_);
     const Vec3 radialFactor{std::sqrt(std::max(0.0, 1.0 - axis.x * axis.x)), std::sqrt(std::max(0.0, 1.0 - axis.y * axis.y)), std::sqrt(std::max(0.0, 1.0 - axis.z * axis.z))};
     return math::componentMin(bottomCenter_ - bottomRadius_ * radialFactor, topCenter_ - topRadius_ * radialFactor);
 }
 
-Vec3 ConeWall::boundingBoxMax() const noexcept
+Vec3 ConeWall::nativeSamplingBoundsMax() const noexcept
 {
     const Vec3 axis = math::normalizedOrZero(topCenter_ - bottomCenter_);
     const Vec3 radialFactor{std::sqrt(std::max(0.0, 1.0 - axis.x * axis.x)), std::sqrt(std::max(0.0, 1.0 - axis.y * axis.y)), std::sqrt(std::max(0.0, 1.0 - axis.z * axis.z))};

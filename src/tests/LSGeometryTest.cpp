@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace
@@ -17,6 +19,22 @@ using math::Vec3;
 void require(bool condition, const char* message)
 {
     if (!condition) throw std::runtime_error(message);
+}
+
+template <class Operation> void requireLogicError(Operation operation, const char* message)
+{
+    bool rejected = false;
+    try { operation(); }
+    catch (const std::logic_error&) { rejected = true; }
+    require(rejected, message);
+}
+
+template <class Operation> void requireRejected(Operation operation, const char* message)
+{
+    bool rejected = false;
+    try { operation(); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, message);
 }
 
 void requireNear(Real actual, Real expected, const char* message, Real tolerance = 1.0e-10)
@@ -41,6 +59,27 @@ void requireSameSurface(const std::vector<Vec3>& actual, const std::vector<Vec3>
     require(actual.size() == expected.size(), "Surface node count changed unexpectedly.");
     for (std::size_t i = 0; i < actual.size(); ++i)
         requireNear(actual[i], expected[i], "Surface frame changed unexpectedly.");
+}
+
+void requireSameSize(const int3& actual, const int3& expected, const char* message)
+{
+    require(actual.x == expected.x && actual.y == expected.y && actual.z == expected.z, message);
+}
+
+void requireSurfaceBounds(const levelset::LSInfo& geometry)
+{
+    const auto& surface = geometry.surfaceNodePosition();
+    require(!surface.empty(), "Surface bounds fixture has no surface nodes.");
+    Vec3 minimum = surface.front();
+    Vec3 maximum = surface.front();
+    for (const Vec3& point : surface)
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            minimum[axis] = std::min(minimum[axis], point[axis]);
+            maximum[axis] = std::max(maximum[axis], point[axis]);
+        }
+    requireNear(geometry.surfaceAABBMin(), minimum, "Public lower bound is not the current surface minimum.", 0.0);
+    requireNear(geometry.surfaceAABBMax(), maximum, "Public upper bound is not the current surface maximum.", 0.0);
 }
 
 struct GeometryState
@@ -312,6 +351,211 @@ void testRegenerationAndRandomShape()
     freshCone.buildLSGrid(0.25, 2);
     GeometryState(freshCone).requireMatches(cone);
 }
+
+void requireSurfaceInsideGrid(const levelset::LSInfo& geometry)
+{
+    requireSurfaceBounds(geometry);
+    const Vec3 gridMinimum = geometry.gridNodeOrigin();
+    const int3 size = geometry.gridNodeSize3D();
+    const Vec3 gridMaximum = gridMinimum + geometry.gridNodeSpacing() * Vec3{Real(size.x - 1), Real(size.y - 1), Real(size.z - 1)};
+    for (const Vec3& point : geometry.surfaceNodePosition())
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            require(point[axis] >= gridMinimum[axis] - 1.0e-12 && point[axis] <= gridMaximum[axis] + 1.0e-12,
+                    "A plane corner lies outside its padded SDF grid.");
+        }
+}
+
+void testPlaneSamplingBounds()
+{
+    for (const Vec3& normal : std::vector<Vec3>{Vec3::unitX(), -Vec3::unitX(), Vec3::unitY(), -Vec3::unitY(), Vec3::unitZ(), -Vec3::unitZ()})
+    {
+        levelset::PlaneWall axisPlane(normal, 1.0);
+        Vec3 halfExtent{0.5};
+        for (int axis = 0; axis < 3; ++axis)
+            if (normal[axis] != 0.0) halfExtent[axis] = 0.0;
+        requireNear(axisPlane.surfaceAABBMin(), -halfExtent, "Axis-plane surface bounds include artificial sampling thickness.", 0.0);
+        requireNear(axisPlane.surfaceAABBMax(), halfExtent, "Axis-plane surface bounds include artificial sampling thickness.", 0.0);
+        const int3 estimate = axisPlane.estimateGridNodeSize(0.125, 2);
+        requireSameSize(estimate, {13, 13, 13}, "Axis-plane grid estimate lost its original sampling cube.");
+        axisPlane.buildLSGrid(0.125, 2);
+        requireSameSize(axisPlane.gridNodeSize3D(), estimate, "Axis-plane estimate differs from the actual grid.");
+        requireSurfaceInsideGrid(axisPlane);
+    }
+
+    levelset::PlaneWall plane({1.0, 1.0, 1.0}, 1.0);
+    const Vec3 nativeMinimum = plane.surfaceAABBMin();
+    const Vec3 nativeMaximum = plane.surfaceAABBMax();
+    const auto nativeSurface = plane.surfaceNodePosition();
+    const int3 estimate = plane.estimateGridNodeSize(0.1, 2);
+    plane.buildLSGrid(100);
+    requireFixed(plane, nativeSurface);
+    requireSurfaceInsideGrid(plane);
+    requireNear(plane.surfaceAABBMin(), nativeMinimum, "Fixed plane shifted its lower surface bound.");
+    requireNear(plane.surfaceAABBMax(), nativeMaximum, "Fixed plane shifted its upper surface bound.");
+
+    plane.buildLSGrid(0.1, 2, false);
+    requireSameSize(plane.gridNodeSize3D(), estimate, "Movable-plane estimate differs from its actual grid.");
+    const Vec3 correction = nativeSurface.front() - plane.surfaceNodePosition().front();
+    require(math::norm(correction) > 0.01, "Movable oblique-plane fixture did not exercise centroid correction.");
+    requireNear(plane.surfaceAABBMin(), nativeMinimum - correction, "Movable-plane lower bound has an inconsistent local frame.");
+    requireNear(plane.surfaceAABBMax(), nativeMaximum - correction, "Movable-plane upper bound has an inconsistent local frame.");
+    requireSurfaceInsideGrid(plane);
+    const GeometryState firstBuild(plane);
+    for (int iteration = 0; iteration < 3; ++iteration)
+    {
+        requireSameSize(plane.estimateGridNodeSize(0.1, 2), estimate, "Centroid correction changed the native grid dimensions.");
+        firstBuild.requireMatches(plane);
+        plane.buildLSGrid(0.1, 2, false);
+        firstBuild.requireMatches(plane);
+        requireNear(plane.surfaceAABBMin(), nativeMinimum - correction, "Rebuilding applied the plane's centroid offset twice.");
+        requireNear(plane.surfaceAABBMax(), nativeMaximum - correction, "Rebuilding applied the plane's centroid offset twice.");
+        requireSurfaceInsideGrid(plane);
+        requireQueryConsistency(plane);
+    }
+    plane.buildLSGrid(0.1, 2);
+    requireFixed(plane, nativeSurface);
+    requireNear(plane.surfaceAABBMin(), nativeMinimum, "Returning to fixed policy retained a shifted lower bound.");
+    requireNear(plane.surfaceAABBMax(), nativeMaximum, "Returning to fixed policy retained a shifted upper bound.");
+}
+
+void requireUnavailableMesh(levelset::TriangleMesh& geometry)
+{
+    require(!geometry.valid(), "An empty or moved-from mesh remained configured.");
+    requireLogicError([&] { (void)geometry.surfaceAABBMin(); }, "An unavailable mesh returned a lower surface bound.");
+    requireLogicError([&] { (void)geometry.surfaceAABBMax(); }, "An unavailable mesh returned an upper surface bound.");
+    requireLogicError([&] { (void)geometry.estimateGridNodeSize(0.125, 2); }, "An unavailable mesh accepted a grid estimate.");
+    requireLogicError([&] { geometry.buildLSGrid(16); }, "An unavailable mesh accepted a resolution-based grid build.");
+    requireLogicError([&] { geometry.buildLSGrid(0.125, 2); }, "An unavailable mesh accepted a spacing-based grid build.");
+    requireLogicError([&] { (void)geometry.signedDistance(Vec3::zero()); }, "An unavailable mesh accepted a signed-distance query.");
+}
+
+void testUnavailableMeshBounds()
+{
+    levelset::TriangleMesh empty;
+    requireUnavailableMesh(empty);
+    auto original = translatedBox({4.0, -3.0, 2.0});
+    original.buildLSGrid(0.125, 2);
+    const GeometryState accepted(original);
+    const Vec3 minimum = original.surfaceAABBMin();
+    const Vec3 maximum = original.surfaceAABBMax();
+
+    auto moved = std::move(original);
+    requireUnavailableMesh(original);
+    require(moved.valid(), "Move construction invalidated the destination mesh.");
+    accepted.requireMatches(moved);
+    requireNear(moved.surfaceAABBMin(), minimum, "Move construction changed the prepared lower frame.");
+    requireNear(moved.surfaceAABBMax(), maximum, "Move construction changed the prepared upper frame.");
+    requireQueryConsistency(moved);
+
+    levelset::TriangleMesh assigned;
+    assigned = std::move(moved);
+    requireUnavailableMesh(moved);
+    require(assigned.valid(), "Move assignment invalidated the destination mesh.");
+    accepted.requireMatches(assigned);
+    requireNear(assigned.surfaceAABBMin(), minimum, "Move assignment changed the prepared lower frame.");
+    requireNear(assigned.surfaceAABBMax(), maximum, "Move assignment changed the prepared upper frame.");
+    requireQueryConsistency(assigned);
+}
+
+void requirePreparedBounds(const levelset::LSInfo& source)
+{
+    auto prepared = levelset::LSInfo::fromPreparedData(source.gridNodeOrigin(), source.gridNodeSpacing(), source.gridNodeSize3D(), source.gridNodeSFD(),
+                                                     source.surfaceNodePosition(), source.surfaceNodeConnectivity(), source.boundingRadius(), source.volume(),
+                                                     source.unitDensityInertiaTensor());
+    const GeometryState accepted(source);
+    const int3 size = source.gridNodeSize3D();
+    const Vec3 lastNode = source.gridNodeOrigin() + source.gridNodeSpacing() * Vec3{Real(size.x - 1), Real(size.y - 1), Real(size.z - 1)};
+    requireSurfaceBounds(*prepared);
+    requireNear(prepared->surfaceAABBMin(), source.surfaceAABBMin(), "Prepared lower bound changed the accepted surface frame.", 0.0);
+    requireNear(prepared->surfaceAABBMax(), source.surfaceAABBMax(), "Prepared upper bound changed the accepted surface frame.", 0.0);
+    require(math::norm(prepared->surfaceAABBMin() - source.gridNodeOrigin()) > 0.0 &&
+            math::norm(prepared->surfaceAABBMax() - lastNode) > 0.0,
+            "Prepared surface bounds were replaced by padded grid bounds.");
+    require(prepared->gridNodeSFD() == source.gridNodeSFD() && prepared->surfaceNodePosition() == source.surfaceNodePosition(),
+            "Restoring prepared geometry resampled or recentered its data.");
+    require(prepared->surfaceNodeConnectivity().size() == source.surfaceNodeConnectivity().size(), "Prepared triangle count changed.");
+    for (std::size_t index = 0; index < source.surfaceNodeConnectivity().size(); ++index)
+    {
+        const int3 actual = prepared->surfaceNodeConnectivity()[index];
+        const int3 expected = source.surfaceNodeConnectivity()[index];
+        require(actual.x == expected.x && actual.y == expected.y && actual.z == expected.z, "Prepared triangle connectivity changed.");
+    }
+    requireNear(prepared->boundingRadius(), source.boundingRadius(), "Prepared radius changed.", 0.0);
+    requireNear(prepared->volume(), source.volume(), "Prepared volume changed.", 0.0);
+    requireNear(prepared->unitDensityInertiaTensor(), source.unitDensityInertiaTensor(), "Prepared inertia changed.", 0.0);
+    accepted.requireMatches(*prepared);
+    requireQueryConsistency(*prepared);
+    requireNear(prepared->signedDistance(source.gridNodeOrigin()), source.gridNodeSFD().front(), "Prepared lower boundary is not queryable.");
+    requireNear(prepared->signedDistance(lastNode), source.gridNodeSFD().back(), "Prepared upper boundary is not queryable.");
+    requireLogicError([&] { prepared->buildLSGrid(16); }, "Prepared geometry accepted a source-shape rebuild.");
+    requireLogicError([&] { (void)prepared->estimateGridNodeSize(source.gridNodeSpacing(), 2); },
+                      "Prepared geometry accepted a source-shape estimate.");
+    accepted.requireMatches(*prepared);
+}
+
+void testGridSizeEstimation()
+{
+    auto mesh = translatedBox({4.0, -3.0, 2.0});
+    const GeometryState native(mesh);
+    const int3 estimate = mesh.estimateGridNodeSize(0.125, 2);
+    requireSameSize(estimate, {21, 13, 13}, "Grid estimate changed the existing ceil/padding scheme.");
+    requireSameSize(mesh.estimateGridNodeSize(0.125, 0), {17, 9, 9}, "Zero-padding estimate has incorrect dimensions.");
+    native.requireMatches(mesh);
+    requireSurfaceBounds(mesh);
+    mesh.buildLSGrid(0.125, 2);
+    requireSameSize(mesh.gridNodeSize3D(), estimate, "Translated mesh estimate differs from its actual grid.");
+    requireSurfaceBounds(mesh);
+    const GeometryState accepted(mesh);
+    for (int iteration = 0; iteration < 3; ++iteration)
+    {
+        requireSameSize(mesh.estimateGridNodeSize(0.125, 2), estimate, "Recentered mesh estimate changed dimensions.");
+        accepted.requireMatches(mesh);
+        mesh.buildLSGrid(0.125, 2);
+        accepted.requireMatches(mesh);
+        requireSurfaceBounds(mesh);
+    }
+    for (Real spacing : {0.0, -0.125, std::numeric_limits<Real>::infinity(), std::numeric_limits<Real>::quiet_NaN(),
+                         std::numeric_limits<Real>::denorm_min(), 1.0e-20, 0.0005})
+    {
+        requireRejected([&] { (void)mesh.estimateGridNodeSize(spacing, 2); }, "Invalid or overflowing grid estimate was accepted.");
+        accepted.requireMatches(mesh);
+    }
+    for (int padding : {-1, std::numeric_limits<int>::max()})
+    {
+        requireRejected([&] { (void)mesh.estimateGridNodeSize(0.125, padding); }, "Invalid or overflowing grid padding was accepted.");
+        accepted.requireMatches(mesh);
+    }
+
+    // Analytic parameters suffice for sizing, but cannot substitute for a missing discrete surface AABB.
+    levelset::Sphere sphere(1.0);
+    require(sphere.valid() && sphere.surfaceNodePosition().empty(), "Analytic no-surface fixture is invalid.");
+    requireLogicError([&] { (void)sphere.surfaceAABBMin(); }, "A shape without surface nodes invented a lower surface bound.");
+    requireLogicError([&] { (void)sphere.surfaceAABBMax(); }, "A shape without surface nodes invented an upper surface bound.");
+    requireSameSize(sphere.estimateGridNodeSize(0.25, 2), {13, 13, 13}, "Analytic no-surface estimate is incorrect.");
+    require(sphere.surfaceNodePosition().empty() && sphere.gridNodeSFD().empty(), "Grid estimation mutated an unbuilt analytic shape.");
+
+    // Public surface bounds include every retained entry; querying must not prune or remap supplied vertices.
+    auto authored = translatedBox(Vec3::zero());
+    auto points = authored.surfaceNodePosition();
+    points.push_back({10.0, 20.0, 30.0});
+    const auto faces = authored.surfaceNodeConnectivity();
+    levelset::TriangleMesh retained(points, faces);
+    requireSurfaceBounds(retained);
+    requireNear(retained.surfaceAABBMax(), points.back(), "Surface bounds ignored a retained surface entry.", 0.0);
+    require(retained.surfaceNodePosition() == points && retained.surfaceNodeConnectivity().size() == faces.size(),
+            "Surface bounds query modified supplied mesh data.");
+}
+
+void testPreparedGeometryBounds()
+{
+    auto corrected = translatedBox({4.0, -3.0, 2.0});
+    corrected.buildLSGrid(0.125, 2);
+    requirePreparedBounds(corrected);
+    levelset::PlaneWall plane({1.0, 1.0, 1.0}, 1.0);
+    plane.buildLSGrid(0.1, 2);
+    requirePreparedBounds(plane);
+}
 } // namespace
 
 int main()
@@ -321,6 +565,10 @@ int main()
         testCentroidAndMetadata();
         testFixedGeometryAndShapeDefaults();
         testRegenerationAndRandomShape();
+        testPlaneSamplingBounds();
+        testUnavailableMeshBounds();
+        testPreparedGeometryBounds();
+        testGridSizeEstimation();
         std::cout << "LS geometry ownership and lifecycle tests passed.\n";
         return 0;
     }

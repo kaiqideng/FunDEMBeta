@@ -40,12 +40,16 @@ public:
     void setSphereVelocity(int particleIndex, const Vec3& value);
     /** Replaces one sphere angular velocity before or between solve calls. */
     void setSphereAngularVelocity(int particleIndex, const Vec3& value);
+    Real resetSphereVelocities(const std::vector<int>& indices, bool resetLinear = true, bool resetAngular = true);
+    std::vector<int> removeSpheres(const std::vector<int>& indices);
+    std::vector<int> removeLSParticles(const std::vector<int>& indices) override;
     /** Dispatches a valid bond to the sphere-sphere, sphere-LS, or LS-LS store. */
     int addBond(const bond& value) override;
 
     void setSphereVTUFields(std::vector<sphereVTUField> fields);
 
 protected:
+    void uploadRuntimeState(cudaStream_t stream) override;
     /** Mutable sphere storage for derived frontends implementing prescribed kinematics. */
     particleContainer& mutableSpheres() noexcept { return spheres_; }
     /** Mutable sphere interaction storage for derived frontends restoring a saved host state. */

@@ -1,0 +1,86 @@
+field,type,value
+official_file,string,Omitted historical artifact location.
+official_git_blob,string,8ab4e654a5c4612846413c65d239c37cf695ef4d
+source_commit,string,f9720ce2d176d615495d1d6c31349b1f71be1c73
+analytic.mass_kg,number,0.0004581489286485116
+analytic.normal_coefficient_K,number,3555555000.0
+analytic.maximum_overlap_m,number,2.2680644975771274e-05
+analytic.peak_force_N,number,384.05241628864235
+analytic.initial_kinetic_energy_J,number,0.0034842226023719305
+analytic.contact_duration_s,number,1.711676397991446e-05
+runs[0].run,string,cpu
+runs[0].label,string,CPU dt
+runs[0].native_steps,number,3038
+runs[0].frames,number,3039
+runs[0].dt_s,number,1e-08
+runs[0].peak_force_N,number,384.05249273632313
+runs[0].maximum_overlap_m,number,2.2680647985573368e-05
+runs[0].measured_restitution,number,1.0000000050947186
+runs[0].force_peak_relative_error,number,1.9905533088504512e-07
+runs[0].overlap_peak_relative_error,number,1.3270354948247132e-07
+runs[0].peak_energy_error_official_segment,number,3.317589054585568e-07
+runs[0].maximum_energy_relative_error,number,4.985390106293508e-07
+runs[0].maximum_force_law_error_over_peak,number,2.9601906640830086e-16
+runs[0].max_z_error_at_official_times_m,number,5.204170427930421e-18
+runs[0].max_velocity_error_over_impact_speed,number,1.672582567461079e-13
+runs[0].archive,string,Omitted historical artifact location.
+runs[0].project,string,Omitted historical artifact location.
+runs[0].passes_official_analytic_energy_tolerance,boolean,true
+runs[1].run,string,gpu
+runs[1].label,string,GPU dt
+runs[1].native_steps,number,3038
+runs[1].frames,number,3039
+runs[1].dt_s,number,1e-08
+runs[1].peak_force_N,number,384.05249273632313
+runs[1].maximum_overlap_m,number,2.2680647985573368e-05
+runs[1].measured_restitution,number,1.0000000050947186
+runs[1].force_peak_relative_error,number,1.9905533088504512e-07
+runs[1].overlap_peak_relative_error,number,1.3270354948247132e-07
+runs[1].peak_energy_error_official_segment,number,3.317589054585568e-07
+runs[1].maximum_energy_relative_error,number,4.985390106293508e-07
+runs[1].maximum_force_law_error_over_peak,number,2.9601906640830086e-16
+runs[1].max_z_error_at_official_times_m,number,5.204170427930421e-18
+runs[1].max_velocity_error_over_impact_speed,number,1.6725839574638642e-13
+runs[1].archive,string,Omitted historical artifact location.
+runs[1].project,string,Omitted historical artifact location.
+runs[1].passes_official_analytic_energy_tolerance,boolean,true
+runs[2].run,string,cpu-dt-half
+runs[2].label,string,CPU dt/2
+runs[2].native_steps,number,6076
+runs[2].frames,number,6077
+runs[2].dt_s,number,5e-09
+runs[2].peak_force_N,number,384.05242544381815
+runs[2].maximum_overlap_m,number,2.2680645336217373e-05
+runs[2].measured_restitution,number,1.000000000298559
+runs[2].force_peak_relative_error,number,2.3838349738625197e-08
+runs[2].overlap_peak_relative_error,number,1.5892233085068597e-08
+runs[2].peak_energy_error_official_segment,number,3.9730581935515374e-08
+runs[2].maximum_energy_relative_error,number,1.255218555762383e-07
+runs[2].maximum_force_law_error_over_peak,number,2.9601906640830086e-16
+runs[2].max_z_error_at_official_times_m,number,8.752156551578016e-12
+runs[2].max_velocity_error_over_impact_speed,number,2.408956268601559e-07
+runs[2].archive,string,Omitted historical artifact location.
+runs[2].project,string,Omitted historical artifact location.
+runs[2].passes_official_analytic_energy_tolerance,boolean,true
+runs[3].run,string,gpu-dt-half
+runs[3].label,string,GPU dt/2
+runs[3].native_steps,number,6076
+runs[3].frames,number,6077
+runs[3].dt_s,number,5e-09
+runs[3].peak_force_N,number,384.05242544381815
+runs[3].maximum_overlap_m,number,2.2680645336217373e-05
+runs[3].measured_restitution,number,1.0000000002985587
+runs[3].force_peak_relative_error,number,2.3838349738625197e-08
+runs[3].overlap_peak_relative_error,number,1.5892233085068597e-08
+runs[3].peak_energy_error_official_segment,number,3.9730581935515374e-08
+runs[3].maximum_energy_relative_error,number,1.255218561313498e-07
+runs[3].maximum_force_law_error_over_peak,number,2.9601906640830086e-16
+runs[3].max_z_error_at_official_times_m,number,8.752156551578016e-12
+runs[3].max_velocity_error_over_impact_speed,number,2.408956268609899e-07
+runs[3].archive,string,Omitted historical artifact location.
+runs[3].project,string,Omitted historical artifact location.
+runs[3].passes_official_analytic_energy_tolerance,boolean,true
+notes[0],string,"Official 1% criterion is the Hertz peak-energy balance, at cumulative step 2138."
+notes[1],string,"Official epsilon=1e-10 is a LAMMPS regression setting, not a universal cross-code tolerance."
+notes[2],string,The adopted Poisson ratio is a representation choice; E is derived to preserve the specified effective normal modulus.
+notes[3],string,"This elastic frictionless test verifies normal Hertz contact only; it does not test dissipative restitution, tangential friction or granular ensembles."

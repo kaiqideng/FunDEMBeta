@@ -89,12 +89,24 @@ public:
     const std::vector<Vec3>& surfaceNodePosition() const noexcept { return surfaceNodePositions_; }
     const std::vector<int3>& surfaceNodeConnectivity() const noexcept { return surfaceTriangles_; }
 
-    /** Unpadded lower extent used for grid sampling, expressed in the current local frame.
-     * This is the shape's sampling box, not necessarily a tight surface AABB (notably for PlaneWall).
+    /** Returns the componentwise minimum of the current local surface points, without grid padding.
+     * Centroid correction is already reflected in the points; no additional translation is applied.
+     * @throws std::logic_error If the geometry is invalid or has no surface points.
      */
-    Vec3 gridSamplingBoundsMin() const noexcept { return boundingBoxMin() - centroidOffset_; }
-    /** Unpadded upper sampling extent in the same possibly centroid-corrected frame as the surface. */
-    Vec3 gridSamplingBoundsMax() const noexcept { return boundingBoxMax() - centroidOffset_; }
+    Vec3 surfaceAABBMin() const;
+    /** Returns the componentwise maximum of the current local surface points, without grid padding.
+     * A planar surface can have zero extent along one axis.
+     * @throws std::logic_error If the geometry is invalid or has no surface points.
+     */
+    Vec3 surfaceAABBMax() const;
+    /** Estimates grid-node dimensions using the same native bounds, padding and rounding as buildLSGrid().
+     * Does not allocate grid samples or change accepted geometry, including its current local frame.
+     * @throws std::logic_error If the geometry is invalid or is a prepared grid that cannot be rebuilt.
+     * @throws std::invalid_argument If spacing is not positive and finite or paddingSize is negative.
+     * @throws std::domain_error If the native sampling bounds are invalid.
+     * @throws std::overflow_error If the grid coordinates or int-indexed node count are unsupported.
+     */
+    int3 estimateGridNodeSize(Real spacing, int paddingSize = 2) const;
 
 protected:
     /** Restores native-frame surface positions and clears generated grid data and integrated properties. */
@@ -117,10 +129,10 @@ private:
     virtual bool defaultFixedGeometry() const noexcept { return false; }
     /** Validates the concrete shape parameters. */
     virtual bool isValid() const noexcept = 0;
-    /** Returns the lower local-space extent used to build the Cartesian grid. */
-    virtual Vec3 boundingBoxMin() const noexcept = 0;
-    /** Returns the upper local-space extent used to build the Cartesian grid. */
-    virtual Vec3 boundingBoxMax() const noexcept = 0;
+    /** Returns the lower native-frame sampling extent, not the current surface bounding box. */
+    virtual Vec3 nativeSamplingBoundsMin() const noexcept = 0;
+    /** Returns the upper native-frame sampling extent, which may include thickness for planar surfaces. */
+    virtual Vec3 nativeSamplingBoundsMax() const noexcept = 0;
     /** Evaluates analytic or mesh signed distance in the local frame. */
     virtual Real evaluateSFD(const Vec3& point) const noexcept = 0;
     /** Projects a sampling guess onto the represented surface. */
@@ -130,8 +142,16 @@ private:
 
     /** Creates the base icosahedron used by implicit-surface sampling. */
     void buildIcosahedron();
+    /** Native grid layout shared by allocation-free estimates and actual grid construction. */
+    struct GridLayout
+    {
+        Vec3 origin_; ///< Native-frame position of grid node (0,0,0).
+        int3 size_;   ///< Overflow-checked odd node counts in X, Y and Z.
+    };
+    /** Calculates the original padded, symmetrically rounded grid without changing geometry. */
+    GridLayout calculateGridLayout(Real spacing, int paddingSize) const;
     /** Samples the current shape in its native frame. */
-    void buildLSGridKernel(int paddingSize);
+    void buildLSGridKernel(const GridLayout& layout);
     /** Integrates occupancy moments and applies one shared local-frame shift to the surface and grid. */
     void updateGeometryProperties(bool isFixed);
 
@@ -169,8 +189,8 @@ private:
     struct accelerationData;
 
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Triangle Mesh"; }
     /** Validates connectivity, orients triangles, and rebuilds acceleration data. */
@@ -226,8 +246,8 @@ public:
 
 private:
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     Vec3 projectToSurface(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Sphere"; }
@@ -250,8 +270,8 @@ public:
 
 private:
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     Vec3 projectToSurface(const Vec3& point) const noexcept override;
     /** Evaluates the local implicit-function gradient used for projection. */
@@ -278,8 +298,8 @@ protected:
     void setPolyhedron(std::vector<Vec3> vertices, std::vector<int3> triangles);
 private:
     bool isValid() const noexcept override { return configured_; }
-    Vec3 boundingBoxMin() const noexcept override { return minimum_; }
-    Vec3 boundingBoxMax() const noexcept override { return maximum_; }
+    Vec3 nativeSamplingBoundsMin() const noexcept override { return minimum_; }
+    Vec3 nativeSamplingBoundsMax() const noexcept override { return maximum_; }
     Real evaluateSFD(const Vec3& point) const noexcept override;
     std::vector<Vec3> vertices_; ///< Native base vertices retained for exact distance queries.
     std::vector<int3> triangles_; ///< Outward base faces, independent of surface refinement.
@@ -406,8 +426,8 @@ public:
     void buildSurfaceNode(Real surfaceSpacing);
 private:
     bool isValid() const noexcept override { return configured_; }
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Cut Sphere"; }
     Real radius_{0.0}; ///< Radius of the native uncut sphere.
@@ -431,8 +451,8 @@ public:
     void buildSurfaceNode(Real surfaceSpacing);
 private:
     bool isValid() const noexcept override { return configured_; }
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Link"; }
     Real bendRadius_{0.0}; ///< Radius of both centerline semicircles.
@@ -453,8 +473,8 @@ public:
     void buildSurfaceNode(Real surfaceSpacing);
 private:
     bool isValid() const noexcept override { return configured_; }
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Torus"; }
     Real majorRadius_{0.0}; ///< Distance from Z axis to tube centerline.
@@ -474,8 +494,8 @@ public:
     void buildSurfaceNode(Real surfaceSpacing);
 private:
     bool isValid() const noexcept override { return configured_; }
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Capsule"; }
     Real radius_{0.0}; ///< Cylinder and hemispherical-cap radius.
@@ -493,8 +513,8 @@ public:
 private:
     bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Plane Wall"; }
     /** Generates the square's surface nodes and triangle connectivity. */
@@ -521,8 +541,8 @@ protected:
 private:
     bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
 
     Vec3 size_{Vec3::zero()}; ///< Full box dimensions.
@@ -554,8 +574,8 @@ public:
 private:
     bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Cylinder Wall"; }
     /** Generates the lateral wall with @p segmentCount circumferential segments. */
@@ -579,8 +599,8 @@ public:
 private:
     bool defaultFixedGeometry() const noexcept override { return true; }
     bool isValid() const noexcept override;
-    Vec3 boundingBoxMin() const noexcept override;
-    Vec3 boundingBoxMax() const noexcept override;
+    Vec3 nativeSamplingBoundsMin() const noexcept override;
+    Vec3 nativeSamplingBoundsMax() const noexcept override;
     Real evaluateSFD(const Vec3& point) const noexcept override;
     const char* objectName() const noexcept override { return "Cone Wall"; }
     /** Generates the lateral frustum with @p segmentCount circumferential segments. */

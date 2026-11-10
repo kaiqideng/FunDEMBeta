@@ -2,12 +2,14 @@
 
 FunDEMBeta is a C++17 discrete-element framework for spherical and level-set particles, bonded and frictional contact, and SPH–DEM coupling. One host-side object definition supplies both CPU data and CUDA structure-of-arrays storage, so the same physical model can be executed by CPU, GPU, or supported hybrid solvers.
 
-This README provides one complete path from a new development environment through the introductory tutorials and their results. Detailed interfaces and advanced workflows are documented in the [User Guide](docs/UserGuide.md).
+This README provides one complete path from a new development environment through the introductory tutorials and their results. Detailed interfaces and advanced workflows are documented in the [User Guide](docs/UserGuide.md). To write your own C++ case, follow the [Programming Guide](docs/ProgrammingGuide.md).
 
 The CMake package version is **1.0.2**. Current interfaces include an expanded
 native level-set primitive catalog, restoration of already prepared geometry
-without another centroid shift, reusable CPU fixed-radius point queries, and
-periodic SPH neighbor images. See the [geometry and search guide](docs/UserGuide.md#6-model-construction)
+without another centroid shift, reusable CPU fixed-radius point queries,
+completed-step particle resets/removal, and periodic SPH neighbor images. See
+the [model-construction guide](docs/UserGuide.md#6-model-construction),
+[runtime-edit contract](docs/UserGuide.md#114-completed-step-resets-and-particle-removal)
 and [SPH guide](docs/UserGuide.md#14-sphdem) for their scope and limitations.
 
 Using a Mac? Follow the dedicated [macOS quick start](README_macOS.md) for a CPU-only build on Apple Silicon or Intel.
@@ -59,8 +61,8 @@ The core library and its tests live under [`src/`](src/README.md). The repositor
 | [`docs/`](docs/UserGuide.md) | User guide, API documentation, and validation notes |
 | [`cmake/`](cmake/README.md) | Installed CMake package configuration |
 | [`tutorial/`](tutorial/README.md) | Small runnable demonstrations |
-| [`example/`](example/README.md) | Larger application cases |
-| [`validation/`](validation/README.md) | Analytical, convergence, and backend-consistency cases |
+| [`example/`](example/README.md) | Simple native C++ case built with the core |
+| [`validation/`](validation/README.md) | LAMMPS, PFC and ONDEM reference cases |
 
 From `workplace/`, configure CMake with `-S FunDEMBeta -B build`. Public include names such as `#include "solver/solvers.h"` are unchanged; CMake supplies `src/` as the build include root and installs public headers under `include/FunDEM/<module>/`.
 
@@ -119,7 +121,9 @@ workplace/      terminal working directory for this guide
 
 ## 3. Build CPU and GPU support
 
-Use one Release configuration with CUDA and OpenMP enabled. Tutorials are built, while larger examples and tests are omitted from this first build:
+Use one Release configuration requesting CUDA and OpenMP support. Tutorials and the
+native C++ example are built, while validation executables and tests are omitted
+from this first build:
 
 ```bash
 cmake -S FunDEMBeta -B build -G Ninja \
@@ -127,7 +131,7 @@ cmake -S FunDEMBeta -B build -G Ninja \
     -DFUNDEM_ENABLE_CUDA=ON \
     -DFUNDEM_ENABLE_OPENMP=ON \
     -DFUNDEM_BUILD_TUTORIALS=ON \
-    -DFUNDEM_BUILD_EXAMPLES=OFF \
+    -DFUNDEM_BUILD_EXAMPLES=ON \
     -DFUNDEM_BUILD_VALIDATIONS=OFF \
     -DBUILD_TESTING=OFF
 
@@ -136,11 +140,17 @@ cmake --build build --parallel
 
 CPU code is always compiled. When CUDA is found, the same configuration also compiles the CUDA libraries and kernels. During configuration, confirm that CMake reports an NVIDIA CUDA compiler. If it prints `CUDA compiler not found`, the build contains CPU support only; make `nvcc` available on `PATH`, then repeat the configure command with `cmake --fresh` to refresh the CMake cache without deleting saved simulation results.
 
+OpenMP is enabled only when the compiler and runtime support the required
+minimum/maximum reductions. Otherwise host loops use serial execution. Set
+`FUNDEM_ENABLE_OPENMP=OFF` to request a serial build explicitly.
+
 ## 4. Run the tutorials
 
-### Tutorial 0: Gömböc self-righting
+### Tutorial 0: sphere rebound
 
-`tutorial0` drops a ceramic level-set Gömböc onto a fixed plane and demonstrates its self-righting motion. The case uses the default CPU execution mode, advances with a `1e-4 s` time step for 120 seconds, and writes a frame every `0.05 s`.
+`tutorial0` drops one sphere onto a fixed level-set plane. It demonstrates material
+properties, Hertz-Mindlin contact, gravity and output in 0.3 seconds of physical
+time: 3,000 steps at `1e-4 s`, with one frame every `0.01 s`.
 
 Run it from `workplace/`:
 
@@ -148,49 +158,69 @@ Run it from `workplace/`:
 build/tutorial/tutorial0
 ```
 
-[![Gömböc self-righting simulated by tutorial0](docs/assets/tutorial0.gif)](docs/assets/tutorial0.mp4)
+### The other small tutorials
 
-The animation plays directly in the README. Click it to open the full 1080p MP4.
+| Program | Main concept | Default size | Physical duration |
+| --- | --- | --- | --- |
+| `tutorial1` | Asymmetric LS geometry, centroid correction and contact | One tilted pyramid and a plane | 0.3 s |
+| `tutorial2` | Elastic bonds with an infinite-mass root | Five spheres and four bonds | 0.1 s |
+| `tutorial3` | SPH setup and a closed LS boundary | 960 fluid particles and a tank | 0.2 s |
 
-### Tutorial 1: interlocked level-set chain
-
-`tutorial1` contains eleven physically interlocked level-set chain links. The two end links have infinite mass, the remaining links fall under gravity, and no artificial bonds are used. It simulates 3 seconds with a `2.0e-5 s` DEM time step and writes a frame every `0.05 s`.
-
-The tutorial intentionally uses the default CPU execution mode. The CUDA backend remains available in the same build for GPU-enabled user simulations.
-
-Run it from `workplace/`:
+All four default to CPU. The same sources can select GPU in a CUDA build;
+tutorial0, tutorial2 and tutorial3 also support their solver's Hybrid mode.
+Each program uses only public APIs and writes 21 or 31 frames. They are teaching
+transients, not large demonstration runs or experimental benchmark reproductions.
 
 ```bash
 build/tutorial/tutorial1
+build/tutorial/tutorial2
+build/tutorial/tutorial3
 ```
 
-The terminal reports the calculated step count, physical time, output-frame index, and allocated device memory at every frame. Results are written beside the executable:
+See the [tutorial guide](tutorial/README.md) for the source walkthrough and
+settings. Each tutorial includes `solver/solvers.h` and defines the model and
+run controls directly in `main()`. Edit the source and rebuild to change them;
+run the executable without arguments. To start your own native C++ case, edit
+[`example/main.cpp`](example/main.cpp). The complete setup is in one `main()`:
+materials, particles, backend, time step, output and `solve()`.
+
+```bash
+cmake -S FunDEMBeta -B build -DFUNDEM_BUILD_EXAMPLES=ON
+cmake --build build --target fundem_example --parallel
+build/example/fundem_example
+```
+
+The default is a two-sphere Hertz collision on CPU. Edit the model and run
+settings in `main.cpp`, then rebuild. For another case, copy the directory,
+give its target a unique name and register it in the core CMake build. Each run
+writes native VTU and `energy.dat` in a fresh directory. See the
+[example guide](example/README.md).
+
+For the tutorials, the terminal reports the calculated step count, physical time, output-frame index, and allocated device memory at every frame. Their default results are written beside the executable:
 
 ```text
-build/tutorial/tutorial1_files/
+build/tutorial/tutorial0_files/
 ├── particle/
-│   ├── LSParticle_000000.vtu
-│   ├── LSParticle_000001.vtu
+│   ├── sphere_000000.vtu
+│   ├── sphere_000001.vtu
 │   ├── fixedLSParticle_000000.vtu
 │   └── ...
 ├── interaction/
-│   ├── LSParticleContact_*.vtu
+│   ├── sphereLSParticleContact_*.vtu
 │   └── ...
 └── energy.dat
 ```
-
-![Interlocked level-set chain simulated by tutorial1](docs/assets/tutorial1.gif)
 
 ## 5. View the DEM result
 
 Open ParaView and load these two file series:
 
 ```text
-build/tutorial/tutorial1_files/particle/LSParticle_*.vtu
-build/tutorial/tutorial1_files/particle/fixedLSParticle_*.vtu
+build/tutorial/tutorial0_files/particle/sphere_*.vtu
+build/tutorial/tutorial0_files/particle/fixedLSParticle_*.vtu
 ```
 
-ParaView normally recognizes the numbered files as time series. Select both readers in the Pipeline Browser, click **Apply**, press **Reset Camera**, and use **Play** to animate the chain. Load `interaction/LSParticleContact_*.vtu` as another series when contact points and normals are also required.
+ParaView normally recognizes the numbered files as time series. Select both readers in the Pipeline Browser, click **Apply**, press **Reset Camera**, and use **Play** to animate the rebound. Load `interaction/sphereLSParticleContact_*.vtu` as another series when contact points and normals are also required.
 
 VTU is appended binary by default. ParaView reads it directly; no conversion is necessary.
 
@@ -199,7 +229,7 @@ VTU is appended binary by default. ParaView reads it directly; no conversion is 
 `energy.dat` is a whitespace-separated text table. Inspect its header and first frames with:
 
 ```bash
-head -n 6 build/tutorial/tutorial1_files/energy.dat
+head -n 6 build/tutorial/tutorial0_files/energy.dat
 ```
 
 Each row contains simulation time followed by solid-particle kinetic energy, gravitational potential energy, contact elastic energy, bond elastic energy, and `totalEnergy`. SPH-fluid energy is intentionally excluded from this DEM energy record.
@@ -213,7 +243,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-path = Path("build/tutorial/tutorial1_files/energy.dat")
+path = Path("build/tutorial/tutorial0_files/energy.dat")
 energy = np.genfromtxt(path, names=True)
 elastic_names = [name for name in energy.dtype.names if name.endswith("ElasticEnergy")]
 elastic = sum((energy[name] for name in elastic_names), np.zeros_like(energy["time"]))
@@ -235,11 +265,14 @@ PY
 
 ## Verification and known limits
 
-The [validation guide](validation/README.md) distinguishes small analytical
-checks, backend comparisons and physical validation. The separately published
-[English LAMMPS/PFC report collection](https://github.com/kaiqideng/FunDEMSoftware/tree/main/validation)
-contains 35 LAMMPS-derived variants and three PFC-derived cases, including two
-explicitly failed Mindlin sliding-to-rolling cases. Those reports retain their
+Core regression tests live in [src/tests](src/tests/README.md). The
+[validation guide](validation/README.md) documents reference comparisons and
+their physical-validation limits. The
+[LAMMPS](validation/LAMMPSComparison/README.md) and
+[PFC](validation/PFCComparison/README.md) categories include English Markdown
+reports and dedicated C++ programs for 35 LAMMPS-derived variants and three
+PFC-derived cases, including two explicitly failed Mindlin sliding-to-rolling
+cases. Each program directly constructs its model using the public core API. Those reports retain their
 original source pins, tolerances, dates and build limitations; they are not a
 claim that every current core or desktop feature has been physically validated,
 and they do not claim a local execution of the proprietary PFC solver.

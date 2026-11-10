@@ -34,6 +34,10 @@ Root CMake options
 
 The installed configuration records whether the library was built with CUDA and OpenMP. A consuming project therefore resolves only the dependencies required by that installed package: `CUDAToolkit` is requested for CUDA builds, and `OpenMP::OpenMP_CXX` is requested when host parallelism was enabled successfully.
 
+The core enables OpenMP only after the compiler/runtime passes its required
+minimum/maximum reduction check. A serial fallback package does not require
+OpenMP merely because its build machine found an insufficient implementation.
+
 The primary consumer target is:
 
 ```cmake
@@ -52,6 +56,10 @@ Individual exported module targets are implementation-level building blocks. App
 5. Reinstall after adding a public header or changing exported dependencies.
 
 If `find_package(FunDEM)` succeeds but a header is missing, confirm that the header belongs to a target `FILE_SET public_headers`. Private implementation headers, such as the host-only SPH interaction engine, intentionally are not installed.
+
+`solver/runtimeParticleMutation.h` is likewise a private implementation helper.
+Consumers call the public solver reset/removal methods; they must not include
+that helper or depend on its compaction implementation.
 
 The current execution target is a compiled library because it implements the
 reusable `cpu::pointGrid` queries. Linking `FunDEM::FunDEM` supplies it

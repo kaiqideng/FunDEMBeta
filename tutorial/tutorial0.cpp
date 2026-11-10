@@ -1,183 +1,47 @@
-/** CPU Gömböc self-righting tutorial. */
-#include "data/myLSObject.h"
-#include "material/material.h"
-#include "material/materialPair.h"
-#include "particle/LSParticle.h"
-#include "solver/LSDEM.h"
+/** @file tutorial0.cpp @brief One sphere rebounding from a fixed plane. */
+#include "solver/solvers.h"
 
-#include <algorithm>
-#include <cmath>
-#include <exception>
-#include <filesystem>
-#include <iostream>
-#include <stdexcept>
-#include <string>
-
-namespace
+int main()
 {
+    using namespace fundem;
+    using math::Vec3;
 
-using Real = fundem::math::Real;
+    // 1. Choose the backend. GPU/Hybrid need a CUDA-enabled core.
+    SphereDEM simulation(executionMode::CPU);
 
-constexpr Real defaultTimeStep = 1.0e-4;
-constexpr Real defaultDuration = 120.0;
-constexpr Real outputTimeInterval = 0.05;
-constexpr Real ceramicNormalStiffnessPerUnitArea = 2.4e10;
-constexpr Real ceramicShearStiffnessPerUnitArea = 7.1e9;
-constexpr Real ceramicFrictionCoefficient = 0.1;
-constexpr Real ceramicRestitutionCoefficient = 0.4;
-constexpr Real ceramicDensity = 2400.0;
-constexpr Real initialRotationX = -87.1886819;
-constexpr Real initialRotationY = -52.5462996;
-constexpr Real initialRotationZ = -161.4623206;
+    // 2. material(E in Pa, Poisson ratio, restitution, density in kg/m^3).
+    const int materialIndex = simulation.addMaterial(material{1.0e7, 0.25, 0.8, 2500.0});
 
-struct options {
-    std::filesystem::path outputDirectory_;
-    Real timeStep_{defaultTimeStep};
-    Real duration_{defaultDuration};
-    int stepCount_{-1};
-    fundem::vtuFormat vtuFormat_{fundem::vtuFormat::binary};
-};
+    // 3. Build the wall's SDF grid, then register the reusable geometry.
+    levelset::PlaneWall plane{Vec3::unitZ(), 0.4};
+    plane.buildLSGrid(0.02, 2);
+    const int planeIndex = simulation.addGeometry(plane);
 
-std::filesystem::path executableDirectory(const char* executable)
-{
-    std::error_code error;
-    std::filesystem::path path = std::filesystem::weakly_canonical(executable, error);
-    if (error)
-    {
-        error.clear();
-        path = std::filesystem::absolute(executable, error);
-    }
-    return error ? std::filesystem::current_path() : path.parent_path();
-}
+    // 4. Set radius/material before adding the sphere to determine mass/inertia.
+    particle sphere;
+    sphere.setRadius(0.02);
+    sphere.setMaterial(simulation.materials(), materialIndex);
+    sphere.setPosition({0.0, 0.0, 0.06});
+    simulation.addSphere(sphere);
 
-options parseOptions(int argc, char** argv)
-{
-    options result;
-    for (int argumentIndex = 1; argumentIndex < argc; ++argumentIndex)
-    {
-        const std::string argument = argv[argumentIndex];
-        if (argument == "--ascii")
-        {
-            result.vtuFormat_ = fundem::vtuFormat::ascii;
-        }
-        else if (argument == "--time-step")
-        {
-            if (++argumentIndex >= argc || (result.timeStep_ = std::stod(argv[argumentIndex])) <= 0.0)
-            {
-                throw std::invalid_argument("--time-step requires a positive value.");
-            }
-        }
-        else if (argument == "--duration")
-        {
-            if (++argumentIndex >= argc || (result.duration_ = std::stod(argv[argumentIndex])) <= 0.0)
-            {
-                throw std::invalid_argument("--duration requires a positive value.");
-            }
-        }
-        else if (argument == "--steps")
-        {
-            if (++argumentIndex >= argc || (result.stepCount_ = std::stoi(argv[argumentIndex])) < 0)
-            {
-                throw std::invalid_argument("--steps requires a non-negative integer.");
-            }
-        }
-        else if (argument == "--output")
-        {
-            if (++argumentIndex >= argc)
-            {
-                throw std::invalid_argument("--output requires a directory.");
-            }
-            result.outputDirectory_ = argv[argumentIndex];
-        }
-        else
-        {
-            throw std::invalid_argument("Unknown option: " + argument);
-        }
-    }
-    return result;
-}
+    LSParticle wall;
+    wall.setMaterial(simulation.materials(), materialIndex);
+    wall.setGeometry(simulation.geometries(), planeIndex);
+    simulation.addLSParticle(wall); // PlaneWall has zero volume, so the wall is fixed.
 
-fundem::math::Quaternion initialOrientation() noexcept
-{
-    using fundem::math::Quaternion;
-    using fundem::math::Vec3;
-    constexpr Real degree = fundem::math::pi / 180.0;
-    const Quaternion qx = Quaternion::fromUnitAxisAngle(Vec3::unitX(), initialRotationX * degree);
-    const Quaternion qy = Quaternion::fromUnitAxisAngle(Vec3::unitY(), initialRotationY * degree);
-    const Quaternion qz = Quaternion::fromUnitAxisAngle(Vec3::unitZ(), initialRotationZ * degree);
-    return fundem::math::normalizedOrIdentity(qz * qy * qx);
-}
+    // 5. Configure the material pair; stiffness/damping remain automatic.
+    materialPair contact{materialIndex, materialIndex};
+    contact.setFrictionCoefficients(0.1);
+    simulation.setMaterialPair(contact);
 
-} // namespace
-
-int main(int argc, char** argv)
-{
-    try
-    {
-        using namespace fundem;
-
-        options run = parseOptions(argc, argv);
-        const std::filesystem::path executablePath = executableDirectory(argv[0]);
-        if (run.outputDirectory_.empty())
-        {
-            run.outputDirectory_ = executablePath / "tutorial0_files";
-        }
-        else if (run.outputDirectory_.is_relative())
-        {
-            run.outputDirectory_ = executablePath / run.outputDirectory_;
-        }
-
-        LSDEM simulation;
-        const int gombocMaterialIndex =
-            simulation.addMaterial(material{1.0e9, 0.25, ceramicRestitutionCoefficient, ceramicDensity});
-        const int wallMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, ceramicRestitutionCoefficient, 1.0});
-        // Nominal E/nu are unused by these explicitly preserved linear contacts.
-        materialPair gombocPair{gombocMaterialIndex, gombocMaterialIndex};
-        gombocPair.setLevelSetStiffness(0.5 * ceramicNormalStiffnessPerUnitArea, 0.5 * ceramicShearStiffnessPerUnitArea);
-        gombocPair.setFrictionCoefficients(ceramicFrictionCoefficient);
-        simulation.setMaterialPair(gombocPair);
-        materialPair wallPair{gombocMaterialIndex, wallMaterialIndex};
-        wallPair.setLevelSetStiffness(ceramicNormalStiffnessPerUnitArea, ceramicShearStiffnessPerUnitArea);
-        wallPair.setFrictionCoefficients(ceramicFrictionCoefficient);
-        simulation.setMaterialPair(wallPair);
-
-        levelset::TriangleMesh gomboc;
-        gomboc.loadOBJ((executablePath / "Gomboc.obj").string());
-        gomboc.buildLSGrid(64);
-        const int gombocGeometryIndex = simulation.addGeometry(gomboc);
-
-        LSParticle fallingGomboc;
-        const math::Quaternion orientation = initialOrientation();
-        fallingGomboc.setOrientation(orientation);
-        fallingGomboc.setMaterial(simulation.materials(), gombocMaterialIndex);
-        fallingGomboc.setGeometry(simulation.geometries(), gombocGeometryIndex);
-        fallingGomboc.setPosition({0.0, 0.0, 0.1});
-        simulation.addLSParticle(fallingGomboc);
-
-        levelset::PlaneWall plane{{0.0, 0.0, 1.0}, 1.0};
-        plane.buildLSGrid(0.1, 2, true);
-        const int planeGeometryIndex = simulation.addGeometry(plane);
-
-        LSParticle fixedPlane;
-        fixedPlane.setMaterial(simulation.materials(), wallMaterialIndex);
-        fixedPlane.setGeometry(simulation.geometries(), planeGeometryIndex);
-        simulation.addLSParticle(fixedPlane);
-
-        simulation.setBoundary({-0.5, -0.5, 0.0}, {0.5, 0.5, 0.35});
-        simulation.setGravity({0.0, 0.0, -9.81});
-        simulation.setTimeStep(run.timeStep_);
-        simulation.setOutputDirectory(run.outputDirectory_.string());
-        simulation.setOutputStepInterval(std::max(1, static_cast<int>(std::lround(outputTimeInterval / run.timeStep_))));
-        simulation.setVTUOutputFormat(run.vtuFormat_);
-
-        const int stepCount = run.stepCount_ >= 0 ? run.stepCount_ : static_cast<int>(std::ceil(run.duration_ / run.timeStep_));
-        simulation.solve(stepCount);
-    }
-    catch (const std::exception& error)
-    {
-        std::cerr << "tutorial0 failed: " << error.what() << '\n';
-        return 1;
-    }
-
+    // 6. Set search bounds (not walls), gravity, time step and output.
+    simulation.setBoundary({-0.25, -0.25, -0.25}, {0.25, 0.25, 0.25});
+    simulation.setGravity({0.0, 0.0, -9.81});
+    simulation.setTimeStep(1.0e-4);
+    simulation.setOutputDirectory("tutorial0_files"); // Dedicated folder beside the executable.
+    simulation.setOutputStepInterval(100); // Save every 0.01 s.
+    simulation.setVTUOutputEnabled(true);
+    simulation.setVTUOutputFormat(vtuFormat::binary);
+    simulation.solve(3000); // Initializes automatically; 0.3 s, 31 frames including t=0.
     return 0;
 }

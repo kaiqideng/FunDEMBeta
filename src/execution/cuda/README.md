@@ -90,9 +90,27 @@ Wall reaction uses atomic additions because many fluid particles may contribute 
 
 Finite-duration jets initially create only a short upstream buffer. Later source layers append actual particles at common acoustic starts; device capacity growth preserves the already integrated prefix and uploads only new tail fields on the solver stream. The particle grid is resized and neighbor references invalidated before the new layer is used. Sources retain stable append-only membership, so layers from different sources can be interleaved in the global container.
 
-`launchApplySPHJetVelocity()` receives the stable `[begin, begin + count)` range of one currently eligible inlet layer and cannot modify unrelated particles. The kernel combines the source's timed activity with its short-pipe geometry, writes the `constrained` marker, and imposes velocity, reference density, zero equation-of-state pressure, and zero density rate while active. Density reinitialization and continuity integration skip marked particles. Constraint activity is evaluated at the acoustic start, after velocity integration at the midpoint, and at the endpoint; it is not frozen to one start-time decision for the whole interval. Released layers form a permanent prefix and are not visited by subsequent inlet launches. Once every source ends, the completion fast path suppresses later launches. The four-argument `addSPHJet` overload remains a static downstream column and never launches this kernel.
+`launchApplySPHJetVelocity()` receives the stable `[begin, begin + count)` range of one currently eligible inlet layer and cannot modify unrelated particles. The kernel combines the source's timed activity with its short-pipe geometry, writes the `constrained` marker, and imposes velocity, reference density, zero equation-of-state pressure, and zero density rate while active. Density reinitialization and continuity integration skip marked particles. Constraint activity is evaluated at the acoustic start, after velocity integration at the midpoint, and at the endpoint; it is not frozen to one start-time decision for the whole interval. Released layers form a permanent prefix and are not visited by subsequent inlet launches. Once every source ends, the completion fast path suppresses later launches.
 
 Inlet openings affect only virtual-wall quadrature. The mask launcher uses the finite upstream buffer cylinder plus half-spacing clearance, setting volume to zero inside and restoring nominal volume outside. Changed samples have force, viscous prior force, and cached coupling torque cleared; the solver removes the old owner reaction before this launch and refreshes advection preparation when the mask changes. No signed-distance grid, triangle surface, or downstream jet path is altered. GPU/Hybrid update moving sample positions before evaluating the mask on the same solver stream; output uses a temporary host mask without changing device quadrature.
+
+### Bond moments and runtime refresh
+
+`bondForceKernel` retains each Bond's force and Bond-point bending/torsion
+moment. Master/slave particle torques are local temporaries formed from endpoint
+moments and force lever arms, then atomically added to the particle torque
+arrays. The Bond device view contains no separate persistent master/slave torque
+arrays; the Bond-point moment must not be replaced by either particle torque.
+Failed Bonds clear their retained force, moment, normal and elastic energies
+before returning without scattering a load.
+
+Explicit runtime reset/removal is coordinated by the solver, not a CUDA
+particle-erasure kernel. The solver synchronizes the accepted state to the host,
+compacts particles/remaps interactions there, and rebuilds/uploads device
+storage. Its infrequent history-preserving load refresh uses the CPU assembly
+path even for GPU/Hybrid execution. Ordinary subsequent CUDA integration,
+contact, and Bond kernels are unchanged. Rebuild device views after this
+operation rather than retaining pointers into old allocations.
 
 ## CUDA Error and Stream Rules
 

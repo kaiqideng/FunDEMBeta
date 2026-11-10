@@ -614,24 +614,34 @@ void testBondCrossSectionArea()
     require(!connection.setCrossSectionArea(-1.0) && !connection.setCrossSectionArea(std::numeric_limits<math::Real>::infinity()) && nearlyEqual(connection.crossSectionArea(), 0.02),
             "Invalid cross-sectional areas must not overwrite the last valid value.");
     require(connection.setCrossSectionArea(0.0), "A zero cross-sectional area must remain supported.");
-    math::Real damage = 0.25;
-    math::Real maximumRatio = 0.7;
-    require(!execution::updateBKDamage(damage, maximumRatio, 1.0, 10.0, 10.0, 10.0, 10.0, connection.crossSectionArea(), 1.0, 1.0, 1.75, 0.9) &&
-                damage == 0.25 && maximumRatio == 0.7,
-            "Zero cross-sectional area must disable further fracture without erasing existing damage history.");
+    math::Real damage = 0.25, stress0 = 1., onset = 0.1, maximum = 0.2, failure = 1., critical = 1.;
+    int started = 1;
+    require(!execution::updateBondDamage(damage, started, stress0, onset, maximum, failure, critical,
+                {10.,0.,0.}, math::Vec3::zero(), -math::Vec3::unitX(),
+                10., 10., 10., 10., connection.crossSectionArea(), 1., 1., 1.75, 1., 1., 0.) &&
+                damage == 0.25 && onset == 0.1 && maximum == 0.2 && failure == 1. && critical == 1.,
+            "Zero cross-sectional area must disable fracture without erasing stress/separation history.");
 }
 
 void testModeICompressionDoesNotDamageBond()
 {
-    math::Real compressionDamage = 0.0;
-    math::Real compressionMaximumRatio = 0.0;
-    const bool compressionFailed = execution::updateBKDamage(compressionDamage, compressionMaximumRatio, -0.1, 2.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-    require(!compressionFailed && compressionDamage == 0.0 && compressionMaximumRatio == 0.0, "Pure axial compression must not drive mode-I bond damage.");
-
-    math::Real tensionDamage = 0.0;
-    math::Real tensionMaximumRatio = 0.0;
-    const bool tensionFailed = execution::updateBKDamage(tensionDamage, tensionMaximumRatio, 0.1, 2.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-    require(tensionFailed && tensionDamage == 1.0, "Axial opening above GIc must completely break the bond.");
+    math::Real damage = 0., stress0 = 0., onset = 0., maximum = 0., failure = 0., critical = 0.;
+    int started = 0;
+    const bool compressionFailed = execution::updateBondDamage(damage, started, stress0, onset, maximum, failure, critical,
+                {-2.,0.,0.}, math::Vec3::zero(), -math::Vec3::unitX(),
+                2., 0., 0., 0., 1., 1., 1., 1.75, 1., 1., 0.);
+    require(!compressionFailed && damage == 0. && started == 0 && maximum == 0.,
+            "Pure compression must not drive effective opening/shear separation.");
+    const bool firstFailed = execution::updateBondDamage(damage, started, stress0, onset, maximum, failure, critical,
+                {2.,0.,0.}, math::Vec3::zero(), -math::Vec3::unitX(),
+                0.002, 0., 0., 0., 1., 1., 1., 1.75, 1., 1., 0.);
+    require(!firstFailed && damage == 0. && started == 1 && nearlyEqual(stress0,2.) && nearlyEqual(onset,0.002) && nearlyEqual(failure,1.),
+            "First crossing stores section stress and onset softening history without damage.");
+    const bool laterFailed = execution::updateBondDamage(damage, started, stress0, onset, maximum, failure, critical,
+                {2000.,0.,0.}, math::Vec3::zero(), -math::Vec3::unitX(),
+                2000., 0., 0., 0., 1., 1., 1., 1.75, 1., 1., 0.);
+    require(laterFailed && damage == 1. && nearlyEqual(onset,0.002),
+            "A later effective separation beyond df must completely fail the bond.");
 }
 
 void testMaterialDensityValidation()

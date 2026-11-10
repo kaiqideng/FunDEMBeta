@@ -70,6 +70,20 @@ The CPU search caches pair rotations and relative positions for one search, then
 
 Persistent contact histories, SPH neighbor lists, displacement references, and virtual-boundary coupling accumulators belong to `interaction/`. Its CPU SPH engine applies shared formulas to its own cached neighborhoods; it includes `parallelPolicy.h` for the common loop threshold without depending on generic rigid-particle assembly helpers.
 
+`addContactForceAndTorque(..., historyTimeStep, preserveHistory)` and
+`addBondForceAndTorque(..., preserveHistory)` default to ordinary history
+updates. The solver sets `preserveHistory=true` only for an explicit runtime
+cache/load refresh: Contact sliding, rolling and torsional springs are restored
+after force evaluation, while `bond::calculateForce(false)` reevaluates response
+without evolving damage. It is not enough to assume a zero history time step
+also prevents every irreversible update.
+
+Bond assembly refreshes each endpoint body's current copy before evaluation.
+It accumulates the Bond force with opposite signs and obtains each particle
+torque through the derived `masterTorque()` / `slaveTorque()` accessors. The
+Bond-point `torque()` remains a separate physical quantity; no persistent
+master/slave torque fields or duplicate device arrays are required.
+
 Solvers select execution modes and own initialization, step order, simulation clocks, output, and snapshots. These CPU helpers perform only the requested operation and retain no solver lifecycle state. Applications normally use `FunDEM::FunDEM`, which supplies the particle and interaction implementations needed by these templates.
 
 ## Extension Guide
@@ -77,4 +91,5 @@ Solvers select execution modes and own initialization, step order, simulation cl
 - Keep new shared equations in the root numerical headers.
 - Keep persistent search or coupling state in `interaction/`.
 - Preserve stable particle indices and race-free force/torque assembly.
+- After explicit runtime particle compaction, consume the returned native-index map; do not reuse pre-removal adjacency or endpoint indices.
 - Keep stage ordering and snapshot decisions in the solver.

@@ -1,4 +1,5 @@
 #include "LSDEM.h"
+#include "runtimeParticleMutation.h"
 
 #include "data/energyOutput.h"
 #include "data/myLSObject.h"
@@ -49,8 +50,8 @@ void LSDEM::setMaterial(int materialIndex, const material& value)
         throw std::out_of_range("The material index is outside this solver.");
     const material replacement{value.youngModulus(), value.poissonRatio(), value.restitutionCoefficient(), value.density()};
     material& current = materials_.host()[materialIndex];
-    if (current.youngModulus() == replacement.youngModulus() && current.poissonRatio() == replacement.poissonRatio() &&
-        current.restitutionCoefficient() == replacement.restitutionCoefficient() && current.density() == replacement.density())
+    if (current.youngModulus() == replacement.youngModulus() && current.poissonRatio() == replacement.poissonRatio() && current.restitutionCoefficient() == replacement.restitutionCoefficient() &&
+        current.density() == replacement.density())
         return;
     current = replacement;
     refreshParticleMaterial(materialIndex);
@@ -293,6 +294,55 @@ void LSDEM::initialize(cpu::mode)
     assembleLSParticleForceAndTorque(0.0, cpu::mode{});
 }
 
+LSDEM::Real LSDEM::resetLSParticleVelocities(const std::vector<int>& indices, bool resetLinear, bool resetAngular)
+{
+    runtime_detail::survivorMap(LSParticles_.hostSize(), indices); // Validate before committing any state.
+    if (indices.empty() || (!resetLinear && !resetAngular))
+        return 0.0;
+    bool changed = false;
+    observeCurrentState(
+        [&](const solver&)
+        {
+            for (const int index : indices)
+                changed = changed || (resetLinear && LSParticles_.host()[index].velocity() != Vec3::zero()) ||
+                          (resetAngular && LSParticles_.host()[index].angularVelocity() != Vec3::zero());
+        });
+    if (!changed)
+        return 0.0;
+    prepareRuntimeMutation();
+    return runtime_detail::resetVelocities(LSParticles_, indices, gpuStream(), resetLinear, resetAngular);
+}
+
+std::vector<int> LSDEM::removeLSParticles(const std::vector<int>& indices)
+{
+    const auto map = runtime_detail::survivorMap(LSParticles_.hostSize(), indices);
+    if (indices.empty())
+        return map;
+    prepareRuntimeMutation();
+    LSParticleInteractions_.remapParticles(map, map);
+    runtime_detail::compact(LSParticles_, map);
+    return map;
+}
+
+void LSDEM::initializeRuntimeState()
+{
+    preservingInteractionHistory_ = true;
+    try
+    {
+        initialize(cpu::mode{});
+        if (mode() != executionMode::CPU)
+            uploadRuntimeState(gpuStream());
+    }
+    catch (...)
+    {
+        preservingInteractionHistory_ = false;
+        throw;
+    }
+    preservingInteractionHistory_ = false;
+}
+
+void LSDEM::uploadRuntimeState(cudaStream_t stream) { initializeLSParticleDevice(stream); }
+
 void LSDEM::initialize(gpu::mode, cudaStream_t stream)
 {
     initializeLSParticleDevice(stream);
@@ -355,17 +405,18 @@ void LSDEM::calculateLSParticleForceAndTorque(Real historyTimeStep, cpu::mode)
     beforeLSParticleContactDetection(cpu::mode{});
     LSParticleSearch_.findContacts(LSParticleInteractions_.contacts(), LSParticles_);
     addLSParticleContactForceAndTorque(historyTimeStep, cpu::mode{});
-    cpu::addBondForceAndTorque(LSParticleInteractions_.bonds(), LSParticles_);
+    cpu::addBondForceAndTorque(LSParticleInteractions_.bonds(), LSParticles_, preservingInteractionHistory());
 }
 
 void LSDEM::addLSParticleContactForceAndTorque(Real historyTimeStep, cpu::mode)
 {
-    cpu::addContactForceAndTorque(LSParticleInteractions_.contacts(), LSParticles_, LSParticles_, materialPairs_, historyTimeStep);
+    cpu::addContactForceAndTorque(LSParticleInteractions_.contacts(), LSParticles_, LSParticles_, materialPairs_, historyTimeStep, preservingInteractionHistory());
 }
 
 double LSDEM::systemDeviceMemoryGB() const noexcept
 {
-    return materials_.deviceMemoryGB() + materialPairs_.deviceMemoryGB() + geometries_.deviceMemoryGB() + LSParticles_.deviceMemoryGB() + LSParticleInteractions_.deviceMemoryGB() + LSParticleSpatialGrid_.deviceMemoryGB();
+    return materials_.deviceMemoryGB() + materialPairs_.deviceMemoryGB() + geometries_.deviceMemoryGB() + LSParticles_.deviceMemoryGB() + LSParticleInteractions_.deviceMemoryGB() +
+           LSParticleSpatialGrid_.deviceMemoryGB();
 }
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA

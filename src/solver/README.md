@@ -40,9 +40,9 @@ Typical call order:
 3. Select the solver execution mode.
 4. Call `solve(numberOfSteps)`.
 
-The first `solve()` initializes automatically. At completion, device state and interactions are synchronized to the host and `initialized()` returns to false. An unchanged next solve resumes the retained continuation; appending objects or changing model configuration invalidates it and initializes the required storage from the synchronized host state. Configuration that would invalidate device state cannot change while initialized.
+The first `solve()` initializes automatically. At completion, device state and interactions are synchronized to the host and `initialized()` returns to false. An unchanged next solve resumes the retained continuation; appending objects or changing model configuration invalidates it and initializes the required storage from the synchronized host state. Ordinary configuration setters that invalidate device state cannot change while initialized; explicit runtime-mutation interfaces provide a separate completed-step path.
 
-Solver-owned containers are exposed to users only as const references. Existing elements must never be swapped, reordered, replaced, or erased; add valid objects through the solver's `add...` interfaces so every insertion index remains stable.
+Solver-owned containers are exposed to users only as const references. Do not directly swap, reorder, replace, or erase their elements. Add valid objects through the solver's `add...` interfaces. Insertion indices remain stable until an explicit particle-removal operation returns a new index map; application IDs are not native container indices.
 
 `addMaterial(material{E, nu, restitution, density})` appends all new unordered
 material pairs automatically, including the diagonal. Configure a standalone
@@ -65,6 +65,48 @@ zero is configured, while the initial `-1` sentinel is unset.
 
 Each DEM step uses a velocity-Verlet structure. Force assembly order is clear state → same-type contacts/bonds → cross-type contacts/bonds → user external fields. Protected virtual external-field interfaces receive a host container on CPU and the corresponding `device_type` on GPU.
 
+### Explicit Runtime Mutations
+
+These operations apply between completed steps on the thread owning the solver,
+never concurrently with stepping or inside `observeCurrentState()`:
+
+- `LSDEM::resetLSParticleVelocities(indices, resetLinear, resetAngular)` and
+  `SphereDEM::resetSphereVelocities(indices, resetLinear, resetAngular)` clear
+  either or both selected velocity components and return only the kinetic
+  energy removed by those choices. Both switches default to `true`, preserving
+  the combined reset for existing callers. They do not reset
+  particle pose, Contact springs, or Bond damage. An already-zero selection is
+  a no-op.
+- `LSDEM::removeLSParticles(indices)` and `SphereDEM::removeSpheres(indices)`
+  compact their particle family, preserving the relative order and complete
+  state of survivors. The returned old-to-new index map uses `-1` for removed
+  particles. Update every application-side range or native-index reference
+  using that map.
+- Contacts incident to removed particles are discarded. Surviving Contacts
+  keep their spring state and receive remapped endpoints. Bonds incident to a
+  removed particle are rejected rather than silently deleted; surviving Bonds
+  keep reference geometry, damage, and remapped endpoints. Validate all affected
+  families before a higher-level batch operation; these APIs are not a general
+  rollback transaction.
+
+The reset/removal methods call `prepareRuntimeMutation()` when state actually
+changes. It synchronizes authoritative host data and invalidates obsolete
+continuation. The next `initialize()`, `step()`, or `solve()` uses
+`initializeRuntimeState()` to rebuild searches and current loads without taking
+a physical step. Contact spring updates and Bond damage evolution are suppressed
+during that refresh; forces themselves are reevaluated for the accepted state.
+GPU and Hybrid storage is rebuilt/uploaded from the retained host state before
+normal device stepping resumes. Disposable search/history buffers are not
+promised to keep their allocation or contents.
+
+For SPH, `commitDeferredStateForMutation()` accepts the represented common-time
+state and discards its incompatible leading acoustic endpoint. Source schedules,
+released-layer prefixes, and emitted-particle ownership survive; virtual-wall
+samples and coupling/search references are rebuilt for the remaining solids.
+An unchanged continuation or a mere observation must not call this mutation path.
+Object lifetime policies and stopping criteria belong to applications, not to
+these generic core interfaces.
+
 ### SPH Time Integration
 
 `SPHDEM::setSPHProperties(spacing, smoothingLength, referenceDensity, dynamicViscosity)` configures uniform discretization and fluid properties shared by all SPH particles. Individual `SPHParticle` objects contain only dynamic state.
@@ -80,13 +122,13 @@ The solver groups its state by responsibility, rather than keeping inlet flags a
 | `SPHIntervalStart_` | Only acoustic-start position, velocity, and density for dense observations; retained on the device in GPU/Hybrid mode. |
 | `outputSnapshot` | Leading fluid/boundary host buffers temporarily replaced by a synchronized observation; no device or integration-state copy is restored. |
 
-CPU and GPU collect statistics independently but share acoustic-limit checking, time quantization, search-buffer calculation and advection-phase advancement. CPU interaction inputs are constructed in one place. Cylindrical source generation shares the same regular cross-section lattice; a static downstream column and a time-dependent inlet remain distinct operations.
+CPU and GPU collect statistics independently but share acoustic-limit checking, time quantization, search-buffer calculation and advection-phase advancement. CPU interaction inputs are constructed in one place. Initial inlet seeding and later emitted layers share the same regular circular cross-section lattice.
 
 The current acoustic interval retains its own integer length because the stability calculation may already have selected a different length for the next interval. Its elapsed sample count, remaining substeps, and physical duration are derived from the current interval's two counters and the DEM step. A second fluid clock and initialized-population caches are unnecessary: new fluid intervals start only when the solid clock reaches the preceding acoustic endpoint, and changed models use normal initialization. CPU and Hybrid share host-solid advancement and force assembly; device SPH stages consume the common interaction-parameter record.
 
 Source state likewise stores only essential topology and ownership. End time is derived from start time and duration; the public handle is the first owned index; the created-layer count is derived from membership and cross-section size. One released-prefix index replaces a separate per-layer metadata list. Initial seeding and later emission share the same layer initializer and world-position formula. Acoustic-start free-surface flags need no separate copy because classification is unchanged during a DKD interval.
 
-`addSPHJet(inletCenter, velocity, radius, length)` creates one static downstream particle column without an ongoing inlet constraint. `addSPHJet(SPHJet{outletCenter, direction, radius, speed, duration})` creates an actual finite-duration inlet. With spacing `s`, smoothing length `h`, speed `U`, and duration `T`, its total axial layer count is `floor(U*T/s)`, but only `B = min(totalLayers, ceil(2h/s)+1)` upstream layers exist initially. Later layers are appended into the short inlet buffer at intervals `s/U`, until the finite total has been created. Already emitted particles are never recycled, reordered, or overwritten.
+`addSPHJet(SPHJet{outletCenter, direction, radius, speed, duration})` creates an actual finite-duration inlet. It does not preload a long downstream column. With spacing `s`, smoothing length `h`, speed `U`, and duration `T`, its total axial layer count is `floor(U*T/s)`, but only `B = min(totalLayers, ceil(2h/s)+1)` upstream layers exist initially. Later layers are appended into the short inlet buffer at intervals `s/U`, until the finite total has been created. Already emitted particles are never recycled, reordered, or overwritten.
 
 CPU, GPU, and Hybrid constrain only the active short-buffer particles: prescribed velocity, reference density, and equation-of-state pressure are imposed before optional advection preparation and again after velocity integration. These particles skip their own density integration while still interacting with neighbors. Crossing the outlet releases a particle permanently; returning into the pipe does not reapply its inlet constraint. Once the source duration ends no new layers or constraints are applied, and the completion fast path avoids later source work.
 
@@ -190,7 +232,7 @@ construction/reconfiguration
     -> construction/reconfiguration allowed again
 ```
 
-`solve(n)` owns a complete stage and returns with current host-visible state. `step()` leaves the solver initialized so repeated manual stepping avoids reinitialization. While initialized, operations that invalidate container sizes, mode selection, time integration, or device state are rejected.
+`solve(n)` owns a complete stage and returns with current host-visible state. `step()` leaves the solver initialized so repeated manual stepping avoids reinitialization. While initialized, ordinary setters that invalidate container sizes, mode selection, time integration, or device state are rejected. Explicit reset/removal uses the separate synchronized runtime-mutation path above.
 
 Repeated `solve()` calls preserve time, total step count, frame count, valid contact history, and existing objects. Appending objects or changing prescribed LS motion invalidates deferred integration state so the next initialization rebuilds working storage from the current host objects.
 
@@ -230,6 +272,6 @@ Pausing and resuming the same solver object is different from creating a new sol
 2. Add one full stage for every supported execution mode rather than scattering backend checks.
 3. Keep device helpers stream-explicit.
 4. Define exactly which data crosses the boundary in Hybrid mode.
-5. Preserve stable insertion indices and solve continuation rules.
+5. Preserve insertion indices outside explicit compaction, and propagate removal maps while retaining solve/history rules.
 6. Add output defaults, memory accounting, and at least one invariant test.
 7. Update this README and the User Guide when the public workflow changes.

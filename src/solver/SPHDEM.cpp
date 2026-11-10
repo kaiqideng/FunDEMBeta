@@ -65,9 +65,12 @@ void copySPHDeviceState(hostAoSDeviceSoA<SPHParticle, deviceLayout<Fields...>>& 
     destination.resizeDevice(count);
     if (count == 0)
         return;
-    (host_device_detail::checkCuda(
-         cudaMemcpyAsync(destination.device<Fields>(), source.device<Fields>(), count * sizeof(typename SPHParticleContainer::template device_value_type<Fields>), cudaMemcpyDeviceToDevice, stream),
-         "cudaMemcpyAsync SPH acoustic endpoint"),
+    (host_device_detail::checkCuda(cudaMemcpyAsync(destination.template device<Fields>(),
+                                                   source.device<Fields>(),
+                                                   count * sizeof(typename SPHParticleContainer::template device_value_type<Fields>),
+                                                   cudaMemcpyDeviceToDevice,
+                                                   stream),
+                                   "cudaMemcpyAsync SPH acoustic endpoint"),
      ...);
 }
 #endif
@@ -77,34 +80,6 @@ void orthogonalBasis(const math::Vec3& unitAxis, math::Vec3& tangent1, math::Vec
     tangent1 = std::abs(unitAxis.x) > std::abs(unitAxis.z) ? math::Vec3{-unitAxis.y, unitAxis.x, 0.0} : math::Vec3{0.0, -unitAxis.z, unitAxis.y};
     tangent1 = math::normalizedOrZero(tangent1);
     tangent2 = math::cross(unitAxis, tangent1);
-}
-
-/** Creates a static downstream cylinder, without an inlet constraint. */
-std::vector<SPHParticle> makeSPHJetParticles(const math::Vec3& center,
-                                             const math::Vec3& direction,
-                                             const math::Vec3& velocity,
-                                             math::Real spacing,
-                                             const execution::SPHJetDiscretization& discretization)
-{
-    math::Vec3 tangent1;
-    math::Vec3 tangent2;
-    orthogonalBasis(direction, tangent1, tangent2);
-    std::vector<SPHParticle> particles;
-    particles.reserve(static_cast<std::size_t>(discretization.particleCount_));
-    for (int axialIndex = 0; axialIndex < discretization.axialCount_; ++axialIndex)
-    {
-        const math::Vec3 offset = (math::Real(axialIndex) + 0.5) * spacing * direction;
-        const math::Vec3 axialPosition = center + offset;
-        for (int y = -discretization.radialIndex_; y <= discretization.radialIndex_; ++y)
-        {
-            for (int x = -discretization.radialIndex_; x <= discretization.radialIndex_; ++x)
-            {
-                if (discretization.contains(x, y))
-                    particles.emplace_back(axialPosition + math::Real(x) * spacing * tangent1 + math::Real(y) * spacing * tangent2, velocity);
-            }
-        }
-    }
-    return particles;
 }
 
 void appendVirtualParticles(std::vector<virtualParticle>& virtualParticles,
@@ -266,23 +241,6 @@ int SPHDEM::addSPHBlock(const Vec3& blockMinimum, const int3& particleCount, con
     return addSPHParticles(std::move(particles));
 }
 
-int SPHDEM::addSPHJet(const Vec3& inletCenter, const Vec3& velocity, Real radius, Real length)
-{
-    if (!SPHProperties_.set_)
-    {
-        throw std::logic_error("Set the SPH properties before adding an SPH jet.");
-    }
-    Vec3 axis = velocity;
-    SPHParticle prototype{inletCenter, velocity};
-    execution::SPHJetDiscretization discretization;
-    if (!math::tryNormalize(axis) || !execution::trySPHJetDiscretization(SPHProperties_.spacing_, radius, length, discretization) || !prototype.isValid())
-    {
-        throw std::invalid_argument("Invalid SPH jet definition.");
-    }
-
-    return addSPHParticles(makeSPHJetParticles(inletCenter, axis, velocity, SPHProperties_.spacing_, discretization));
-}
-
 int SPHDEM::addSPHJet(const SPHJet& value)
 {
     if (initialized())
@@ -434,6 +392,68 @@ void SPHDEM::invalidateDeferredState() noexcept
     outputSnapshot_ = {};
     outputObservationSnapshot_ = false;
     SPHStepState_ = {};
+}
+
+void SPHDEM::commitDeferredStateForMutation()
+{
+    if (!outputSnapshot_.active_)
+        captureSPHState(gpuStream());
+    // captureSPHState already reconstructs the authoritative represented time.
+    // Discard the leading endpoint, not the visible primary particle state.
+    outputSnapshot_ = {};
+    outputObservationSnapshot_ = false;
+    invalidateSPHNeighborhood();
+    SPHStepState_ = {};
+    // finishSPHInterval may have cached completion at the discarded future time.
+    // Source clocks, layer budgets, released prefixes and ownership are retained.
+    SPHJets_.completed_ = SPHJets_.completedAt(time());
+#if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
+    if (mode() != executionMode::CPU)
+    {
+        SPHParticles_.copyHostToDeviceAsync(gpuStream());
+        virtualParticles_.copyHostToDeviceAsync(gpuStream());
+        host_device_detail::synchronize(gpuStream());
+    }
+#endif
+}
+
+void SPHDEM::initializeRuntimeState()
+{
+    setPreservingInteractionHistory(true);
+    try
+    {
+        validateContactMaterials();
+        if (mode() == executionMode::CPU)
+            initializeSPH(cpu::mode{});
+        else
+        {
+            initializeLSParticleDevice(gpuStream());
+            initializeSPHDevice(gpuStream());
+            virtualParticles_.copyDeviceToHost(gpuStream());
+            // One infrequent runtime refresh uses the host reduction for every
+            // backend. Integration and ordinary device force assembly are unchanged.
+            virtualParticleCoupling_.initialize(virtualParticles_, LSParticles(), gravity());
+            virtualParticleCoupling_.collectForceAndTorque(virtualParticles_, LSParticles());
+        }
+        assembleForceAndTorque(0.0, cpu::mode{});
+        virtualParticleCoupling_.resetKinematicsReference(virtualParticles_, LSParticles());
+        if (mode() != executionMode::CPU)
+        {
+            initializeLSParticleDevice(gpuStream());
+            if (mode() == executionMode::GPU)
+            {
+#if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
+                cuda::launchResetVirtualParticleKinematicsReference(virtualParticles_, LSParticles(), gpuStream());
+#endif
+            }
+        }
+    }
+    catch (...)
+    {
+        setPreservingInteractionHistory(false);
+        throw;
+    }
+    setPreservingInteractionHistory(false);
 }
 
 void SPHDEM::resumeContinuation() noexcept { restoreSPHState(); }
@@ -676,16 +696,19 @@ void SPHDEM::beginSPHInterval(cudaStream_t stream)
     case executionMode::CPU:
         advanceCouplingInterval(interval, cpu::mode{});
         virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
+        afterSPHIntervalLoad(cpu::mode{});
         break;
     case executionMode::GPU:
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
         advanceCouplingInterval(interval, gpu::mode{}, stream);
         cuda::launchAddVirtualParticleForceAndTorque(mutableLSParticles(), virtualParticles_, 1.0, stream);
+        afterSPHIntervalLoad(gpu::mode{}, stream);
 #endif
         break;
     case executionMode::Hybrid:
         advanceCouplingInterval(interval, hybrid::mode{}, stream);
         virtualParticleCoupling_.applyForceAndTorque(mutableLSParticles());
+        afterSPHIntervalLoad(cpu::mode{});
         break;
     }
     SPHStepState_.completedDEMSteps_ = 0;

@@ -1,0 +1,18 @@
+# A fresh output directory makes CTest repeatable without deleting evidence.
+foreach(required BOND_EXECUTABLE BOND_BACKEND BOND_CASE BOND_OUTPUT_ROOT)
+    if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+        message(FATAL_ERROR "Missing Bond smoke argument: ${required}")
+    endif()
+endforeach()
+string(TIMESTAMP run_time "%Y%m%dT%H%M%S" UTC)
+string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef run_id)
+set(output "${BOND_OUTPUT_ROOT}/${BOND_CASE}-${BOND_BACKEND}-${run_time}-${run_id}")
+file(MAKE_DIRECTORY "${BOND_OUTPUT_ROOT}")
+execute_process(COMMAND "${BOND_EXECUTABLE}" "--${BOND_BACKEND}" --smoke --output "${output}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr TIMEOUT 75)
+file(WRITE "${output}.log" "exit=${result}\nstdout:\n${stdout}\nstderr:\n${stderr}")
+message(STATUS "Bond smoke evidence: ${output}")
+if(NOT "${result}" STREQUAL "0")
+    message(FATAL_ERROR "Bond constitutive smoke failed (${result}):\n${stdout}\n${stderr}")
+endif()
+message(STATUS "${stdout}Constitutive smoke only; run the strict campaign for energy and h/h2/h4 checks.")

@@ -19,7 +19,7 @@ option(FUNDEM_ENABLE_CUDA_LINEINFO "Add CUDA line information" ON)
 option(FUNDEM_ENABLE_OPENMP "Enable OpenMP for host parallelism when available" ON)
 option(FUNDEM_INSTALL "Generate FunDEM install and package targets" ON)
 option(FUNDEM_BUILD_TUTORIALS "Build FunDEM tutorials" ON)
-option(FUNDEM_BUILD_EXAMPLES "Build FunDEM examples" ON)
+option(FUNDEM_BUILD_EXAMPLES "Build the native FunDEM example template" ${PROJECT_IS_TOP_LEVEL})
 option(FUNDEM_BUILD_VALIDATIONS "Build FunDEM validation cases" ON)
 
 set(
@@ -48,7 +48,30 @@ set(FUNDEM_HAS_OPENMP OFF)
 if(FUNDEM_ENABLE_OPENMP)
     find_package(OpenMP QUIET COMPONENTS CXX)
     if(OpenMP_CXX_FOUND)
-        set(FUNDEM_HAS_OPENMP ON)
+        include(CheckCXXSourceCompiles)
+        include(CMakePushCheckState)
+        cmake_push_check_state(RESET)
+        set(CMAKE_REQUIRED_LIBRARIES OpenMP::OpenMP_CXX)
+        # Recheck after compiler/runtime option changes in an existing build.
+        unset(FUNDEM_OPENMP_REDUCTIONS_SUPPORTED CACHE)
+        check_cxx_source_compiles([=[
+            #include <omp.h>
+            int main() {
+                double minimum = 100.0, maximum = -100.0;
+                #pragma omp parallel for reduction(min:minimum) reduction(max:maximum)
+                for (int i = 0; i < 16; ++i) {
+                    if (i < minimum) minimum = i;
+                    if (i > maximum) maximum = i;
+                }
+                return minimum == 0.0 && maximum == 15.0 ? 0 : 1;
+            }
+        ]=] FUNDEM_OPENMP_REDUCTIONS_SUPPORTED)
+        cmake_pop_check_state()
+        if(FUNDEM_OPENMP_REDUCTIONS_SUPPORTED)
+            set(FUNDEM_HAS_OPENMP ON)
+        else()
+            message(STATUS "OpenMP lacks required min/max reductions: host loops will use serial execution.")
+        endif()
     else()
         message(STATUS "OpenMP not found: host loops will use serial execution.")
     endif()

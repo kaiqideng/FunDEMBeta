@@ -1,110 +1,61 @@
-# Validation cases
+# Reference comparisons
 
-This directory separates numerical verification and physical validation from tutorials and unit tests. A tutorial demonstrates an API workflow; a validation case defines a reference quantity, an error measure, and an explicit acceptance criterion.
+| Family | Included scope | Historical status |
+| --- | --- | --- |
+| [LAMMPS](LAMMPSComparison/README.md) | 35 independent native C++ reference cases | 33 PASS; 2 FAIL retained |
+| [PFC](PFCComparison/README.md) | Three Md=0 restitution cases against public analytical targets | 3 PASS; no local PFC execution |
+| [ON-DEM](ONDEMComparison/README.md) | Isolated periodic bumpy-wall shear adaptation | Transient discrepancies unresolved; full benchmark not run |
+
+Historical outcomes concern the recorded campaign, not a fresh acceptance
+result for the current source. Successful compilation, a completed solve or a
+readable frame is not automatically a physical-comparison PASS. Excluded models
+and unavailable operators remain documented rather than replaced by tuned ones.
+
+## Current-source scope
+
+The retained campaigns predate subsequent contact and Bond changes. In the
+current native contact implementation, the normal-force truncation line is
+disabled; the resultant can remain signed while the contact overlaps. The
+ON-DEM adapter owns a separate release convention and retains its non-attractive
+default. Its contact equation must not be changed to match the native law.
+
+Bond damage/energy changes and the removal of persistent endpoint-torque arrays
+are not validated by the retained contact-comparison outcomes. These families
+do not supply current Bond-fracture acceptance evidence. Use the current
+constitutive tests for regression checks and a separately recorded comparison
+campaign for new physical-validation claims. Do not relabel the stored results
+as a run of the latest source.
 
 ## Build and run
 
-Validation executables are enabled by default. Open a terminal in `workplace/`, the directory containing `FunDEMBeta/`, and keep it there for all commands:
+Keep the terminal in the directory containing `FunDEMBeta/`:
 
 ```bash
-cmake -S FunDEMBeta -B build
-cmake --build build --target freeFall normalCollision frictionLaw bondModes LSCentralCompression backendConsistency --parallel
+cmake -S FunDEMBeta -B build -DFUNDEM_BUILD_VALIDATIONS=ON
+cmake --build build --target lammpsComparison pfcComparison --parallel
 ```
 
-Run the complete suite:
+These are build-only aggregate targets, not executables or implicit full-suite
+runs. Each case defines its model in `cases/<id>/<id>.cpp` and links the public
+core without Qt, a desktop project loader or a reference-program installation.
+Use the family README for an executable command and
+[shared options](common/README.md) for output and verdict semantics.
+`FUNDEM_BUILD_VALIDATIONS=OFF` omits comparison executables.
+ON-DEM's input retrieval and long run are opt-in; restricted coordinates are
+not distributed with the source.
 
-```bash
-cmake --build build --target runValidations
-```
+## Read and preserve evidence
 
-Or run one case:
+Start with a family's README, then a case's `REPORT.md`. The English reports
+use an abstract, benchmark definition, numerical method, results and discussion,
+conclusions and limitations, references, and a reproducibility appendix.
+[Publication specifications and PDF generation](PUBLICATION.md) describe the
+numbered equations and tables, vector PDF/SVG figures and 600 dpi raster exports.
+Figures are derived from retained CSV checkpoints; they do not replace exact
+numerical records or demonstrate a new run.
 
-```bash
-build/validation/freeFall
-build/validation/normalCollision
-build/validation/frictionLaw
-build/validation/bondModes
-build/validation/LSCentralCompression
-build/validation/backendConsistency
-```
-
-Every executable prints `PASS`, `FAIL`, or an explicit backend `SKIP`. By default, numerical histories are written beside the executable in `<case>_files/`. Use `--output DIR` to select another directory.
-
-Set `-DFUNDEM_BUILD_VALIDATIONS=OFF` only when a minimal library build is required.
-
-## Implemented cases
-
-| Executable | Reference and primary checks | Default output |
-| --- | --- | --- |
-| `freeFall` | Constant-acceleration translation, constant-axis torque, angular velocity, and orientation | `freeFall.dat` |
-| `normalCollision` | Signed linear-dashpot rebound, analytical contact duration, and pair momentum | `normalCollision.dat` |
-| `frictionLaw` | Tangential history, Coulomb-disk return, and history removal when contact opens | `frictionLaw.dat` |
-| `bondModes` | Single-bond axial, shear, pure-bending, and pure-torsion responses | `bondModes.dat` |
-| `LSCentralCompression` | Two LS spheres, nodal-force integration, surface refinement, and the small-overlap continuum reference | `LSCentralCompression.dat` |
-| `backendConsistency` | Identical sphere–LS trajectory in CPU, GPU, and Sphere-GPU/LS-CPU Hybrid modes | `backendConsistency.dat` |
-
-`normalCollision` uses the implemented signed spring-dashpot force while overlap
-is positive; normal-force truncation is disabled. The full damped-oscillator
-solution therefore supplies the configured restitution and contact duration
-as analytical targets. Its force history records the signed normal projection,
-including a possible negative unloading tail, rather than its absolute magnitude.
-The separate `contact::normalForceMagnitude()` getter remains nonnegative for
-friction limits and magnitude-based output. This case does not validate a
-no-tension/clipped normal-force model.
-
-`backendConsistency` always records the CPU result. GPU comparisons are skipped only when CUDA was not built or no CUDA device is present.
-
-## Material and Pair Configuration
-
-Solid materials now contain only `E`, `nu`, restitution and density. The linear
-verification cases install explicit final `materialPair` coefficients, so their
-analytical force laws do not change when the bulk material interface changes.
-`normalCollision` uses its original pair stiffness, not an additional series
-combination; `backendConsistency` explicitly preserves its sphere-wall linear
-response. Other sphere contacts without linear overrides use Hertz-Mindlin.
-
-`LSCentralCompression` supplies `setLevelSetStiffness(k_n, 0)` for its finite/fixed
-pair. Those coefficients are in N/m^3 and are multiplied by nodal area in the
-force law. They cannot be replaced by a Young's modulus in Pa without choosing
-an additional physical model. Nominal elastic constants in these penalty-law
-fixtures are not inferred material measurements. Bond-only cases retain
-independent beam coefficients and do not acquire an unintended native contact
-law.
-
-## ON-DEM bumpy-wall shear benchmark
-
-[ondemShearFlow](ondemShearFlow/README.md) is an isolated CPU benchmark adaptation
-with X/Y periodic contacts, the author's original particle coordinates, explicit
-normal/tangential dashpots, and MercuryCG-compatible discrete output. It does not
-change the default `SphereDEM` contact law or provide a general periodic DEM
-solver API. Separately, the core supplies reusable `math::periodicDomain`
-transforms and an SPH neighbor-image domain; a caller still owns rigid-particle
-wrapping and cross-boundary contact assembly. Workbench periodic force modules
-are implemented in the separate desktop application, not by this isolated runner.
-Its small periodic-contact and file-format checks are included in
-`runValidations`; the full 200-million-step simulation is never run implicitly.
-The benchmark notes distinguish published inputs, implementation choices, and
-unresolved reference-data differences from a completed physical validation.
-
-## Interpreting the LS compression case
-
-Two equal spheres of radius `R` are compressed by `delta`. For the one-sided nodal penalty integral used here, the leading small-overlap force is
-
-```text
-P = (pi / 2) R k_n delta^2,
-```
-
-where `k_n` is stiffness per unit area. The DAT file contains the numerical force, this continuum reference, relative error, and active nodal-contact count for three icosphere surface resolutions. It is a discretization check, not a Hertz-material calibration.
-
-## Required next layer
-
-The following cases need traceable laboratory data and must not be treated as analytical unit checks:
-
-1. confined compression for bulk stiffness;
-2. direct shear at several normal stresses for peak strength, steady strength, and dilation;
-3. triaxial compression at several confining pressures;
-4. angle of repose or rotating drum as an independent bulk-flow validation;
-5. hopper discharge or granular-column collapse as a predictive flow case;
-6. bonded Brazilian splitting and mixed-mode fracture after the elastic bond modes pass.
-
-Each physical case should keep calibration data separate from validation data, preserve the experimental particle-size and shape distributions, report time-step and resolution studies, and compare measured curves rather than a single final number.
+Keep new results outside source in a new directory for each invocation.
+`HISTORICAL-*` documents retain detailed prior reports, exact results and hashes;
+they are not rewritten to match a later run. Full native archives and large
+histories are retained separately. Never convert a historical FAIL into PASS
+because a new input compiles or exports successfully.

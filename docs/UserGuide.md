@@ -24,6 +24,7 @@ solver
 - [1. Requirements](#1-requirements)
 - [2. Workspace and build](#2-workspace-and-build)
 - [3. Tutorials and tests](#3-tutorials-and-tests)
+- [Write your own C++ case](ProgrammingGuide.md)
 - [4. Development environment and external projects](#4-development-environment-and-external-projects)
 
 **DEM modeling**
@@ -123,7 +124,10 @@ cmake -S FunDEMBeta -B build \
 cmake --build build --parallel
 ```
 
-If CMake cannot find a CUDA compiler, it reports that CUDA is unavailable and still produces the CPU modules; CUDA tests and GPU examples are then skipped.
+If CMake cannot find a CUDA compiler, it reports that CUDA is unavailable and
+still produces the CPU modules; CUDA tests are then skipped, and GPU/Hybrid
+execution is unavailable in that build. The native C++ template in `example/`
+builds as `fundem_example` when `FUNDEM_BUILD_EXAMPLES=ON`.
 
 If the toolkit is installed but `nvcc` is not on `PATH`, configure a new build directory with the compiler path explicitly. For example, for a CUDA 13.2 installation in `/usr/local`:
 
@@ -145,7 +149,7 @@ For more than one architecture, quote the semicolon-separated list, for example 
 
 ### 2.3 CPU-only Release build
 
-This configuration never enables the CUDA language. OpenMP is used when CMake finds it; otherwise host loops remain serial.
+This configuration never enables the CUDA language. OpenMP is used only when its compiler/runtime passes the required minimum/maximum reduction check; otherwise host loops remain serial.
 
 ```bash
 cmake -S FunDEMBeta -B build-cpu \
@@ -195,11 +199,11 @@ cmake --build build-cuda-debug --parallel
 | `FUNDEM_ENABLE_CUDA` | `ON` | Enable CUDA when a CUDA compiler is available |
 | `FUNDEM_ENABLE_CUDA_DEVICE_DEBUG` | `OFF` | Compile CUDA tests and kernels with device-debug information |
 | `FUNDEM_ENABLE_CUDA_LINEINFO` | `ON` | Add CUDA source line information when device debug is off |
-| `FUNDEM_ENABLE_OPENMP` | `ON` | Use OpenMP for supported CPU loops when available |
+| `FUNDEM_ENABLE_OPENMP` | `ON` | Use OpenMP when the compiler/runtime supports the required reductions; otherwise use serial loops |
 | `FUNDEM_INSTALL` | `ON` | Generate installation and exported CMake package rules |
-| `FUNDEM_BUILD_TUTORIALS` | `ON` | Build the CPU LSDEM tutorials |
-| `FUNDEM_BUILD_EXAMPLES` | `ON` | Build the larger validation and application cases |
-| `FUNDEM_BUILD_VALIDATIONS` | `ON` | Build the analytical/reference validation executables; full ON-DEM long runs remain opt-in |
+| `FUNDEM_BUILD_TUTORIALS` | `ON` | Build the four short CPU-default tutorials |
+| `FUNDEM_BUILD_EXAMPLES` | `ON` (top-level); `OFF` (embedded) | Build the reusable native C++ template as `fundem_example` |
+| `FUNDEM_BUILD_VALIDATIONS` | `ON` | Build dedicated reference cases and ONDEM checks; full runs remain explicit commands |
 | `FUNDEM_CUDA_ARCHITECTURES` | empty | Override the CUDA architectures selected by CMake/compiler |
 | `BUILD_TESTING` | `ON` | Build tests registered with CTest |
 | `CMAKE_BUILD_TYPE` | generator-dependent | Common values are `Release`, `RelWithDebInfo`, and `Debug` |
@@ -222,35 +226,69 @@ cmake -LA -N build
 ### 3.1 Run the tutorials
 
 ```bash
-build/tutorial/tutorial0 --steps 1000
+build/tutorial/tutorial0
 build/tutorial/tutorial1
-build/tutorial/tutorial2 --steps 1000
-build/tutorial/tutorial3 --steps 1000
+build/tutorial/tutorial2
+build/tutorial/tutorial3
 ```
 
-Supported tutorial0 arguments are:
+The four small tutorials demonstrate sphere rebound, asymmetric LS contact, a
+five-sphere bonded beam and a 960-particle SPH block. They run 0.1–0.3 seconds of
+physical time and write 21 or 31 frames. See the
+[tutorial guide](../tutorial/README.md) for parameters and output.
 
-```text
---time-step DT  positive DEM time step
---duration T    positive simulation duration; defaults to 120 s
---steps N       non-negative DEM step count; overrides --duration
---output DIR    output directory
---ascii         write readable ASCII VTU instead of binary VTU
-```
+Each tutorial includes `solver/solvers.h` and keeps the model and run settings
+in one annotated `main()`; tutorial3 also includes `<cmath>` for `std::sqrt`.
+Edit the source, rebuild its target and run without arguments. Change
+`solve(...)` for the step count, `setTimeStep()` for the integration step,
+`setOutputStepInterval()` for the output cadence, and `setVTUOutputFormat()`
+for binary or ASCII output. Choose a fresh directory with
+`setOutputDirectory()` before rebuilding if existing results must be retained;
+the first `solve()` clears old VTU/DAT files inside that directory.
 
-All bundled tutorials use CPU mode by default even in a CUDA-enabled build. Tutorial2 and tutorial3 can select another supported backend directly:
+All bundled tutorials select CPU and CUDA device 0, even in a CUDA-enabled
+build. To use a compatible CUDA device, change the constructor's mode/device
+arguments; tutorial1 instead sets its mode with `setExecutionMode()`. Pure
+LSDEM supports CPU/GPU. The other tutorial solvers also support Hybrid. See
+[execution modes](#7-solver-and-execution-modes) for the solver APIs.
+
+Tutorial3 is a small teaching case, not the previous experimental bore-in-a-box
+benchmark. It has no reaction-force recorder or post-run filter. The original
+large tutorials have been replaced.
+
+### 3.2 Write your own native C++ case
+
+Start with the [hands-on programming guide](ProgrammingGuide.md). It walks
+through building the minimal template, changing its parameters, registering a
+separate CMake target, adding particles and a wall, selecting a backend, and
+reading synchronized state in your own code.
+
+[`example/main.cpp`](../example/main.cpp) contains one complete `main()`;
+the two-line CMake file links `FunDEM::FunDEM`. Run from the parent directory
+containing `FunDEMBeta/`:
 
 ```bash
-build/tutorial/tutorial2 --mode gpu --device 0
-build/tutorial/tutorial3 --mode hybrid --device 0
+cmake -S FunDEMBeta -B build -DCMAKE_BUILD_TYPE=Release -DFUNDEM_ENABLE_CUDA=OFF -DFUNDEM_BUILD_EXAMPLES=ON
+cmake --build build --target fundem_example --parallel
+OMP_NUM_THREADS=2 build/example/fundem_example
 ```
 
-Tutorial3 reproduces the classical three-dimensional bore-in-a-box configuration for `3.0 s`. In addition to particle VTU frames and `energy.dat`, `columnForce.dat` records the fixed square-column reaction uniformly at every `2e-5 s` DEM base step; the most recently computed SPH load is retained between acoustic updates. The example also writes `columnForceFiltered.dat` using a centered `13 ms` triangular moving average for inspecting the force history.
+The default is a two-sphere Hertz collision on CPU. Edit source parameters
+and rebuild; the example and tutorials take no command-line options.
+For a separate case, copy `example/`, give its executable a unique name, and
+register the copied directory inside the core's examples CMake block, as
+shown in the programming guide. Keep the fresh-output-folder code so each
+run preserves earlier results.
 
-For a compact, literature-backed verification of the LS nodal contact
-formulation, see the [two-sphere central-compression benchmark](LSDEMValidation.md).
+On Windows, set `$env:OMP_NUM_THREADS="2"` rather than using the shell prefix.
+With a multi-configuration generator, build with `--config Release` and run
+`build/example/Release/fundem_example.exe`. The
+[example README](../example/README.md) remains the short quick reference.
 
-### 3.2 Run the tests
+Each LAMMPS/PFC comparison has its own C++ source and executable target.
+See the [validation guide](../validation/README.md) for target names and commands.
+
+### 3.3 Run the tests
 
 ```bash
 ctest --test-dir build --output-on-failure
@@ -263,6 +301,14 @@ ctest --test-dir build -N
 ```
 
 CPU unit tests are available whenever `BUILD_TESTING=ON`. CUDA builds additionally register host/device container and device state-consistency tests. Their sources are under [`src/tests/`](../src/tests/README.md), and a single-configuration build places their executables under `build/src/tests/`.
+
+The Bond regressions use the current shared-helper signatures and stress-based
+equivalent lengths. Enabling or listing tests is not evidence that the complete
+suite builds or passes: retain the actual build and CTest logs for the source
+being delivered. The [test guide](../src/tests/README.md#current-bond-law-and-regression-scope)
+separates current constitutive checks from historical campaign outcomes.
+For a first tutorial-only build, use `BUILD_TESTING=OFF` as in the root quick
+start; do not change the mechanics merely to satisfy a regression expectation.
 
 ## 4. Development environment and external projects
 
@@ -310,7 +356,6 @@ A minimal `workplace/.vscode/c_cpp_properties.json` is:
                 "path": [
                     "${workspaceFolder}/FunDEMBeta/src",
                     "${workspaceFolder}/FunDEMBeta/tutorial",
-                    "${workspaceFolder}/FunDEMBeta/example",
                     "${workspaceFolder}/FunDEMBeta/validation"
                 ],
                 "limitSymbolsToIncludedHeaders": false,
@@ -357,6 +402,8 @@ cmake -S FunDEMBeta -B build-install \
     -DFUNDEM_ENABLE_CUDA=ON \
     -DFUNDEM_INSTALL=ON \
     -DFUNDEM_BUILD_TUTORIALS=OFF \
+    -DFUNDEM_BUILD_EXAMPLES=OFF \
+    -DFUNDEM_BUILD_VALIDATIONS=OFF \
     -DBUILD_TESTING=OFF
 
 cmake --build build-install --parallel
@@ -398,7 +445,9 @@ cmake -S my_fundem_case -B build-case \
 
 ## 5. First simulation: an LSParticle falling onto a plane
 
-This is the complete construction sequence used by the tutorial:
+This complete LSDEM example shows direct use of the public API. It is a
+separate model from the compact SphereDEM template in `example/` and runs on
+CPU by default:
 
 ```cpp
 #include "data/myLSObject.h"
@@ -456,9 +505,6 @@ int main()
         simulation.setOutputStepInterval(2500);
         simulation.setVTUOutputFormat(vtuFormat::binary);
 
-        // Omit this line for the default CPU mode.
-        simulation.setExecutionMode(executionMode::GPU);
-
         simulation.solve(250000);
     }
     catch (const std::exception& error)
@@ -469,6 +515,10 @@ int main()
     return 0;
 }
 ```
+
+For GPU execution, configure a CUDA-enabled core and call
+`simulation.setExecutionMode(executionMode::GPU)` before solving. Pure
+`LSDEM` does not support Hybrid.
 
 The important ordering is:
 
@@ -620,6 +670,26 @@ saved grid, including boundary nodes, and rejects queries outside it. Such an
 object cannot rebuild an analytic surface/grid; retain the original shape
 parameters separately when regeneration is needed.
 
+`surfaceAABBMin()` and `surfaceAABBMax()` compute the axis-aligned bounding box
+of the current surface points, without padding. They work in the returned local
+frame for both native and prepared geometry. Because surface points are already
+centroid-corrected when applicable, these queries never subtract the offset
+again. Invalid geometry or an empty surface raises `std::logic_error`.
+
+Grid generation uses separate internal sampling bounds in the original shape
+frame. In particular, a `PlaneWall` needs a finite three-dimensional sampling
+region even when its surface AABB has zero thickness. Before allocating a native
+shape's grid, call `estimateGridNodeSize(spacing, padding = 2)`. It shares
+`buildLSGrid`'s dimension calculation without resampling, recentering or changing
+mass properties. Prepared data has no native shape to regenerate, so estimation
+and rebuilding are unavailable.
+
+For an existing grid, read the **entire stored grid extent** directly from
+`gridNodeOrigin()` to `origin + spacing * (size - 1)` componentwise. This includes
+any saved padding and requires no additional centroid correction. Surface bounds
+and grid extent are deliberately distinct; neither changes the existing SDF or
+mass-integration algorithm.
+
 ### 6.3 Level-set particles
 
 An `LSParticle` becomes valid only after a material and geometry have both been assigned:
@@ -635,7 +705,10 @@ body.setGeometry(simulation.geometries(), geometryIndex);
 const int particleIndex = simulation.addLSParticle(body);
 ```
 
-The material and geometry must belong to the same solver that receives the particle. The returned particle index is the stable host-container index used when creating bonds.
+The material and geometry must belong to the same solver that receives the
+particle. The returned index identifies its host-container slot and remains
+unchanged by appending particles or rebuilding neighbor grids. Explicit
+particle removal compacts slots; use its old-to-new map as described in §11.4.
 
 ### 6.4 Spheres
 
@@ -663,13 +736,17 @@ const int sphereIndex = simulation.addSphere(sphere);
 ### 6.5 Domain, gravity, and device
 
 ```cpp
-SphereDEM simulation(0);  // CUDA device index 0 if any particle type uses CUDA
+SphereDEM simulation(executionMode::CPU);
 simulation.setBoundary({-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0});
 simulation.setGravity({0.0, 0.0, -9.81});
 simulation.setTimeStep(1.0e-6);
 ```
 
-The minimum boundary must be strictly smaller than the maximum boundary in all three directions. The constructor device index is non-negative and is interpreted after any `CUDA_VISIBLE_DEVICES` remapping performed by the process environment.
+The minimum boundary must be strictly smaller than the maximum boundary in
+all three directions. These are search bounds, not physical walls. For GPU,
+use `SphereDEM simulation(executionMode::GPU, 0)`. The device index is
+non-negative and follows any `CUDA_VISIBLE_DEVICES` remapping. Passing only
+`SphereDEM(0)` still selects the default CPU mode.
 
 ## 7. Solver and execution modes
 
@@ -700,7 +777,14 @@ simulation.setExecutionMode(executionMode::GPU);
 
 The removed Sphere CPU-LSParticle GPU combination is not supported. In the mixed mode, the solver copies current LSParticle state to the device for sphere-LS interaction, then returns the resulting LSParticle force and torque to the host and combines them with CPU LS-LS contributions. User code must not duplicate this exchange.
 
-All model objects are still appended on the host. Initialization creates the required device SoA storage and spatial grids. `solve()`, `writeOutput()`, `copyDeviceToHost()`, and `synchronize()` are the public synchronization boundaries for GPU execution.
+All model objects are appended on the host. Initialization creates the
+required device SoA storage and spatial grids. Use `observeCurrentState()`
+for a coherent host snapshot across backends (see §11.3). `synchronize()`
+only waits for queued device work; it does not copy state to host.
+`copyDeviceToHost()` copies during an initialized GPU/Hybrid phase, whereas
+the observer also handles resumable post-solve state. Backend changes are
+allowed before initialization or after a completed `solve()`, not during an
+initialized stepping phase.
 
 ### 7.3 SPHDEM combinations
 
@@ -717,7 +801,7 @@ simulation.setExecutionMode(executionMode::GPU);  // CPU, GPU, or Hybrid.
 | `GPU` | GPU | GPU | GPU |
 | `Hybrid` | GPU | CPU | GPU with host-side resultant transfer |
 
-The CPU path uses an OpenMP-parallel compact neighbor list built from a uniform background grid. The GPU path queries the device grid directly. In `Hybrid`, virtual-particle forces are transferred only when SPH advances, reduced to one resultant force and torque per LSParticle, and applied on the CPU at each DEM step; the full LSParticle container is not copied to the device every DEM step.
+The CPU path uses a compact neighbor list built from a uniform background grid, parallelized when supported OpenMP is enabled. The GPU path queries the device grid directly. In `Hybrid`, virtual-particle forces are transferred only when SPH advances, reduced to one resultant force and torque per LSParticle, and applied on the CPU at each DEM step; the full LSParticle container is not copied to the device every DEM step.
 
 ## 8. Contact models and search
 
@@ -824,22 +908,238 @@ connection.setStiffness(kn, ks, kb, kt);
 simulation.addBond(connection);
 ```
 
-The equivalent length must be finite and positive. All four stiffness inputs must be finite and non-negative. `setStiffness()` requires the equivalent length to have been set. Optional BK damage parameters are configured with:
+The equivalent length is a user-supplied mechanical length, independent of
+the endpoint center distance and connection reference point. It must be
+finite and positive. All four stiffness inputs must be finite and
+nonnegative. `setStiffness()` requires that reference length and accepts the
+four physical stiffnesses for every particle family. The core has no Beam
+input source; applications convert material and section inputs into those
+stiffnesses before calling `setStiffness()`.
+
+`setFractureMode()` accepts `fractureMode::unbreakable`, `brittle` or `damage`;
+`fractureMode()` reports it. Unbreakable mode retains the elastic response
+and positive area for section stress without enabling fracture. Brittle mode
+uses strength onset without softening, regardless of retained GIc/GIIc.
+Damage mode uses the separation law below. The core default is `damage`
+for existing callers; applications should set the intended mode explicitly.
+
+### 9.4 Strength initiation and BK softening
+
+Bonds retain one elastic evaluator and the strength criterion below. The
+explicit fracture mode selects unbreakable, strength-only brittle or progressive
+behavior; it does not replace the original force/energy formulas. For
+progressive damage, configure the mode, section, energies and strengths before
+inserting the bond:
 
 ```cpp
-connection.setCrossSectionArea(area);
-connection.setModeICriticalEnergy(modeI);
-connection.setModeIICriticalEnergy(modeII);
-connection.setModeMixityExponent(exponent);
-connection.setDamageInitiationRatio(ratio);
-connection.setMaximumEnergyReleaseRatio(ratioLimit);
+if (!connection.setFractureMode(fractureMode::damage) ||
+    !connection.setCrossSectionArea(area) ||                 // m2
+    !connection.setTensileStrength(tensileStrength) ||         // Pa
+    !connection.setCohesion(cohesion) ||                      // Pa
+    !connection.setInternalFrictionCoefficient(friction) ||   // dimensionless
+    !connection.setModeICriticalEnergy(modeI) ||              // J/m2
+    !connection.setModeIICriticalEnergy(modeII) ||             // J/m2
+    !connection.setModeMixityExponent(exponent))              // positive BK exponent
+{
+    throw std::runtime_error("Invalid bond fracture parameters");
+}
 ```
 
-`crossSectionArea` is the nominal bond cross-sectional area in square metres. Setting it to zero disables fracture; otherwise it converts elastic energy into energy release per unit area. `damageFactor` and `damageInitiationRatio` are bounded to `[0, 1]` and `(0, 1]`, respectively. Always check boolean setters when values originate outside the program.
+All setters reject nonfinite inputs. Strength and friction setters accept
+nonnegative values; strengths default to zero (unconfigured). A connected bond
+with enabled fracture and positive area requires positive tensile strength
+and cohesion; unbreakable mode does not require strengths. The current
+`bond::isValid()` also requires positive normal and shear stiffness when
+damage mode has either positive critical energy. This is a retained validity
+guard, not a stiffness denominator in the current displacement formulas below.
+Bending and torsional stiffnesses may be zero. Zero area retains the legacy
+fracture-disabled behavior; select `unbreakable` explicitly when a positive
+area must remain available without fracture. The software's configuration
+flags are translated to this core enum and are not additional core modes.
+Changing the enum does not clear irreversible history. Damage is bounded to
+[0,1] and never heals during evolution.
+
+This is an **energy-based EVM extension** of the strength-initiation and
+irreversible-softening ideas of Suarez et al. (2025), DOI
+`10.1016/j.mineng.2025.109488`. It retains FunDEM's original endpoint frames and
+B1--B4 elastic response. It does not reproduce the paper's geometric interface
+displacement, fixed mixed-mode expression, or multipoint Voronoi discretization.
+Native contact and damping laws are unchanged.
+
+`calculateBondForceAndTorque()` records its existing bending/torsion torque
+term through its `torsionBendingTorque` output argument, stored as `torque`
+in the bond alongside the resultant force:
+
+```text
+torque = B3*cross(slaveNormal,masterNormal)
+- 0.5*B4*(cross(slaveTangent1,masterTangent1)
++ cross(slaveTangent2,masterTangent2))
+```
+
+The endpoint couples and particle-centre torques retain their existing assembly
+formulas. `masterTorque()` and `slaveTorque()` return computed vectors by value;
+they are not stored members or device arrays. They derive the original EVM
+endpoint/shear couples and force lever-arm moments from the current particle
+configuration. The connected particle containers must remain alive, and GPU
+callers must synchronize the host particle and Bond state before using these
+host accessors. The CUDA kernel computes both endpoint torques as local values
+and assembles them directly into particle torque arrays. `torque()` exposes the
+recorded bond-point term after the current `(1-D)`
+reduction; optional `bondVTUField::torque` exports it. A failed bond records
+zero. This is an automatic vector state, not a new material parameter.
+
+`calculateBondStrengthCriterion()` uses the UNDAMAGED trial force and this one
+`torque`, evaluated once. Its circular equivalent section has
+`R=sqrt(A/pi)`, `I=A*R*R/4`, and `J=2*I`. With `M=torque`, it returns
+the signed axial stress, nonnegative bending contribution and shear stress:
+
+```text
+sigma_a = -dot(F,n)/A
+sigma_b = R*norm(M-dot(M,n)*n)/I
+tau = norm(F-dot(F,n)*n)/A + R*abs(dot(M,n))/J
+sigma_criterion = sigma_a + sigma_b
+Q = (max(sigma_criterion,0)/tensileStrength)^2
+    + (tau/(cohesion-friction*sigma_criterion))^2
+```
+
+The shear term is evaluated only when `tau>0`. A nonpositive shear capacity
+with nonzero shear triggers initiation explicitly. The signed
+`sigma_criterion` controls both tensile onset and the friction-dependent
+shear capacity; it must not be confused with the opening stress used below.
+By the selected bond-point convention, the recorded B3/B4 term itself supplies
+the moment in this strength calculation. It is not replaced by a transported
+endpoint moment or a maximum over two endpoint sections. The combined peak
+normal/shear stress approximation is not an integration over section fibres.
+For example, particular stiffness combinations can cancel the B3/B4 moment
+while endpoint couples remain nonzero; that chosen strength convention remains
+in effect.
+
+`setStiffness(kn,ks,kb,kt)` preserves the four original, undamaged inputs as
+`normalStiffness()`, `shearStiffness()`, `bendingStiffness()` and
+`torsionalStiffness()`, alongside the force/torque coefficients B1--B4.
+They are not recovered by coefficient inversion. All inputs and coefficients
+are committed together after validation; changing reference length invalidates
+both. CPU/device layouts and optional VTU fields retain these original values.
+`calculateBondForceAndTorque()` retains the original B1--B4 force and
+endpoint-couple expressions. Its recorded torque output uses the original
+internal name `torsionBendingTorque`. The four modal energies are:
+
+```text
+Un = 0.5*kn*delta^2
+Us = 0.5*B2*norm(0.5*(nm-ns)-e)^2
+Ub = 0.5*kb*norm(nm+ns)^2
+Ut_raw = 0.25*B4*(norm(tm1-ts1)^2+norm(tm2-ts2)^2-norm(nm+ns)^2)
+Ut = max(Ut_raw,0)
+```
+
+Here `nm/ns` and `tm1/tm2/ts1/ts2` are the endpoint normals and tangents,
+`e` is the current master-to-slave unit direction, and `delta` is axial
+displacement. Bending uses the stored original `kb` directly. The original
+dot-product formulas remain commented in the evaluator as a reference.
+The squared-vector forms are equivalent to those reference formulas for unit
+endpoint frames before the torsional clamp. The clamp is an explicit part of
+the current evaluator: a negative torsional raw difference is stored as zero.
+The other three forms are nonnegative for valid nonnegative stiffnesses.
+
+`updateBondDamage()` groups the UNDAMAGED trial energies, in joules, into
+opening and shearing contributions. It uses stresses in pascals and area in
+square metres to obtain equivalent lengths in metres:
+
+```text
+U_open = (sigma_a > 0 ? max(Un,0) : 0) + max(Ub,0)
+U_shear = max(Us,0) + max(Ut,0)
+sigma_open = max(sigma_a,0) + sigma_b
+dn = sigma_open > 0 ? 2*U_open/(A*sigma_open) : 0
+ds = tau > 0 ? 2*U_shear/(A*tau) : 0
+d = hypot(dn,ds)
+```
+
+These are energy-equivalent lengths, not actual bond-point opening/sliding or
+the paper's Eq. (10). Normal and shear stiffness are not arguments of this
+damage helper and are not divided into the energies. There is no
+radius-times-angle term. Axial compression can reduce `sigma_criterion`, but
+it does not cancel the bending contribution in `sigma_open` or `U_open`.
+
+At the first sampled `Q>=1`, freeze the BK critical energy release rate:
+
+```text
+Gc = GIc + (GIIc-GIc)*(U_shear/(U_open+U_shear))^eta
+sigma_e0 = sqrt(sigma_open^2+tau^2)
+d0 = d
+df = 2*Gc/sigma_e0
+dmax = max(dmax,d)
+D = max(previousD, (1-d0/dmax)/(1-d0/df))
+```
+
+The BK implementation first divides both modal weights by their maximum
+before forming the ratio. Their common area scale cancels; exactly zero
+weights return zero, and no absolute small-energy cutoff is applied.
+`sigma_e0` is the norm of the opening and shear stresses at onset, not
+`sqrt(max(sigma_criterion,0)^2+tau^2)` and not the former radial traction
+`2*(U_open+U_shear)/(A*d0)`. The stored toughness and onset quantities remain
+frozen after initiation. The maximum length and damage cannot decrease;
+`dmax>=df` gives complete failure. There is no within-step onset interpolation.
+
+Unbreakable mode skips this update. Brittle mode checks the strength criterion
+directly, irrespective of critical energies. Damage mode also uses immediate
+strength-only failure when both critical energies are zero. Otherwise, zero
+onset `Gc` or zero onset `d` causes immediate failure; a computed `df<=d0`
+also leaves no positive softening interval and fails immediately. These
+branches set the onset flag and `D=1`; they do not increase the supplied
+toughness. The current condition is `df<=d0`, not an independent `A*Gc<=U0`
+test.
+
+Before complete failure, the pure axial-compression force and its energy `Uc`
+are not reduced. All other force/couple and energy contributions use `(1-D)`.
+Force lever-arm moments follow the actual resultant force. With
+`Ua=U_open+U_shear`, this corresponds to the recoverable-energy split
+`Uc+(1-D)*Ua`; it is not uniform
+degradation of the compression branch. At `D=1` the entire Bond is removed:
+force, torque, normal and stored energies are cleared, and ordinary native
+contacts provide any remaining geometrically active contact response. If
+`Uc>0` at removal, this also releases retained compression energy. Native
+contact is not an automatic energy-conserving transfer of the removed Bond
+spring. The current stress-based equivalent-length and `df` definitions do
+not establish a general equality between mechanical fracture work and `A*Gc`;
+such an equality requires independent analysis and verification for the
+particular loading path. A restarted or initially loaded state also requires
+its initial stored energy to be accounted for separately.
+
+The read-only history getters are `getOnsetEffectiveStress()`,
+`getOnsetEffectiveDisplacement()`, `getMaximumEffectiveDisplacement()`,
+`getFailureEffectiveDisplacement()`, `getEffectiveFractureEnergy()` and
+`getDamageStarted()`. The displacement getters describe the ordinary
+Euclidean energy-equivalent length `d`; `getOnsetEffectiveStress()` returns
+the frozen `sigma_e0` defined above. Neither its product with `d` nor the
+former radial-traction work relation should be assumed to be mechanical work.
+Optional Bond VTU fields expose these states.
+
+The modal grouping is an approximation: all bending energy is assigned to
+Mode I, including bending under axial compression; this is not a fibre-level
+crack-closure model. Torsion is grouped with Mode II and shares `GIIc`, rather
+than introducing an independent Mode-III toughness. EVM also contains
+higher-order coupling between nominal loading modes. Freezing onset mixity is
+not general nonproportional mixed-mode fracture validation.
+
+CPU/GPU consistency, loading-increment sensitivity, and independent native
+force/torque work checks belong to `src/tests/BondFracture`. Both
+`bond::calculateForce()` and the CUDA Bond force kernel call these same shared
+host/device helpers and apply damage before assembling endpoint lever-arm
+moments. Shared code is not proof of numerical parity. Historical campaigns,
+their FAIL records and earlier radial-traction expectations refer to their
+own source snapshots, not a pass for this revised law. Current regression
+references must use the section-stress equivalent lengths above rather than
+the retired radial-traction budget; see the [test guide](../src/tests/README.md).
+Prescribed constitutive
+loading does not verify a free dynamic integrator or calibrated specimen
+behaviour.
 
 ## 10. User-defined external force and torque
 
-Built-in gravity, contact, bond, and coupling forces are assembled first. Solver extension hooks run last, allowing a derived solver to add fields without replacing the standard assembly.
+Contact, bond and coupling forces are assembled before the solver extension
+hooks. Gravity is applied separately during velocity integration, so a
+particle's stored force does not include its weight. A derived solver can
+add fields without replacing the standard force assembly.
 
 CPU sphere example:
 
@@ -863,6 +1163,10 @@ private:
     fundem::math::Real dragCoefficient_{0.1};
 };
 ```
+
+This override affects host sphere storage only. Use this class on CPU until
+you have implemented its device hook; selecting GPU/Hybrid does not translate
+the CPU loop into a CUDA kernel.
 
 The level-set CPU hook is:
 
@@ -929,9 +1233,83 @@ simulation.solve(secondStageSteps);
 
 The three motion setters accept the stable index returned by `addLSParticle()`, validate finite values, and are available before the first `solve()` or after a completed `solve()`. They invalidate the previous integration continuation so CPU and device storage are rebuilt from the modified host state on the next solve. Existing contact history is retained, which supports continuously prescribed moving boundaries.
 
-Time, total step count, output frame count, contact history, and existing particles continue across calls. The next initialization resizes or rebuilds the affected working containers. Do not add objects or reset LSParticle motion while an explicitly initialized/stepping phase is active.
+Time, total step count, output frame count, contact history and existing
+particles continue across calls. `solve(1000); solve(500);` advances 1500
+additional steps in total. An unchanged next solve resumes cached integration
+state; supported model edits invalidate that continuation and rebuild the
+affected working storage. Do not edit the model during an initialized
+stepping phase.
 
-`step()` initializes on demand and leaves the solver initialized. Use it for controlled per-step workflows. `synchronize()` waits for the solver CUDA stream, and `copyDeviceToHost()` exposes the current device state when needed during an initialized GPU workflow.
+`step()` initializes on demand and leaves the solver initialized. It advances
+one step but does not trigger scheduled output or finish a host snapshot.
+A manual stepping loop must call `writeOutput()` at its chosen cadence.
+Call `solve(0)` once before such a loop to perform first-solve cleanup and
+write any due initial frame. After the loop, `solve(0)` can complete the phase
+and synchronize it without advancing time. For ordinary cases, prefer
+`solve(numberOfSteps)`.
+
+### 11.3 Inspect state in user code
+
+After adding at least one sphere, use an observer to read synchronized state:
+
+```cpp
+math::Vec3 position, velocity;
+simulation.observeCurrentState([&](const solver& base)
+{
+    const auto& state = static_cast<const SphereDEM&>(base);
+    const auto& sphere = state.spheres().host().at(0);
+    position = sphere.position();
+    velocity = sphere.velocity();
+});
+```
+
+The callback receives a coherent host view at `time()` on CPU, GPU and Hybrid.
+Copy the values needed for your output or control logic. Do not retain
+references or mutate/advance the solver inside the callback. `synchronize()`
+alone does not copy device state. See the
+[programming guide](ProgrammingGuide.md#7-read-results-in-your-own-code) for
+where to insert this code in the minimal template.
+
+### 11.4 Completed-step resets and particle removal
+
+The following APIs operate between completed advances, never concurrently with
+`step()`/`solve()` or from an observation callback:
+
+| API | Effect |
+| --- | --- |
+| `LSDEM::resetLSParticleVelocities(indices, resetLinear, resetAngular)` | Clear selected LS particles' linear velocity, angular velocity, or both; return only the removed kinetic energy in joules |
+| `SphereDEM::resetSphereVelocities(indices, resetLinear, resetAngular)` | The same component-selective reset for spheres |
+| `LSDEM::removeLSParticles(indices)` | Compact LS storage and return an old-to-new index map |
+| `SphereDEM::removeSpheres(indices)` | Compact sphere storage and remap sphere-sphere and sphere-LS interaction endpoints |
+| `SphereDEM::removeLSParticles(indices)` | Remap sphere-LS endpoints as well as the inherited LS-LS storage |
+
+Both reset switches default to `true`; pass `(indices, true, false)` for linear
+velocity only or `(indices, false, true)` for angular velocity only. Unselected
+components remain unchanged. Indices must be in range and unique. An empty reset
+does nothing and returns zero; an empty removal returns the identity map.
+Resetting particles whose selected components are already zero also avoids
+invalidating continuation. A reset
+changes neither pose nor contact springs, Bond damage, forces or torques. It is
+a deliberate removal of kinetic energy, not a new damping law or a convergence
+test.
+
+Removal preserves survivor order. Each map entry corresponds to an old slot;
+`-1` denotes removal, and every other value is its new slot. Drop removed
+application references and remap all surviving references. Incident Contacts
+are discarded, while surviving Contact states and Bond endpoint indices are
+remapped without reconnecting Bonds or resetting their history. Removal of a
+particle referenced by a Bond is rejected; it does not silently break that Bond.
+The next initialization rebuilds spatial grids, expanded surface mappings and
+device search history from the accepted retained state.
+
+These operations use `prepareRuntimeMutation()` to synchronize the represented
+completed-step state before a real edit. In SPHDEM, a real edit discards the
+private leading acoustic endpoint and restarts its working interval from that
+visible state; emitted source ownership and source clocks remain. An unchanged
+handoff must not call this function: continuing the same solver preserves its
+existing multirate phase. The core does not define desktop Events, temporary
+instance ownership, stopping conditions or a separate presentation clock;
+those policies belong to the calling application.
 
 ## 12. Output, visualization, and energy
 
@@ -943,7 +1321,14 @@ simulation.setOutputStepInterval(1000);
 simulation.setVTUOutputFormat(vtuFormat::binary);
 ```
 
-Binary VTU is the default and is normally preferred for speed and file size. Use `vtuFormat::ascii` only for readable diagnostics.
+Binary VTU is the default and is normally preferred for speed and file size.
+Use `vtuFormat::ascii` only for readable diagnostics. Set the output directory
+before setting its interval. Changing either resets the next due step to the
+current step. Scheduled output includes the initial frame but does not force
+an off-cadence final frame: at interval 100, `solve(6000)` gives 61 frames,
+while `solve(6050)` also gives 61 unless output is explicitly requested.
+`writeOutput()` writes a frame immediately and reschedules the next due step
+relative to the current one.
 
 Relative output paths are resolved from the executable directory, not from the shell's current working directory. For example, the tutorial's default `tutorial0_files` directory is created beside the tutorial executable.
 
@@ -1008,9 +1393,12 @@ Available fields are:
 - LSParticle: `particleIndex`, `distanceToCenter`, `orientation`, `angularVelocity`, `force`, `torque`, `inertiaTensor`, `boundingRadius`, `materialIndex`, `volume`, `geometryIndex`, `surfaceNodeArea`, `kineticEnergy`, `gravitationalPotentialEnergy`.
 - SPH: `force`, `density`, `densityRate`, `freeSurface`, `kineticEnergy`, `gravitationalPotentialEnergy`.
 - Contact: `force`, `torque`, master/slave indices, `overlap`, `area`, `effectiveMass`, `effectiveRadius`, `normalForceMagnitude`, four elastic energies, and three spring deformations.
-- Bond: `force`, master/slave torque and indices, `equivalentLength`, four elastic energies, global master/slave endpoint normal/tangent bases, `crossSectionArea`, damage factor, mode-I/mode-II critical energy, mode-mixity exponent, damage-initiation ratio, and maximum energy-release ratio.
+- Bond: `force`, `torque`, master/slave torque and indices, `equivalentLength`, four original stiffnesses, four elastic energies, global master/slave endpoint normal/tangent bases, `crossSectionArea`, strengths/friction, damage factor and onset flag, mode-I/mode-II critical energy, mode-mixity exponent, onset effective stress/separation, maximum/failure effective separation, and frozen effective fracture energy.
 
 The LSParticle `distanceToCenter` value is the distance from each output surface node to its owning particle center. Bond endpoint orientation fields are transformed to the current global frame before output.
+Bond master/slave torque fields are derived from the synchronized host state;
+their VTU names and output schema are unchanged by removing the corresponding
+persistent Bond members and device arrays.
 
 ### 12.4 `energy.dat`
 
@@ -1054,7 +1442,12 @@ Key semantics:
 
 Solver users should normally operate through `addMaterial()`, `addGeometry()`, `addSphere()`, `addLSParticle()`, `addSPHParticle()`, and `addBond()` rather than mutating internal containers directly. Returned indices refer to the solver-owned host containers.
 
-All public solver container accessors return const references. Users may only append through the solver's `add...` interfaces; they must not swap, reorder, replace, or erase existing elements. Insertion indices stay stable because particles, contacts, bonds, histories, and spatial-grid index arrays all refer to them.
+All public solver container accessors return const references. Use the solver's
+`add...`, motion, reset and removal interfaces rather than swapping, reordering,
+replacing or erasing internal elements. Insertion indices are stable under
+append and neighbor search, not under explicit removal. Particle removal returns
+the compaction map and updates native interaction endpoints; application-owned
+indices must be remapped by the caller (see §11.4).
 
 Do not retain C++ references or iterators into a host vector across an append: vector reallocation may invalidate them even though the returned numerical indices remain stable.
 
@@ -1103,16 +1496,6 @@ simulation.addSPHBlock(
 
 ### 14.3 Cylindrical jets
 
-The legacy four-argument overload creates one static downstream particle column. The velocity defines both its axis and its initial particle velocity; `jetLength` controls only the initially populated geometry. This overload does not maintain an inlet velocity after insertion:
-
-```cpp
-simulation.addSPHJet(
-    inletCenter,
-    jetVelocity,
-    jetRadius,
-    jetLength);
-```
-
 Use the `SPHJet` value type for a finite-duration inlet:
 
 ```cpp
@@ -1125,7 +1508,7 @@ SPHJet jet{
 const int firstJetParticle = simulation.addSPHJet(jet);
 ```
 
-The value type normalizes its direction. This overload creates a short upstream inlet buffer and continuously appends actual particles while the finite source runs; it does not preload the whole `jetSpeed * jetDuration` column. For spacing `s` and smoothing length `h`, the total axial layer count is `floor(jetSpeed * jetDuration / s)`, while the initial buffer contains at most `ceil(2h/s)+1` layers. Each layer uses the same circularly clipped regular lattice. Later layers replenish the upstream end without recycling particles that have already left the outlet.
+The value type normalizes its direction. This is the jet-creation interface: it creates a short upstream inlet buffer and continuously appends actual particles while the finite source runs; it does not preload the whole `jetSpeed * jetDuration` column. For spacing `s` and smoothing length `h`, the total axial layer count is `floor(jetSpeed * jetDuration / s)`, while the initial buffer contains at most `ceil(2h/s)+1` layers. Each layer uses the same circularly clipped regular lattice. Later layers replenish the upstream end without recycling particles that have already left the outlet.
 
 New layers are scheduled every `s / jetSpeed` and appended only at common acoustic starts, before the interval's start snapshot. The acoustic plan is shortened to the first DEM node at or after a birth; insertion is therefore at most one DEM step late, and the new layer position compensates for the delay. No particle is born during a display/output observation. Stable global particle indices are append-only. With several jets or ordinary blocks, one source's particles can occupy several disjoint ranges:
 
@@ -1216,9 +1599,9 @@ Select the mode before initialization. Mode dispatch is cached by the base solve
 
 - Use `Release` for timing and throughput comparisons.
 - Keep `FUNDEM_ENABLE_CUDA_DEVICE_DEBUG=OFF` outside device debugging.
-- Enable OpenMP for CPU search and interaction loops; check CMake output to confirm it was found.
+- Request OpenMP for CPU search and interaction loops; check CMake confirms compiler/runtime support for the required reductions.
 - Compile only the CUDA architectures that must run the binary to reduce build time and binary size.
-- Disable tutorials, examples, and tests in a production consumer build when they are not needed.
+- Disable tutorials, examples, validation executables and tests in a production consumer build when they are not needed. Set `FUNDEM_BUILD_EXAMPLES=OFF` to omit `fundem_example`.
 
 ### 15.3 Search and geometry resolution
 
@@ -1242,7 +1625,7 @@ A larger DEM step is useful only while resolving the stiffest contact or bond mo
 
 ### 16.1 Source-tree guide
 
-[`src/README.md`](../src/README.md) introduces the nine source modules. The root `CMakeLists.txt` configures the project, and `docs/`, `cmake/`, `tutorial/`, `example/`, and `validation/` remain at the repository root.
+[`src/README.md`](../src/README.md) introduces the eight library modules and the test suite. The root `CMakeLists.txt` configures the project, and `docs/`, `cmake/`, `tutorial/`, `example/`, and `validation/` remain at the repository root.
 
 | Directory | Responsibility |
 | --- | --- |
@@ -1257,9 +1640,9 @@ A larger DEM step is useful only while resolving the stiffest contact or bond mo
 | [`src/execution/cuda/`](../src/execution/cuda/README.md) | CUDA kernels and host launch interfaces |
 | [`src/solver/`](../src/solver/README.md) | Common lifecycle and `LSDEM`, `SphereDEM`, and `SPHDEM` |
 | [`src/tests/`](../src/tests/README.md) | CPU/CUDA unit and state-consistency tests |
-| [`tutorial/`](../tutorial/README.md) | Compact CPU level-set tutorials |
-| [`example/`](../example/README.md) | Larger application cases |
-| [`validation/`](../validation/README.md) | Analytical, convergence, and backend-consistency cases |
+| [`tutorial/`](../tutorial/README.md) | Short CPU-default Sphere, LS contact, Bond and SPH tutorials |
+| [`example/`](../example/README.md) | Simple native C++ case built with the core |
+| [`validation/`](../validation/README.md) | LAMMPS/PFC reference cases and ONDEM benchmarks |
 | [`cmake/`](../cmake/README.md) | Installed CMake package configuration |
 
 All public code is in namespace `fundem`; geometry input objects are in `fundem::levelset`, mathematical types in `fundem::math`, shared physics functions in `fundem::execution`, and CUDA launch interfaces in `fundem::cuda`.
@@ -1275,17 +1658,17 @@ The documentation is intentionally layered:
 
 Obvious getters and setters are intentionally not annotated one by one when their behavior is completely expressed by the declaration. Operators and mechanical `DeviceLayout` field tags are treated the same way. This keeps generated reference pages focused on information that cannot be recovered from the identifier alone.
 
-To generate reference pages locally, install Doxygen 1.9.8 or newer and Python 3. Python must be available as `python3` on `PATH`; no additional Python packages, CUDA toolkit, or compiled solver are needed. Run from `workplace/`:
+To generate reference pages locally, install Doxygen 1.9.8 or newer and Python 3.9 or newer. Python must be available as `python3` on `PATH`; no additional Python packages, CUDA toolkit, or compiled solver are needed. Run from `workplace/`:
 
 ```bash
 doxygen --version
 python3 --version
-cmake -E chdir FunDEMBeta doxygen Doxyfile
+python3 FunDEMBeta/docs/buildApi.py --output build-api
 ```
 
-`cmake -E chdir` sets the working directory only for the Doxygen process, so the terminal remains in `workplace/`. Open `FunDEMBeta/docs/api/html/index.html`. Generated documentation is ignored by Git. Documentation errors fail the command rather than silently producing a successful build; intentionally undocumented getters and setters remain allowed.
+The builder runs Doxygen from the core directory and requires a fresh output directory outside the source tree. Open `build-api/html/index.html` beside the source directory. Linked source files, numerical records, and existing media are copied into that external output; repository files remain unchanged. The command checks local file links and anchors, and fails on documentation errors or source changes during generation. Intentionally undocumented getters and setters remain allowed.
 
-The Doxygen configuration explicitly parses `.cu` and `.cuh` as C++, includes the module READMEs, and uses GitHub-compatible heading IDs. Documentation-only input filters preserve source line numbers while adapting Markdown math/media and resolving container aliases for the API parser. They do not change compiled code or the original files. Referenced images and the tutorial video are copied into the HTML output; equations use MathJax, which requires network access to its CDN when viewing the pages.
+The Doxygen configuration explicitly parses `.cu` and `.cuh` as C++, includes the module READMEs, and uses GitHub-compatible heading IDs. Documentation-only input filters preserve source line numbers while adapting Markdown math and resolving container aliases for the API parser. They do not change compiled code or the original files. Equations use MathJax, which requires network access to its CDN when viewing the pages.
 
 For source navigation in VS Code, use the same CMake build directory for compilation and `compile_commands.json`; see [Section 4.1](#41-vs-code-configuration). Public user construction belongs in `src/solver/*.h`, model state in `src/particle/`, `src/material/`, and `src/interaction/`, shared formulas in `src/execution/`, and CUDA launch contracts in `src/execution/cuda/`.
 
@@ -1333,6 +1716,8 @@ The most common cause is a missing or stale compile database. Reconfigure CMake,
 
 Relative output directories are based on the executable location. Pass an absolute path to `setOutputDirectory()` when output must go to a specific working directory.
 
+The example reserves a fresh run directory, so earlier runs are retained.
+
 ### First solve removed old results
 
 This is intentional. The first `solve()` removes `.vtu` and `.dat` files below the configured output directory. Use a new output directory or move results that must be preserved before starting a new solver instance.
@@ -1345,8 +1730,10 @@ Check the CMake configuration log for:
 OpenMP not found: host loops will use serial execution.
 ```
 
-Install an OpenMP-capable compiler/runtime and configure again with `FUNDEM_ENABLE_OPENMP=ON`.
+Install a compiler/runtime supporting the required OpenMP minimum/maximum reductions and configure again with `FUNDEM_ENABLE_OPENMP=ON`. A found but insufficient implementation also falls back to serial execution. `FUNDEM_ENABLE_OPENMP=OFF` explicitly selects serial loops.
 
 ### A short tutorial seems to produce only the initial frame
 
-The tutorial converts its `0.05 s` output interval to a step interval from the selected time step. A shorter smoke run writes frame zero and may finish before frame one. Increase `--steps` or reduce the output interval in the case source.
+Each tutorial sets its output-step interval in the source. A diagnostic run
+shorter than that interval can write only the initial frame. Increase the count
+passed to `solve(...)` or reduce `setOutputStepInterval()`, then rebuild.

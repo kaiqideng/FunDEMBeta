@@ -77,9 +77,10 @@ template<class NormalFunction> void checkSurface(const levelset::LSInfo& shape, 
 /** Grid samples and analytic queries must remain in one centroid-corrected local frame after repeated builds. */
 void checkGrid(levelset::LSInfo& shape, Real expectedVolume)
 {
-    const Vec3 nativeMinimum = shape.gridSamplingBoundsMin();
-    const Vec3 nativeMaximum = shape.gridSamplingBoundsMax();
+    const Vec3 nativeMinimum = shape.surfaceAABBMin();
+    const Vec3 nativeMaximum = shape.surfaceAABBMax();
     const Vec3 nativeFirstNode = shape.surfaceNodePosition().front();
+    const int3 estimate = shape.estimateGridNodeSize(0.05, 2);
     shape.buildLSGrid(0.05, 2);
     require(shape.volume() > 0.0 && std::isfinite(shape.boundingRadius()), "Primitive did not compute valid mass metadata.");
     near(shape.volume(), expectedVolume, expectedVolume * 0.15, "Primitive integrated volume disagrees with analytic volume.");
@@ -87,14 +88,21 @@ void checkGrid(levelset::LSInfo& shape, Real expectedVolume)
     require(math::isFinite(inertia) && inertia(0, 0) > 0.0 && inertia(1, 1) > 0.0 && inertia(2, 2) > 0.0,
             "Primitive integrated inertia is invalid.");
     const int3 size = shape.gridNodeSize3D();
+    require(size.x == estimate.x && size.y == estimate.y && size.z == estimate.z,
+            "Primitive grid estimate differs from the built dimensions.");
     const auto origin = shape.gridNodeOrigin();
     const auto values = shape.gridNodeSFD();
     const auto surface = shape.surfaceNodePosition();
     const Vec3 correction = nativeFirstNode - surface.front();
-    near(math::norm(shape.gridSamplingBoundsMin() - (nativeMinimum - correction)), 0.0, 1.0e-12,
-         "Primitive lower sampling extent lost its centroid-corrected frame.");
-    near(math::norm(shape.gridSamplingBoundsMax() - (nativeMaximum - correction)), 0.0, 1.0e-12,
-         "Primitive upper sampling extent lost its centroid-corrected frame.");
+    near(math::norm(shape.surfaceAABBMin() - (nativeMinimum - correction)), 0.0, 1.0e-12,
+         "Primitive lower surface bound lost its centroid-corrected frame.");
+    near(math::norm(shape.surfaceAABBMax() - (nativeMaximum - correction)), 0.0, 1.0e-12,
+         "Primitive upper surface bound lost its centroid-corrected frame.");
+    const int3 correctedEstimate = shape.estimateGridNodeSize(0.05, 2);
+    require(correctedEstimate.x == size.x && correctedEstimate.y == size.y && correctedEstimate.z == size.z,
+            "Primitive centroid correction changed its native grid estimate.");
+    require(values == shape.gridNodeSFD() && surface == shape.surfaceNodePosition(), "Primitive estimate mutated prepared surface or grid data.");
+    near(math::norm(shape.gridNodeOrigin() - origin), 0.0, 0.0, "Primitive estimate changed the accepted grid origin.");
     for (std::size_t i = 0; i < values.size(); i += 71)
     {
         const Vec3 point = origin + shape.gridNodeSpacing() * Vec3{Real(i % size.x), Real((i / size.x) % size.y), Real(i / (size.x * size.y))};
@@ -142,8 +150,8 @@ void testPolyhedra()
     near(maximumZ, 1.5, 0.05, "Pyramid centroid is not at one-quarter height above the base.");
     pyramid.buildSurfaceNode(spacing);
     require(pyramid.gridNodeSFD().empty() && pyramid.volume() == 0.0, "Regenerating a primitive surface retained stale integrated data.");
-    near(pyramid.gridSamplingBoundsMin().z, -1.0, 1.0e-12, "Pyramid lower sampling bound did not return to its native frame.");
-    near(pyramid.gridSamplingBoundsMax().z, 1.0, 1.0e-12, "Pyramid upper sampling bound did not return to its native frame.");
+    near(pyramid.surfaceAABBMin().z, -1.0, 1.0e-12, "Pyramid lower surface bound did not return to its native frame.");
+    near(pyramid.surfaceAABBMax().z, 1.0, 1.0e-12, "Pyramid upper surface bound did not return to its native frame.");
     pyramid.buildLSGrid(0.05, 2, true);
     require(pyramid.volume() == 0.0 && pyramid.unitDensityInertiaTensor() == math::Mat3::zero(), "Fixed primitive did not skip mass integration.");
     near(pyramid.signedDistance({0.0, 0.0, 1.0}), 0.0, 1.0e-12, "Fixed pyramid lost its native apex position.");
@@ -217,9 +225,9 @@ void testCutSphereAndLink()
         const Real capHeight = 1.0 + cutHeight;
         checkGrid(sphere, math::pi * capHeight * capHeight * (1.0 - capHeight / 3.0));
         if (cutHeight == 0.0)
-            near(sphere.gridSamplingBoundsMax().z, 0.375, 0.025, "Hemisphere centroid correction is wrong.");
+            near(sphere.surfaceAABBMax().z, 0.375, 0.025, "Hemisphere centroid correction is wrong.");
         sphere.buildSurfaceNode(spacing);
-        near(sphere.gridSamplingBoundsMax().z, cutHeight, 1.0e-12, "Cut sphere regeneration retained an old centroid shift.");
+        near(sphere.surfaceAABBMax().z, cutHeight, 1.0e-12, "Cut sphere regeneration retained an old centroid shift.");
         rejects([&] { sphere.buildSurfaceNode(1.0e-12); }, "Cut sphere surface budget was not enforced.");
     }
     levelset::CutSphere hemisphere(1.0, 0.0);

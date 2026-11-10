@@ -92,18 +92,37 @@ template <class ParticleStorage> void integratePosition(ParticleStorage& particl
 
 /** Evaluates contacts and race-freely assembles their forces and torques onto host particles. */
 template <class MasterStorage, class SlaveStorage>
-void addContactForceAndTorque(contactContainer& contacts, MasterStorage& masterParticles, SlaveStorage& slaveParticles, const materialPairContainer& materialPairs, math::Real historyTimeStep)
+void addContactForceAndTorque(contactContainer& contacts,
+                              MasterStorage& masterParticles,
+                              SlaveStorage& slaveParticles,
+                              const materialPairContainer& materialPairs,
+                              math::Real historyTimeStep,
+                              bool preserveHistory = false)
 {
     constexpr auto type = execution::contactTypeFor<typename MasterStorage::host_type, typename SlaveStorage::host_type>();
     auto& contactHost = contacts.host();
     auto& masterParticleHost = masterParticles.host();
     auto& slaveParticleHost = slaveParticles.host();
     const int contactCount = static_cast<int>(contactHost.size());
+    const auto calculate = [&](contact& value)
+    {
+        const auto sliding = value.slidingSpringDeformation();
+        const auto rolling = value.rollingSpringDeformation();
+        const auto torsion = value.torsionalSpringDeformation();
+        const bool valid = value.calculateForce(historyTimeStep, materialPairs, type);
+        if (preserveHistory)
+        {
+            value.setSlidingSpringDeformation(sliding);
+            value.setRollingSpringDeformation(rolling);
+            value.setTorsionalSpringDeformation(torsion);
+        }
+        return valid;
+    };
     if (contactCount < parallelInteractionThreshold)
     {
         for (contact& value : contactHost)
         {
-            if (!value.calculateForce(historyTimeStep, materialPairs, type))
+            if (!calculate(value))
             {
                 continue;
             }
@@ -123,7 +142,7 @@ void addContactForceAndTorque(contactContainer& contacts, MasterStorage& masterP
 #endif
     for (int contactIndex = 0; contactIndex < contactCount; ++contactIndex)
     {
-        calculated[contactIndex] = contactHost[contactIndex].calculateForce(historyTimeStep, materialPairs, type) ? 1 : 0;
+        calculated[contactIndex] = calculate(contactHost[contactIndex]) ? 1 : 0;
     }
 
     const interactionAdjacency masterAdjacency =
@@ -172,7 +191,7 @@ void addContactForceAndTorque(contactContainer& contacts, MasterStorage& masterP
 }
 
 /** Refreshes and evaluates bonds, then race-freely assembles their loads onto host particles. */
-template <class MasterStorage, class SlaveStorage> void addBondForceAndTorque(bondContainer& bonds, MasterStorage& masterParticles, SlaveStorage& slaveParticles)
+template <class MasterStorage, class SlaveStorage> void addBondForceAndTorque(bondContainer& bonds, MasterStorage& masterParticles, SlaveStorage& slaveParticles, bool preserveHistory = false)
 {
     auto& bondHost = bonds.host();
     auto& masterParticleHost = masterParticles.host();
@@ -182,7 +201,7 @@ template <class MasterStorage, class SlaveStorage> void addBondForceAndTorque(bo
     {
         for (bond& value : bondHost)
         {
-            if (!value.updateMasterSlaveParticle(masterParticles, slaveParticles) || !value.calculateForce())
+            if (!value.updateMasterSlaveParticle(masterParticles, slaveParticles) || !value.calculateForce(!preserveHistory))
             {
                 continue;
             }
@@ -203,7 +222,7 @@ template <class MasterStorage, class SlaveStorage> void addBondForceAndTorque(bo
     for (int bondIndex = 0; bondIndex < bondCount; ++bondIndex)
     {
         bond& value = bondHost[bondIndex];
-        calculated[bondIndex] = value.updateMasterSlaveParticle(masterParticles, slaveParticles) && value.calculateForce() ? 1 : 0;
+        calculated[bondIndex] = value.updateMasterSlaveParticle(masterParticles, slaveParticles) && value.calculateForce(!preserveHistory) ? 1 : 0;
     }
 
     const interactionAdjacency masterAdjacency =
@@ -252,6 +271,9 @@ template <class MasterStorage, class SlaveStorage> void addBondForceAndTorque(bo
 }
 
 /** Same-container convenience overload for bond load assembly. */
-template <class ParticleStorage> void addBondForceAndTorque(bondContainer& bonds, ParticleStorage& particles) { addBondForceAndTorque(bonds, particles, particles); }
+template <class ParticleStorage> void addBondForceAndTorque(bondContainer& bonds, ParticleStorage& particles, bool preserveHistory = false)
+{
+    addBondForceAndTorque(bonds, particles, particles, preserveHistory);
+}
 
 } // namespace fundem::cpu

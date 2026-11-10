@@ -18,8 +18,7 @@ struct bondDeviceView {
     const int* masterParticleIndex_{nullptr};                ///< Master particle indices.
     const int* slaveParticleIndex_{nullptr};                 ///< Slave particle indices.
     math::Vec3* force_{nullptr};                             ///< Forces applied to masters.
-    math::Vec3* masterTorque_{nullptr};                      ///< Torques applied to masters.
-    math::Vec3* slaveTorque_{nullptr};                       ///< Torques applied to slaves.
+    math::Vec3* torque_{nullptr};                            ///< Bond-point bending/torsion moments.
     math::Vec3* point_{nullptr};                             ///< Current bond-center positions.
     math::Vec3* normal_{nullptr};                            ///< Current slave-to-master axes.
     const math::Real* equivalentLength_{nullptr};            ///< Reference bond lengths.
@@ -27,6 +26,9 @@ struct bondDeviceView {
     const math::Real* coefficientB2_{nullptr};               ///< Shear response coefficients.
     const math::Real* coefficientB3_{nullptr};               ///< Bending response coefficients.
     const math::Real* coefficientB4_{nullptr};               ///< Torsional response coefficients.
+    const math::Real* normalStiffness_{nullptr};             ///< Original undamaged normal stiffnesses.
+    const math::Real* shearStiffness_{nullptr};              ///< Original undamaged shear stiffnesses.
+    const math::Real* bendingStiffness_{nullptr};            ///< Original undamaged bending stiffnesses.
     math::Real* normalElasticEnergy_{nullptr};               ///< Axial elastic energies.
     math::Real* shearElasticEnergy_{nullptr};                ///< Shear elastic energies.
     math::Real* bendingElasticEnergy_{nullptr};              ///< Bending elastic energies.
@@ -40,12 +42,20 @@ struct bondDeviceView {
     const math::Vec3* slaveEndpointLocalTangent2_{nullptr};  ///< Slave endpoint second reference tangent.
     const math::Vec3* slaveEndpointLocalPosition_{nullptr};  ///< Slave endpoint position in body coordinates.
     const math::Real* crossSectionArea_{nullptr};            ///< Nominal cross-sectional areas; zero disables fracture.
+    const fractureMode* fractureMode_{nullptr};              ///< Unbreakable, brittle, or progressive damage selection.
     math::Real* damageFactor_{nullptr};                      ///< Irreversible damage variables in `[0, 1]`.
     const math::Real* modeICriticalEnergy_{nullptr};         ///< Critical mode-I fracture energies.
     const math::Real* modeIICriticalEnergy_{nullptr};        ///< Critical mode-II fracture energies.
     const math::Real* modeMixityExponent_{nullptr};          ///< BK mixed-mode exponents.
-    const math::Real* damageInitiationRatio_{nullptr};       ///< Damage-onset energy ratios.
-    math::Real* maximumEnergyReleaseRatio_{nullptr};         ///< Historical maximum energy-release ratios.
+    const math::Real* tensileStrength_{nullptr};             ///< Tensile strengths in Pa.
+    const math::Real* cohesion_{nullptr};                    ///< Cohesive shear strengths in Pa.
+    const math::Real* internalFrictionCoefficient_{nullptr}; ///< Internal friction coefficients.
+    int* damageStarted_{nullptr};                           ///< Strength-onset history flags.
+    math::Real* onsetEffectiveStress_{nullptr};              ///< Bond-section stress norms at onset, not energy-conjugate tractions, Pa.
+    math::Real* onsetEffectiveDisplacement_{nullptr};        ///< Euclidean energy-equivalent separations at onset, m.
+    math::Real* maximumEffectiveDisplacement_{nullptr};      ///< Historical maximum Euclidean separations, m.
+    math::Real* failureEffectiveDisplacement_{nullptr};      ///< Onset-radial rupture separations, m.
+    math::Real* effectiveFractureEnergy_{nullptr};           ///< Frozen effective mixed-mode fracture energies.
 };
 
 /** Particle arrays used to transform endpoints and scatter bond loads. */
@@ -65,8 +75,7 @@ inline bondDeviceView makeBondDeviceView(bondContainer& bonds) noexcept
     view.masterParticleIndex_ = bonds.device<bond::masterParticleIndexField>();
     view.slaveParticleIndex_ = bonds.device<bond::slaveParticleIndexField>();
     view.force_ = bonds.device<bond::forceField>();
-    view.masterTorque_ = bonds.device<bond::masterTorqueField>();
-    view.slaveTorque_ = bonds.device<bond::slaveTorqueField>();
+    view.torque_ = bonds.device<bond::torqueField>();
     view.point_ = bonds.device<bond::pointField>();
     view.normal_ = bonds.device<bond::normalField>();
     view.equivalentLength_ = bonds.device<bond::equivalentLengthField>();
@@ -74,6 +83,9 @@ inline bondDeviceView makeBondDeviceView(bondContainer& bonds) noexcept
     view.coefficientB2_ = bonds.device<bond::coefficientB2Field>();
     view.coefficientB3_ = bonds.device<bond::coefficientB3Field>();
     view.coefficientB4_ = bonds.device<bond::coefficientB4Field>();
+    view.normalStiffness_ = bonds.device<bond::normalStiffnessField>();
+    view.shearStiffness_ = bonds.device<bond::shearStiffnessField>();
+    view.bendingStiffness_ = bonds.device<bond::bendingStiffnessField>();
     view.normalElasticEnergy_ = bonds.device<bond::normalElasticEnergyField>();
     view.shearElasticEnergy_ = bonds.device<bond::shearElasticEnergyField>();
     view.bendingElasticEnergy_ = bonds.device<bond::bendingElasticEnergyField>();
@@ -87,12 +99,20 @@ inline bondDeviceView makeBondDeviceView(bondContainer& bonds) noexcept
     view.slaveEndpointLocalTangent2_ = bonds.device<bond::slaveEndpointLocalTangent2Field>();
     view.slaveEndpointLocalPosition_ = bonds.device<bond::slaveEndpointLocalPositionField>();
     view.crossSectionArea_ = bonds.device<bond::crossSectionAreaField>();
+    view.fractureMode_ = bonds.device<bond::fractureModeField>();
     view.damageFactor_ = bonds.device<bond::damageFactorField>();
     view.modeICriticalEnergy_ = bonds.device<bond::modeICriticalEnergyField>();
     view.modeIICriticalEnergy_ = bonds.device<bond::modeIICriticalEnergyField>();
     view.modeMixityExponent_ = bonds.device<bond::modeMixityExponentField>();
-    view.damageInitiationRatio_ = bonds.device<bond::damageInitiationRatioField>();
-    view.maximumEnergyReleaseRatio_ = bonds.device<bond::maximumEnergyReleaseRatioField>();
+    view.tensileStrength_ = bonds.device<bond::tensileStrengthField>();
+    view.cohesion_ = bonds.device<bond::cohesionField>();
+    view.internalFrictionCoefficient_ = bonds.device<bond::internalFrictionCoefficientField>();
+    view.damageStarted_ = bonds.device<bond::damageStartedField>();
+    view.onsetEffectiveStress_ = bonds.device<bond::onsetEffectiveStressField>();
+    view.onsetEffectiveDisplacement_ = bonds.device<bond::onsetEffectiveDisplacementField>();
+    view.maximumEffectiveDisplacement_ = bonds.device<bond::maximumEffectiveDisplacementField>();
+    view.failureEffectiveDisplacement_ = bonds.device<bond::failureEffectiveDisplacementField>();
+    view.effectiveFractureEnergy_ = bonds.device<bond::effectiveFractureEnergyField>();
     return view;
 }
 

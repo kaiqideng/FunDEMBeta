@@ -100,6 +100,12 @@ public:
      * Reentrant initialize(), step(), and solve() calls are rejected.
      */
     void observeCurrentState(const std::function<void(const solver&)>& observer);
+
+    /** Commits the represented completed-step state before a physical runtime edit.
+     * The next initialize rebuilds caches without advancing interaction history.
+     * A phase/archive handoff with no physical change must not call this method.
+     */
+    void prepareRuntimeMutation();
     /**
      * Advances @p numberOfSteps DEM steps, initializing or resuming as needed.
      * Repeated calls continue from the current time and permit append-only model
@@ -118,6 +124,10 @@ public:
     double deviceMemoryGB() const noexcept;
 
 protected:
+    /** Rebuilds caches and loads while preserving irreversible interaction state. */
+    virtual void initializeRuntimeState();
+    /** Makes a deferred common-time view authoritative before a physical edit. */
+    virtual void commitDeferredStateForMutation() {}
     cudaStream_t gpuStream() const noexcept;
     /** Selects the configured CUDA device for the calling host thread. */
     void activateGPUDevice() const;
@@ -206,6 +216,7 @@ private:
     bool initialized_{false};                         ///< Whether backend state matches the host model.
     bool firstSolve_{true};                           ///< Whether output cleanup is still pending.
     bool continuationValid_{false};                   ///< Whether deferred state may resume.
+    bool runtimeMutationPending_{false};              ///< A physical edit requires a history-neutral refresh.
     bool observingCurrentState_{false};               ///< Whether a synchronized observation scope is active.
     advanceTemplate advanceTemplate_{nullptr};        ///< Cached mode-specific advance dispatch.
 };

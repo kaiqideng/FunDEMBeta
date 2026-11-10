@@ -283,7 +283,16 @@ void testMaterialReplacement()
                 retained.torsionalSpringDeformation() == contactBefore.torsionalSpringDeformation(),
             "Replacing a material must retain contact spring history.");
     const bond& retainedBond = simulation.sphereInteractions().bonds().host().front();
-    require(retainedBond.damageFactor() == bondBefore.damageFactor() && retainedBond.maximumEnergyReleaseRatio() == bondBefore.maximumEnergyReleaseRatio() &&
+    require(retainedBond.normalStiffness() == bondBefore.normalStiffness() &&
+                retainedBond.shearStiffness() == bondBefore.shearStiffness() &&
+                retainedBond.bendingStiffness() == bondBefore.bendingStiffness() &&
+                retainedBond.torsionalStiffness() == bondBefore.torsionalStiffness() &&
+                retainedBond.damageFactor() == bondBefore.damageFactor() && retainedBond.getDamageStarted() == bondBefore.getDamageStarted() &&
+                retainedBond.getOnsetEffectiveStress() == bondBefore.getOnsetEffectiveStress() &&
+                retainedBond.getOnsetEffectiveDisplacement() == bondBefore.getOnsetEffectiveDisplacement() &&
+                retainedBond.getMaximumEffectiveDisplacement() == bondBefore.getMaximumEffectiveDisplacement() &&
+                retainedBond.getFailureEffectiveDisplacement() == bondBefore.getFailureEffectiveDisplacement() &&
+                retainedBond.getEffectiveFractureEnergy() == bondBefore.getEffectiveFractureEnergy() &&
                 retainedBond.masterEndpointLocalPosition() == bondBefore.masterEndpointLocalPosition() &&
                 retainedBond.slaveEndpointLocalPosition() == bondBefore.slaveEndpointLocalPosition(),
             "Replacing a material must retain bond damage and reference history.");

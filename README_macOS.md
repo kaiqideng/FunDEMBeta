@@ -5,7 +5,7 @@ This guide gets FunDEMBeta building and running on the CPU on both Apple Silicon
 Open a terminal in `workplace/`, the parent directory that will contain `FunDEMBeta/` and its sibling build directories. Keep the terminal in `workplace/` for every command in this guide.
 
 > [!IMPORTANT]
-> Modern macOS does not provide a supported NVIDIA CUDA environment. This guide explicitly disables CUDA. CPU tutorials and CPU-compatible examples remain fully available.
+> Modern macOS does not provide a supported NVIDIA CUDA environment. This guide explicitly disables CUDA. The core library, CPU tutorials and native C++ example remain available.
 
 ## 1. Install the build tools
 
@@ -54,7 +54,8 @@ If you already have the source, open the terminal in its parent `workplace/` dir
 
 ## 3. Configure and build
 
-For the shortest first build, disable CUDA, OpenMP, large examples, validation cases, and tests. Build only the CPU tutorials:
+For the shortest first build, disable CUDA, OpenMP, validation cases, tests and
+the optional C++ example. Build only the CPU tutorials:
 
 ```bash
 cmake -S FunDEMBeta -B build-macos -G Ninja \
@@ -75,33 +76,32 @@ After a successful build, the executable is located at:
 build-macos/tutorial/tutorial0
 ```
 
-## 4. Run a smoke test
+## 4. Run the first tutorial
 
-Run ten time steps to confirm that the program can initialize, advance the simulation, and write output:
-
-```bash
-build-macos/tutorial/tutorial0 \
-    --steps 10 \
-    --output tutorial0_smoke
-```
-
-On its first run, the program must generate the Gömböc level-set grid. This can take a minute or longer on some Macs, and the terminal may remain quiet during this stage.
-
-When the solver prints its status and returns to the prompt without an error, the smoke test has passed. The output is written beside the executable:
-
-```text
-build-macos/tutorial/tutorial0_smoke/
-├── particle/     # Particle VTU files
-└── energy.dat    # System energy
-```
-
-A ten-step smoke test normally contains only the initial output frame. To generate the complete Gömböc self-righting simulation, run:
+Run the small sphere-rebound case:
 
 ```bash
 build-macos/tutorial/tutorial0
 ```
 
-The complete case simulates 120 seconds of physical time and takes much longer than the smoke test.
+The tutorial creates one sphere and a small analytic plane grid. It advances
+3,000 steps over 0.3 seconds of physical time and writes 31 frames. Wall-clock
+runtime depends on the machine and build. A successful return confirms that
+the program initialized, advanced and wrote output; it is not an accuracy test.
+
+The output is written beside the executable:
+
+```text
+build-macos/tutorial/tutorial0_files/
+├── particle/     # Particle VTU files
+└── energy.dat    # Solid DEM energy
+```
+
+Run settings are edited in `tutorial0.cpp`, then compiled again. For a shorter
+diagnostic run, temporarily change `solve(3000)` to `solve(10)`, choose a fresh
+folder in `setOutputDirectory()`, and rebuild. The core clears old VTU/DAT files
+inside the selected output directory on the first `solve()`. Ten steps normally
+produce only the initial frame; restore 3,000 steps and rebuild for the full run.
 
 ## 5. View the result in ParaView
 
@@ -114,7 +114,7 @@ brew install --cask paraview
 For the complete run, open these numbered file series in ParaView:
 
 ```text
-build-macos/tutorial/tutorial0_files/particle/LSParticle_*.vtu
+build-macos/tutorial/tutorial0_files/particle/sphere_*.vtu
 build-macos/tutorial/tutorial0_files/particle/fixedLSParticle_*.vtu
 ```
 
@@ -140,7 +140,6 @@ cmake -S FunDEMBeta -B build-macos-openmp -G Ninja \
     -DFUNDEM_ENABLE_CUDA=OFF \
     -DFUNDEM_ENABLE_OPENMP=ON \
     -DFUNDEM_BUILD_TUTORIALS=ON \
-    -DFUNDEM_BUILD_EXAMPLES=OFF \
     -DFUNDEM_BUILD_VALIDATIONS=OFF \
     -DBUILD_TESTING=OFF \
     -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp" \
@@ -151,11 +150,13 @@ cmake -S FunDEMBeta -B build-macos-openmp -G Ninja \
 cmake --build build-macos-openmp --target tutorial0 --parallel
 ```
 
-CMake should report that OpenMP was found. To select the thread count for one run:
+CMake enables OpenMP only when the compiler and runtime support the required
+minimum/maximum reductions; finding the runtime alone is insufficient. If the
+check fails, host loops remain serial. To select the thread count when enabled:
 
 ```bash
 OMP_NUM_THREADS="$(sysctl -n hw.logicalcpu)" \
-    build-macos-openmp/tutorial/tutorial0 --steps 1000
+    build-macos-openmp/tutorial/tutorial0
 ```
 
 Small simulations do not always become faster as the thread count increases. For performance measurements, compare several `OMP_NUM_THREADS` values.
@@ -172,15 +173,35 @@ Then run any of the remaining tutorials:
 
 ```bash
 build-macos/tutorial/tutorial1
-build-macos/tutorial/tutorial2 --steps 1000
-build-macos/tutorial/tutorial3 --steps 1000
+build-macos/tutorial/tutorial2
+build-macos/tutorial/tutorial3
 ```
 
-Keep the default CPU execution mode on macOS. Do not pass `--mode gpu` or `--mode hybrid`; those modes require CUDA.
+Keep `executionMode::CPU` in each source on macOS. Edit settings in `main()`
+and rebuild; the executables take no options. GPU and Hybrid require CUDA.
 
-See the [tutorial guide](tutorial/README.md) for the physical model, expected runtime, and command-line options of each case.
+See the [tutorial guide](tutorial/README.md) for each model, source setting and
+output series.
 
-## 8. Troubleshooting
+## 8. Start a native C++ case
+
+[`example/main.cpp`](example/main.cpp) contains a complete two-sphere collision
+in one `main()`. Build it through the core:
+
+```bash
+cmake -S FunDEMBeta -B build-macos \
+    -DFUNDEM_ENABLE_CUDA=OFF -DFUNDEM_BUILD_EXAMPLES=ON
+cmake --build build-macos --target fundem_example --parallel
+build-macos/example/fundem_example
+```
+
+Edit `main.cpp` to change the model and run settings, then rebuild. Keep CPU
+execution on macOS. To start another case, copy the directory, give its target
+a unique name and register it in the core CMake build. Follow the
+[Programming Guide](docs/ProgrammingGuide.md) for the steps. Each run saves
+native VTU and `energy.dat` in a fresh directory.
+
+## 9. Troubleshooting
 
 ### `cmake: command not found`
 
@@ -219,7 +240,6 @@ cmake --fresh -S FunDEMBeta -B build-macos -G Ninja \
     -DFUNDEM_ENABLE_CUDA=OFF \
     -DFUNDEM_ENABLE_OPENMP=OFF \
     -DFUNDEM_BUILD_TUTORIALS=ON \
-    -DFUNDEM_BUILD_EXAMPLES=OFF \
     -DFUNDEM_BUILD_VALIDATIONS=OFF \
     -DBUILD_TESTING=OFF
 ```
@@ -251,4 +271,4 @@ On Apple Silicon, prefer a native ARM Homebrew installation and avoid mixing it 
 
 - Read the [tutorial guide](tutorial/README.md) for the four introductory cases.
 - Read the [User Guide](docs/UserGuide.md) for modeling, contacts, solvers, output, and external-project integration.
-- Return to the [project overview](README.md) for the source layout, GPU backend, and larger examples.
+- Return to the [project overview](README.md) for the source layout, GPU backend and reusable C++ example.

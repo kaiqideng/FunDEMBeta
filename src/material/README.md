@@ -32,7 +32,7 @@ indices so that the smaller index is first.
 | `setLevelSetStiffness()` | Normal and sliding stiffness per nodal area | N/m^3 |
 | `setLinearStiffness()` | Normal, sliding, rolling, torsional stiffness | N/m |
 | `setFrictionCoefficients()` | Sliding, rolling, torsional friction | Dimensionless |
-| `setDampingCoefficients()` | Normal, sliding, rolling, torsional dashpots | N s/m |
+| `setDampingCoefficients()` | Normal, sliding, rolling, torsional dashpots | N·s/m |
 
 Each pair has exactly two Boolean switches, both initially false:
 

@@ -1,162 +1,109 @@
-# `tutorial/`
+# Tutorials
 
-> **Purpose:** Provide compact level-set, sphere, bonded-particle, and SPH–DEM tutorials.
+Four small, independent programs introduce the public FunDEM API. Read each
+`main()` from top to bottom: material, geometry/particles, interactions, solver
+settings, then `solve()`. Each source uses one FunDEM header,
+`solver/solvers.h`; tutorial3 also includes the standard `<cmath>` header for
+`std::sqrt`. Comments explain the main classes, function arguments and setup
+order. No OBJ asset, custom solver subclass or tutorial-local CUDA kernel is
+needed.
 
-## Contents
+| Program | Lesson | Moving particles | Time step | Steps | Physical duration | Frames |
+| --- | --- | --- | --- | --- | --- | --- |
+| `tutorial0` | Sphere rebound on a fixed plane | 1 sphere | 1e-4 s | 3,000 | 0.3 s | 31 |
+| `tutorial1` | Asymmetric LS pyramid and centroid-corrected contact | 1 LS particle | 1e-4 s | 3,000 | 0.3 s | 31 |
+| `tutorial2` | Five-particle beam with a fixed root and four bonds | 4 spheres | 2e-5 s | 5,000 | 0.1 s | 21 |
+| `tutorial3` | Small SPH block released inside a closed LS tank | 960 SPH particles | 2e-5 s | 10,000 | 0.2 s | 21 |
 
-| File | Purpose |
-| --- | --- |
-| `tutorial0.cpp` | CPU Gömböc self-righting case |
-| `tutorial1.cpp` | Eleven physically interlocked anchor-chain links with fixed endpoints |
-| `tutorial2.cpp` | Bonded spherical-particle cloth falling onto a fixed level-set box |
-| `tutorial2DampingKernel.cu` / `.cuh` | Tutorial-local CUDA counterpart of the cloth's external particle damping |
-| `tutorial3.cpp` | Classical three-dimensional bore-in-a-box SPH benchmark |
-| `tutorialOptions.h` | Shared execution-mode and output arguments for tutorial2 and tutorial3 |
-| `Gomboc.obj` | Surface mesh copied beside the executable after building |
+These are short teaching transients, not equilibrium solutions, experimental
+benchmarks or accuracy certifications. All programs default to CPU execution.
+The original large tutorial models have been replaced, not retained as examples.
+For a reusable starting point for your own native case, see the
+[`example/`](../example/README.md) C++17/CMake template. Its `fundem_example`
+target builds through the core with `FUNDEM_BUILD_EXAMPLES=ON`. It uses the public core API and writes VTU and `energy.dat`;
+the default model is a two-sphere Hertz collision. Follow the
+[Programming Guide](../docs/ProgrammingGuide.md) to edit that example or copy it
+and register a unique target in the core CMake build. The template's model and
+run settings are edited in source.
 
-All tutorials use CPU execution by default even when FunDEM is configured with CUDA. Tutorial2 and tutorial3 also accept `--mode gpu` and `--mode hybrid` so the same compact case can exercise another backend without creating backend-specific executables.
+## Build and run
 
-## Corresponding Workbench Samples
-
-The default calculation durations and requested VTU output intervals match the corresponding FunDEM Workbench samples:
-
-| Tutorial | Software sample | Duration | VTU interval |
-| --- | --- | --- | --- |
-| `tutorial0` | `gombocSelfRighting.fundem.json` | 120 s | 0.05 s |
-| `tutorial1` | `interlockedChain.fundem.json` | 3 s | 0.05 s |
-| `tutorial2` | `clothBoxDrop.fundem.json` | 3 s | 0.05 s |
-| `tutorial3` | `damBreakSquareColumn.fundem.json` | 3 s | 0.05 s |
-
-Tutorial2 retains the software sample's cloth discretization, effective linear contact coefficients, beam properties, and external damping. Its damping is implemented through the solver's ordinary external-force hooks, so no Workbench force-module library is required. Tutorial3 retains column-force recording, which the software sample omits. Tutorials retain their own output-field selection and explicit spatial-search boundaries; these are not copies of the software's presentation settings or automatic domain calculation.
-
-## Materials and Contact Pairs
-
-All solid particles use `material{E, nu, restitution, density}`. Sphere and LS
-particles may share a physical material; a material does not identify geometry
-or contain friction and contact-penalty coefficients. Configure those values
-with `materialPair` and install the pair using `simulation.setMaterialPair()`.
-Pairs are symmetric and their coefficients are final, not mixed again during
-force calculation.
-
-These tutorials explicitly preserve their earlier linear contact response:
-`setLinearStiffness()` supplies sphere/sphere-LS coefficients in N/m, while
-`setLevelSetStiffness()` supplies LS-LS nodal coefficients in N/m^3, before
-multiplication by surface-node area. Without a linear override, sphere contacts
-use the bulk elastic Hertz-Mindlin default; the two modes are not interchangeable.
-Any nominal `E = 1e9 Pa`, `nu = 0.25` values used only with explicit penalty
-coefficients are not a calibration recovered from those coefficients.
-
-## Tutorial 0: Gömböc Self-Righting
-
-- The Gömböc uses a ceramic-like density of `2400 kg/m³` and level-set normal/shear penalty stiffnesses per unit area of `2.4e10` and `7.1e9`.
-- The 64-cell level-set geometry advances with a default `1e-4 s` time step.
-- The solver runs directly for `120 s`; there is no automatic settling test or early termination.
-- Binary VTU frames are written every `0.05 s` by default.
-
-## Tutorial 1: Interlocked Anchor Chain
-
-- Eleven links begin horizontally along the X axis with alternating `0°` and `90°` orientations and a `0.07 m` pitch.
-- Adjacent links are topologically interlocked with an initial surface clearance; no bond interaction is used.
-- The leftmost and rightmost links have infinite mass, while the nine interior links sag under gravity.
-- Fixed links use an otherwise identical material entry so explicit finite/fixed pair stiffness can retain the former rigid-end compliance; finite/finite pairs use the former series-combined value. This is pair configuration, not a material-type flag.
-- The CPU solver advances `3 s` with a `2e-5 s` time step and writes binary VTU output every `0.05 s`.
-
-## Tutorial 2: Bonded-Particle Cloth Falling onto a Box
-
-- Exactly 9,951 equal spheres (`93 x 107 x 1`) form a horizontal staggered triangular lattice above a fixed level-set box, with 29,454 nearest-neighbor bonds.
-- Sphere diameter is `0.006417112299465241 m`, density is `1500 kg/m3`, and the cloth is centered over the unchanged `0.24 x 0.24 x 0.24 m` box at `(0.30, 0.30, 0.12) m`. Sphere centers start at `z = 0.38 m`.
-- Horizontal and diagonal nearest neighbors are joined by tensile, shear, bending, and torsional bonds derived from the cloth Young's modulus, Poisson ratio, thickness, and density.
-- Bond connections use particle indices; the API calculates each reference normal from the current slave-to-master center displacement. The equivalent length remains the initial distance between the two centers.
-- The free cloth falls under gravity and drapes over the box; no cloth edge is artificially fixed.
-- Sliding friction is `0.6` in the configured contact pairs, and material restitution is `0.05`. The cloth's external damping adds `F = -20 m v` and `T = -3.418598284e-8 omega` in SI units; the fixed box receives no damping. CPU, GPU, and hybrid modes use the same formulas.
-- Bonds have zero cross-sectional area and cannot break. The four beam stiffnesses use `E = 1e6 Pa`, `nu = 0.3`, and the smaller sphere diameter, exactly as in the software sample.
-- The case advances `3.0 s` with a fixed `1e-5 s` DEM time step (300,000 steps) and writes binary VTU output every `0.05 s` (5,000 steps). This is deliberately dissipative, not an energy-conservation test.
-
-## Tutorial 3: Dam Break Around a Square Column
-
-- The geometry uses a closed `1.60 × 0.61 × 0.75 m` tank, a `0.40 × 0.61 × 0.30 m` reservoir, a `0.01 m` downstream wet bed, and a `0.12 × 0.12 × 0.75 m` square column.
-- The column's upstream face is `0.50 m` downstream of the gate and its two lateral clearances are `0.24 m` and `0.25 m`.
-- A `0.01 m` particle spacing represents the wet bed with one particle layer. The reservoir and obstacle-excluded wet bed contain 80,376 particles in total.
-- A reversed `BoxWall` level set places boundary samples immediately outside all six faces of the closed fluid cavity, including continuous edge and corner support.
-- The case advances `3.0 s` with a `2e-5 s` base DEM time step and writes binary VTU output every `0.05 s`.
-- `columnForce.dat` records a uniform column-reaction sample at every `2e-5 s` DEM base step. The most recently computed SPH load is retained between acoustic updates.
-- `columnForceFiltered.dat` is generated after the solve with a centered `13 ms` triangular moving average. Both files contain `forceX`, `forceY`, `forceZ`, and the horizontal magnitude.
-
-![Tutorial 3 dam break around a square column](../docs/assets/tutorial3.gif)
-
-The current animation previews the initial 1.5-second impact interval; regenerate it from the extended run when the complete 3-second result is available.
-
-Reference publications:
-
-- M. Gómez-Gesteira and R. A. Dalrymple, [Using a Three-Dimensional Smoothed Particle Hydrodynamics Method for Wave Impact on a Tall Structure](https://doi.org/10.1061/%28ASCE%290733-950X%282004%29130%3A2%2863%29), 2004.
-- S. J. Cummins, T. B. Silvester, and P. W. Cleary, [Three-dimensional wave impact on a rigid structure using smoothed particle hydrodynamics](https://doi.org/10.1002/FLD.2539), 2012.
-
-## Build and Run
-
-Open a terminal in `workplace/`, the directory containing `FunDEMBeta/`, and keep it there for all commands:
+Keep the terminal in `workplace/`, containing `FunDEMBeta/`:
 
 ```bash
-cmake -S FunDEMBeta -B build -DFUNDEM_BUILD_TUTORIALS=ON
-cmake --build build --target tutorial0 tutorial1 tutorial2 tutorial3 -j
+cmake -S FunDEMBeta -B build -DCMAKE_BUILD_TYPE=Release -DFUNDEM_BUILD_TUTORIALS=ON
+cmake --build build --target tutorial0 tutorial1 tutorial2 tutorial3 --parallel
 build/tutorial/tutorial0
 build/tutorial/tutorial1
 build/tutorial/tutorial2
 build/tutorial/tutorial3
 ```
 
-The default output directories are `tutorial0_files/` through `tutorial3_files/` beside their executables. Relative `--output` paths are resolved from the executable directory.
+With a multi-configuration Windows generator, build with `--config Release`
+and use the executables in `build/tutorial/Release/`.
 
-Tutorial0 options are:
+Small CPU jobs may be slower when many OpenMP threads are started repeatedly.
+For repeatable timing on Linux/WSL, try `OMP_NUM_THREADS=2`; this is a runtime
+setting, not a requirement or a universal best thread count.
 
-```text
---time-step DT
---duration T
---steps N
---output DIR
---ascii
-```
+## Edit the source
 
-`--steps` overrides the duration-derived step count and is useful for short smoke runs.
+All model and run settings are visible in each `main()`. Change them in the
+C++ source, rebuild the corresponding target, then run it without arguments.
+There is no command-line parser or shared options helper.
 
-Tutorial2 and tutorial3 accept:
-
-```text
---steps N
---mode cpu|gpu|hybrid
---device N
---output DIR
---ascii
-```
-
-The device value is used only by GPU and Hybrid execution. GPU and Hybrid modes require a CUDA-enabled FunDEM build.
-
-## Tutorial Design Rules
-
-Tutorials are intentionally compact and deterministic enough to read from top to bottom. They use public solver construction APIs, default CPU execution, binary output, and no hidden setup files other than the Gömböc mesh. Larger SPH validation and CUDA performance cases remain in `example/`.
-
-Each tutorial demonstrates a different FunDEM capability:
-
-| Tutorial | Main concepts |
+| Setting | Where to edit |
 | --- | --- |
-| `tutorial0` | OBJ input, movable/fixed LS geometry, material assignment, gravity, self-righting, periodic output |
-| `tutorial1` | Reusable chain-link geometry, multiple LS particles, orientation, infinite-mass endpoints, physical interlocking without bonds |
-| `tutorial2` | Triangular sphere lattice, beam-like bond stiffness, sphere–LS contact, cloth draping over a box |
-| `tutorial3` | Bore-in-a-box SPH benchmark, wet bed, closed tank, flow separation, and square-column reaction force |
+| CPU, GPU or Hybrid; CUDA device | Solver constructor; tutorial1 uses `setExecutionMode()` |
+| Material, contacts and geometry | The corresponding setup blocks |
+| Number of steps | `solve(...)` |
+| Time step and output cadence | `setTimeStep()` and `setOutputStepInterval()` |
+| Output directory and VTU format | `setOutputDirectory()` and `setVTUOutputFormat()` |
 
-## Output and Runtime Expectations
+For a ten-step diagnostic run, temporarily change `solve(...)` to `solve(10)`,
+choose a fresh output directory in the source, and rebuild. Restore the case's
+step count and rebuild for the complete run.
 
-The first solve clears old `.vtu` and `.dat` files below the selected tutorial output directory. Frame zero is written before motion. A smoke run shorter than the output interval may therefore contain only the initial frame.
+All programs select CPU and CUDA device 0 by default. GPU modes require a
+CUDA-enabled build and compatible device. The pure `LSDEM` solver in tutorial1
+supports CPU or GPU; tutorial0, tutorial2 and tutorial3 also support Hybrid.
 
-Tutorial0 accepts runtime duration and time-step arguments; changing the time step does not recalibrate contact parameters or prove stability. Tutorial1 keeps its physical constants in source so the interlocking setup remains easy to inspect. Tutorial2 and tutorial3 expose backend selection but keep their discretization and time step in source. None of the tutorials automatically stops at equilibrium.
+## What to look for
 
-For a quick build check:
+- **tutorial0:** the sphere falls and rebounds; the Hertz-Mindlin response uses
+  material elastic properties and restitution, plus the configured sliding
+  friction. No linear stiffness override is needed.
+- **tutorial1:** a tilted pyramid contacts the plane. `LSInfo` shifts its surface
+  and SDF origin into one centroid frame. The pair supplies LS normal/shear
+  coefficients in N/m^3, multiplied by nodal area during contact assembly.
+- **tutorial2:** one infinite-mass root anchors four movable spheres. Beam
+  stiffnesses come from a circular section; ordinary contact stiffness is zero
+  to isolate bonds. Zero bond cross-sectional area disables fracture, not the
+  explicitly supplied elastic stiffness. The transient is not a beam-convergence
+  test.
+- **tutorial3:** a regular, initially resting SPH block slumps and spreads.
+  Reversing the closed box SDF places boundary solid outside the fluid cavity.
+  Acoustic/advection intervals remain automatic integer multiples of the DEM
+  step. No column-load recorder or post-run filter is included.
 
-```bash
-build/tutorial/tutorial0 --steps 10 --output tutorial0_smoke
-```
+## Output
 
-For the documented animation, run the full duration with the original parameters and inspect all generated frames. ASCII output is useful only for diagnosing a small frame because it is considerably larger and slower.
+The default `tutorialN_files/` directory is beside its executable. On the first
+`solve()`, the core removes old VTU/DAT files **inside the selected directory**,
+so edit `setOutputDirectory()` to choose a fresh dedicated folder before
+rebuilding when earlier results must be retained.
 
-## Modifying a Tutorial
+Only the basic binary VTU fields are selected. Open the matching time series in
+ParaView, click **Apply**, reset the camera and press **Play**:
 
-When creating a new tutorial, keep the executable name free of backend suffixes, choose CPU as the default, use one clear physical idea, and document its expected duration/output cadence here. Runtime options should validate values and resolve relative output paths from the executable directory consistently with the existing cases.
+| Program | Main series under its output directory |
+| --- | --- |
+| tutorial0 | `particle/sphere_*.vtu`, `particle/fixedLSParticle_*.vtu` |
+| tutorial1 | `particle/LSParticle_*.vtu`, `particle/fixedLSParticle_*.vtu` |
+| tutorial2 | `particle/sphere_*.vtu`, `interaction/sphereBond_*.vtu` |
+| tutorial3 | `particle/SPHParticle_*.vtu`, `particle/fixedLSParticle_*.vtu` |
+
+The core also writes `energy.dat` at the output cadence. It contains the **solid
+DEM subsystem** only, not SPH fluid energy. A run shorter than the output
+interval may write just the initial frame; changing the step count does not
+force an extra final frame.

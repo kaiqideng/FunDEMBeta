@@ -1,0 +1,13 @@
+run,official_step,native_step,check_time_s,quantity,expected,actual,error_kind,error,tolerance,passed
+cpu,2400,2400,0.000240000000000005,Preserved omega_y (rad/s),22.86,22.86,relative,0.0,1e-08,True
+cpu,2400,2400,0.000240000000000005,Spurious vx (m/s),0.0,0.0,absolute,0.0,1e-08,True
+cpu,2400,2400,0.000240000000000005,Spurious vy (m/s),0.0,0.0,absolute,0.0,1e-08,True
+gpu,2400,2400,0.000240000000000005,Preserved omega_y (rad/s),22.86,22.86,relative,0.0,1e-08,True
+gpu,2400,2400,0.000240000000000005,Spurious vx (m/s),0.0,0.0,absolute,0.0,1e-08,True
+gpu,2400,2400,0.000240000000000005,Spurious vy (m/s),0.0,0.0,absolute,0.0,1e-08,True
+cpu-dt-half,2400,4800,0.0002400000000000054,Preserved omega_y (rad/s),22.86,22.86,relative,0.0,1e-08,True
+cpu-dt-half,2400,4800,0.0002400000000000054,Spurious vx (m/s),0.0,0.0,absolute,0.0,1e-08,True
+cpu-dt-half,2400,4800,0.0002400000000000054,Spurious vy (m/s),0.0,0.0,absolute,0.0,1e-08,True
+gpu-dt-half,2400,4800,0.0002400000000000054,Preserved omega_y (rad/s),22.86,22.86,relative,0.0,1e-08,True
+gpu-dt-half,2400,4800,0.0002400000000000054,Spurious vx (m/s),0.0,0.0,absolute,0.0,1e-08,True
+gpu-dt-half,2400,4800,0.0002400000000000054,Spurious vy (m/s),0.0,0.0,absolute,0.0,1e-08,True

@@ -1,0 +1,208 @@
+field,type,value
+source_commit,string,f9720ce2d176d615495d1d6c31349b1f71be1c73
+official_git_blob,string,9029229be2a7123a3a5c9aef4d04e2df5a0bc9e0
+official_source,string,Omitted historical artifact location.
+official_analytic_tolerance,number,0.02
+official_analytic_step,number,4100
+official_reference_measured_restitution,number,0.4999418264480616
+parameters.diam,number,0.005
+parameters.dens,number,2700.0
+parameters.emod,number,70000000000.0
+parameters.poisson,number,0.33
+parameters.en,number,0.5
+parameters.xmu,number,0.4
+parameters.vin,number,2.0
+parameters.omega0,number,22.0
+parameters.radius,number,0.0025
+parameters.dt,number,1e-08
+parameters.sep,number,0.00255
+derived.sphere_mass_kg,number,0.0001767145867644259
+derived.effective_mass_kg,number,8.835729338221295e-05
+derived.effective_radius_m,number,0.00125
+derived.effective_young_Pa,number,39277297721.91673
+derived.beta,number,0.2154537619662468
+derived.hertz_prefactor_N_per_m_pow_1p5,number,1851549571.0566838
+derived.initial_normal_translational_energy_J,number,0.0007068583470577036
+runs[0].run,string,cpu
+runs[0].label,string,CPU dt
+runs[0].dt_s,number,1e-08
+runs[0].native_steps,number,5100
+runs[0].frames,number,5101
+runs[0].measured_restitution,number,0.49994167292561276
+runs[0].restitution_at_official_analytic_segment,number,0.49994167292561276
+runs[0].restitution_relative_error_to_input,number,0.00011665414877448654
+runs[0].restitution_absolute_error_to_official,number,1.535224488646847e-07
+runs[0].restitution_relative_error_to_official,number,3.0708062570550254e-07
+runs[0].passes_official_analytic_restitution_tolerance,boolean,true
+runs[0].final_left_vx_m_s,number,-0.9998833458512255
+runs[0].final_right_vx_m_s,number,0.9998833458512255
+runs[0].final_normal_translational_energy_fraction,number,0.24994167632766037
+runs[0].expected_normal_translational_energy_fraction,number,0.25
+runs[0].maximum_position_error_at_official_times_m,number,4.590221865802269e-12
+runs[0].maximum_velocity_error_at_official_times_m_s,number,3.070448977293694e-07
+runs[0].maximum_velocity_error_over_incoming_relative_speed,number,7.676122443234235e-08
+runs[0].maximum_total_momentum_kg_m_s,number,0.0
+runs[0].official_momentum_tolerance_kg_m_s,number,1.4137166941154074e-05
+runs[0].passes_official_momentum_tolerance,boolean,true
+runs[0].maximum_transverse_speed_m_s,number,0.0
+runs[0].maximum_spin_change_rad_s,number,0.0
+runs[0].maximum_torque_N_m,number,0.0
+runs[0].maximum_overlap_m,number,1.224726073035566e-05
+runs[0].maximum_signed_normal_force_N,number,85.88055588733428
+runs[0].minimum_signed_normal_force_N,number,-10.880738940781923
+runs[0].archive,string,Omitted historical artifact location.
+runs[0].project,string,Omitted historical artifact location.
+runs[0].automatic_normal_damping_audit.method,string,Reconstruct assembly half-step relative velocity from completed velocities and native signed force; compare c=(F_el-F_native)/u_half to automatic Hertz formula.
+runs[0].automatic_normal_damping_audit.contact_samples,number,1251
+runs[0].automatic_normal_damping_audit.inference_samples,number,1233
+runs[0].automatic_normal_damping_audit.minimum_calculated_coefficient_N_s_m,number,1.547107308166992
+runs[0].automatic_normal_damping_audit.maximum_calculated_coefficient_N_s_m,number,11.527568150474494
+runs[0].automatic_normal_damping_audit.maximum_inferred_coefficient_relative_error,number,1.8762769116165146e-14
+runs[0].automatic_normal_damping_audit.maximum_coefficient_error_over_peak,number,1.8799761717124196e-14
+runs[0].automatic_normal_damping_audit.maximum_force_reconstruction_error_over_peak,number,3.309446374298057e-16
+runs[0].automatic_normal_damping_audit.maximum_half_step_velocity_crosscheck_error_m_s,number,4.3363090895809364e-11
+runs[0].automatic_normal_damping_audit.inference_filter,string,"delta > 1e-10 m and abs(u_half) > 0.08 m/s, to avoid division near zero."
+runs[0].automatic_normal_damping_audit.coefficient_is_direct_native_output,boolean,false
+runs[1].run,string,gpu
+runs[1].label,string,GPU dt
+runs[1].dt_s,number,1e-08
+runs[1].native_steps,number,5100
+runs[1].frames,number,5101
+runs[1].measured_restitution,number,0.49994167292561265
+runs[1].restitution_at_official_analytic_segment,number,0.49994167292561265
+runs[1].restitution_relative_error_to_input,number,0.00011665414877470859
+runs[1].restitution_absolute_error_to_official,number,1.53522448975707e-07
+runs[1].restitution_relative_error_to_official,number,3.0708062592754715e-07
+runs[1].passes_official_analytic_restitution_tolerance,boolean,true
+runs[1].final_left_vx_m_s,number,-0.9998833458512253
+runs[1].final_right_vx_m_s,number,0.9998833458512253
+runs[1].final_normal_translational_energy_fraction,number,0.24994167632766026
+runs[1].expected_normal_translational_energy_fraction,number,0.25
+runs[1].maximum_position_error_at_official_times_m,number,4.590221865802269e-12
+runs[1].maximum_velocity_error_at_official_times_m_s,number,3.07044897951414e-07
+runs[1].maximum_velocity_error_over_incoming_relative_speed,number,7.67612244878535e-08
+runs[1].maximum_total_momentum_kg_m_s,number,0.0
+runs[1].official_momentum_tolerance_kg_m_s,number,1.4137166941154074e-05
+runs[1].passes_official_momentum_tolerance,boolean,true
+runs[1].maximum_transverse_speed_m_s,number,0.0
+runs[1].maximum_spin_change_rad_s,number,0.0
+runs[1].maximum_torque_N_m,number,0.0
+runs[1].maximum_overlap_m,number,1.224726073035566e-05
+runs[1].maximum_signed_normal_force_N,number,85.88055588733428
+runs[1].minimum_signed_normal_force_N,number,-10.88073894078192
+runs[1].archive,string,Omitted historical artifact location.
+runs[1].project,string,Omitted historical artifact location.
+runs[1].automatic_normal_damping_audit.method,string,Reconstruct assembly half-step relative velocity from completed velocities and native signed force; compare c=(F_el-F_native)/u_half to automatic Hertz formula.
+runs[1].automatic_normal_damping_audit.contact_samples,number,1251
+runs[1].automatic_normal_damping_audit.inference_samples,number,1233
+runs[1].automatic_normal_damping_audit.minimum_calculated_coefficient_N_s_m,number,1.547107308166992
+runs[1].automatic_normal_damping_audit.maximum_calculated_coefficient_N_s_m,number,11.527568150474494
+runs[1].automatic_normal_damping_audit.maximum_inferred_coefficient_relative_error,number,1.63202784619898e-14
+runs[1].automatic_normal_damping_audit.maximum_coefficient_error_over_peak,number,1.6334219196845613e-14
+runs[1].automatic_normal_damping_audit.maximum_force_reconstruction_error_over_peak,number,3.309446374298057e-16
+runs[1].automatic_normal_damping_audit.maximum_half_step_velocity_crosscheck_error_m_s,number,4.3363090895809364e-11
+runs[1].automatic_normal_damping_audit.inference_filter,string,"delta > 1e-10 m and abs(u_half) > 0.08 m/s, to avoid division near zero."
+runs[1].automatic_normal_damping_audit.coefficient_is_direct_native_output,boolean,false
+runs[2].run,string,cpu-dt-half
+runs[2].label,string,CPU dt/2
+runs[2].dt_s,number,5e-09
+runs[2].native_steps,number,10200
+runs[2].frames,number,10201
+runs[2].measured_restitution,number,0.4999827180748116
+runs[2].restitution_at_official_analytic_segment,number,0.4999827180748116
+runs[2].restitution_relative_error_to_input,number,3.456385037681198e-05
+runs[2].restitution_absolute_error_to_official,number,4.08916267499726e-05
+runs[2].restitution_relative_error_to_official,number,8.179276985176287e-05
+runs[2].passes_official_analytic_restitution_tolerance,boolean,true
+runs[2].final_left_vx_m_s,number,-0.9999654361496232
+runs[2].final_right_vx_m_s,number,0.9999654361496232
+runs[2].final_normal_translational_energy_fraction,number,0.24998271837347652
+runs[2].expected_normal_translational_energy_fraction,number,0.25
+runs[2].maximum_position_error_at_official_times_m,number,1.2634292852371776e-09
+runs[2].maximum_velocity_error_at_official_times_m_s,number,8.17832534999452e-05
+runs[2].maximum_velocity_error_over_incoming_relative_speed,number,2.04458133749863e-05
+runs[2].maximum_total_momentum_kg_m_s,number,0.0
+runs[2].official_momentum_tolerance_kg_m_s,number,1.4137166941154074e-05
+runs[2].passes_official_momentum_tolerance,boolean,true
+runs[2].maximum_transverse_speed_m_s,number,0.0
+runs[2].maximum_spin_change_rad_s,number,0.0
+runs[2].maximum_torque_N_m,number,0.0
+runs[2].maximum_overlap_m,number,1.224845665008436e-05
+runs[2].maximum_signed_normal_force_N,number,85.86334102996298
+runs[2].minimum_signed_normal_force_N,number,-10.879013010522236
+runs[2].archive,string,Omitted historical artifact location.
+runs[2].project,string,Omitted historical artifact location.
+runs[2].automatic_normal_damping_audit.method,string,Reconstruct assembly half-step relative velocity from completed velocities and native signed force; compare c=(F_el-F_native)/u_half to automatic Hertz formula.
+runs[2].automatic_normal_damping_audit.contact_samples,number,2502
+runs[2].automatic_normal_damping_audit.inference_samples,number,2466
+runs[2].automatic_normal_damping_audit.minimum_calculated_coefficient_N_s_m,number,1.7868458842217523
+runs[2].automatic_normal_damping_audit.maximum_calculated_coefficient_N_s_m,number,11.527849550978864
+runs[2].automatic_normal_damping_audit.maximum_inferred_coefficient_relative_error,number,1.7541523789077473e-14
+runs[2].automatic_normal_damping_audit.maximum_coefficient_error_over_peak,number,1.7566561638066595e-14
+runs[2].automatic_normal_damping_audit.maximum_force_reconstruction_error_over_peak,number,4.965164834516386e-16
+runs[2].automatic_normal_damping_audit.maximum_half_step_velocity_crosscheck_error_m_s,number,8.673328721897633e-11
+runs[2].automatic_normal_damping_audit.inference_filter,string,"delta > 1e-10 m and abs(u_half) > 0.08 m/s, to avoid division near zero."
+runs[2].automatic_normal_damping_audit.coefficient_is_direct_native_output,boolean,false
+runs[3].run,string,gpu-dt-half
+runs[3].label,string,GPU dt/2
+runs[3].dt_s,number,5e-09
+runs[3].native_steps,number,10200
+runs[3].frames,number,10201
+runs[3].measured_restitution,number,0.4999827180748118
+runs[3].restitution_at_official_analytic_segment,number,0.4999827180748118
+runs[3].restitution_relative_error_to_input,number,3.456385037636789e-05
+runs[3].restitution_absolute_error_to_official,number,4.089162675019464e-05
+runs[3].restitution_relative_error_to_official,number,8.179276985220696e-05
+runs[3].passes_official_analytic_restitution_tolerance,boolean,true
+runs[3].final_left_vx_m_s,number,-0.9999654361496236
+runs[3].final_right_vx_m_s,number,0.9999654361496236
+runs[3].final_normal_translational_energy_fraction,number,0.24998271837347674
+runs[3].expected_normal_translational_energy_fraction,number,0.25
+runs[3].maximum_position_error_at_official_times_m,number,1.2634292852371776e-09
+runs[3].maximum_velocity_error_at_official_times_m_s,number,8.178325350038929e-05
+runs[3].maximum_velocity_error_over_incoming_relative_speed,number,2.044581337509732e-05
+runs[3].maximum_total_momentum_kg_m_s,number,0.0
+runs[3].official_momentum_tolerance_kg_m_s,number,1.4137166941154074e-05
+runs[3].passes_official_momentum_tolerance,boolean,true
+runs[3].maximum_transverse_speed_m_s,number,0.0
+runs[3].maximum_spin_change_rad_s,number,0.0
+runs[3].maximum_torque_N_m,number,0.0
+runs[3].maximum_overlap_m,number,1.224845665008436e-05
+runs[3].maximum_signed_normal_force_N,number,85.86334102996298
+runs[3].minimum_signed_normal_force_N,number,-10.879013010522241
+runs[3].archive,string,Omitted historical artifact location.
+runs[3].project,string,Omitted historical artifact location.
+runs[3].automatic_normal_damping_audit.method,string,Reconstruct assembly half-step relative velocity from completed velocities and native signed force; compare c=(F_el-F_native)/u_half to automatic Hertz formula.
+runs[3].automatic_normal_damping_audit.contact_samples,number,2502
+runs[3].automatic_normal_damping_audit.inference_samples,number,2466
+runs[3].automatic_normal_damping_audit.minimum_calculated_coefficient_N_s_m,number,1.7868458842217523
+runs[3].automatic_normal_damping_audit.maximum_calculated_coefficient_N_s_m,number,11.527849550978864
+runs[3].automatic_normal_damping_audit.maximum_inferred_coefficient_relative_error,number,2.2648549702353193e-14
+runs[3].automatic_normal_damping_audit.maximum_coefficient_error_over_peak,number,2.2651618954349032e-14
+runs[3].automatic_normal_damping_audit.maximum_force_reconstruction_error_over_peak,number,3.3101098896775904e-16
+runs[3].automatic_normal_damping_audit.maximum_half_step_velocity_crosscheck_error_m_s,number,8.673328721897633e-11
+runs[3].automatic_normal_damping_audit.inference_filter,string,"delta > 1e-10 m and abs(u_half) > 0.08 m/s, to avoid division near zero."
+runs[3].automatic_normal_damping_audit.coefficient_is_direct_native_output,boolean,false
+cpu_gpu_comparison[0].runs[0],string,cpu
+cpu_gpu_comparison[0].runs[1],string,gpu
+cpu_gpu_comparison[0].maximum_absolute_position_difference_m,number,0.0
+cpu_gpu_comparison[0].maximum_absolute_velocity_difference_m_s,number,2.220446049250313e-16
+cpu_gpu_comparison[0].maximum_absolute_spin_difference_rad_s,number,0.0
+cpu_gpu_comparison[0].restitution_difference,number,1.1102230246251565e-16
+cpu_gpu_comparison[1].runs[0],string,cpu-dt-half
+cpu_gpu_comparison[1].runs[1],string,gpu-dt-half
+cpu_gpu_comparison[1].maximum_absolute_position_difference_m,number,0.0
+cpu_gpu_comparison[1].maximum_absolute_velocity_difference_m_s,number,4.440892098500626e-16
+cpu_gpu_comparison[1].maximum_absolute_spin_difference_rad_s,number,0.0
+cpu_gpu_comparison[1].restitution_difference,number,2.220446049250313e-16
+timestep_convergence.cpu_restitution_change,number,4.104514919883728e-05
+timestep_convergence.gpu_restitution_change,number,4.104514919917035e-05
+timestep_convergence.coarse_absolute_error_to_input,number,5.832707438724327e-05
+timestep_convergence.half_absolute_error_to_input,number,1.728192518840599e-05
+notes[0],string,"Official epsilon=1e-10 is LAMMPS same-code regression precision, not a general cross-code acceptance tolerance."
+notes[1],string,Official restitution criterion is relative error to input e=0.5 below 2% at cumulative step 4100.
+notes[2],string,Opposite spins make relative tangential contact speed zero. This case does not validate friction or tangential damping.
+notes[3],string,"Normal contact coefficients are automatic; dampingEnabled=false disables manual overrides, not automatic contact damping."
+notes[4],string,Signed native contact force may become tensile near release because normal damping is not clipped in either reference setup.
+notes[5],string,Reference values come from the pinned official YAML; no local LAMMPS executable was run.
+notes[6],string,The native library build is historical native application build; installed GUI binary byte identity is not established.

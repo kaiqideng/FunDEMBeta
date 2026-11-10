@@ -42,7 +42,10 @@ descriptor[i]
     surfaceTriangleOffset_ -> surfaceTriangles[]
 ```
 
-The next descriptor's offset, or the end of the corresponding array for the final geometry, defines each range end. Counts are deliberately not stored. This keeps descriptors compact and gives CPU and GPU code the same range convention.
+The next descriptor's offset, or the end of the corresponding array for the
+final geometry, defines each range end. Separate range-count fields are not
+stored. Grid dimensions are still retained as `gridNodeSize_` for interpolation.
+This gives CPU and GPU code the same range convention.
 
 `gridNodeSize_` is an `int3`; signed-distance storage is x-major and uses `linearIndex(x, y, z, sizeX, sizeY)`. Grid spacing is stored as its inverse because contact detection performs interpolation repeatedly. Surface triangles store local `int3` node connectivity, while each surface node stores a local position and its integration area.
 
@@ -64,7 +67,18 @@ Fixed geometry deliberately keeps zero volume and inertia. Use the `isFixed` fla
 The complete generated-shape catalog and dimension conventions are documented in
 [`data/`](../data/README.md#closed-primitive-geometries). Shapes with a cavity,
 such as `Torus` and `Link`, use closed surfaces that preserve the hole rather
-than a radial deformation of a sphere. `gridSamplingBoundsMin/Max()` describe
-the unpadded SDF sampling box in the returned local frame, not necessarily the
-tight rendered surface bounds. Surface refinement spacing and Cartesian SDF
-spacing are independent inputs.
+than a radial deformation of a sphere. `LSInfo::surfaceAABBMin/Max()` compute
+the AABB of the current surface points, without padding or another centroid
+shift. Native and prepared geometry use the same public contract; invalid or
+empty surfaces reject these queries with `std::logic_error`.
+
+SDF generation instead uses internal native-frame sampling bounds. A
+`PlaneWall` retains a finite three-dimensional sampling region even when the
+surface itself has zero thickness. Call `estimateGridNodeSize(spacing, padding)`
+to inspect the dimensions before allocating a native shape's grid; it shares
+the builder's dimension calculation and does not mutate the geometry. A
+data-only prepared geometry cannot estimate or rebuild native grid dimensions.
+Its saved grid extent is read directly from its origin through
+`origin + spacing * (size - 1)` componentwise, including existing padding.
+Surface refinement spacing and Cartesian SDF spacing remain independent inputs;
+these interfaces do not change the centroid or mass-integration algorithm.

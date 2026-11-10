@@ -1,0 +1,135 @@
+# Linear normal restitution at damping ratio $\beta_n=0.6$
+
+## Abstract
+
+This report evaluates the normal spring–dashpot response of one sphere falling onto a fixed plane, using the Md=0 subcase of the PFC 7.0 public verification example [1]. The evidence consists of four historical FunDEM CPU/GPU runs at two time steps, recorded on 28–29 October 2026. The first-rebound coefficient differs from the unforced analytical target by 0.0066255 at the base time step and 0.0059177 after halving it. Both values satisfy the published absolute-difference target; the persistent second contact also satisfies separately declared static-equilibrium checks. PFC is commercial proprietary software and **was not executed locally**. The retained **historical PASS** compares FunDEM measurements with the public analytical target; it is not a PFC trajectory comparison or a fresh acceptance result for the current core.
+
+## 1. Benchmark definition
+
+The selected sphere is source ball 12 from the Md=0 row of the official input [1]. The initial center height is 1 m, giving a free-fall clearance of $z_0-R=0.975$ m. Its independent vertical trajectory is unchanged by using the native plane at $z=0$ in place of inactive lateral domain boundaries.
+
+**Table 1. Benchmark parameters and their native-core realization.** Published quantities come from the official example [1]; damping is an exact algebraic translation, not a fitted coefficient.
+
+| Quantity | Symbol | Value or realization |
+| --- | --- | --- |
+| Radius | $R$ | 0.025 m |
+| Density; mass | $\rho$; $m$ | 2650 kg/m³; 0.173442094417 kg |
+| Initial center | $\mathbf{x}_0$ | (1.15, 0.05, 1) m |
+| Initial velocity; angular velocity | $\mathbf{v}_0$; $\boldsymbol{\omega}_0$ | Zero; zero |
+| Floor; gravity | $z_\mathrm{wall}$; $\mathbf{g}$ | Fixed at 0 m; (0, 0, −10) m/s² |
+| Normal stiffness | $k_n$ | 50000 N/m, explicitly prescribed linear pair stiffness |
+| Damping ratio; mode | $\beta_n$; $M_d$ | 0.6; 0 (signed normal dashpot) |
+| Contact restitution | $e_0$ | 0.094780224842 |
+| Derived normal dashpot | $c_n$ | 111.748963297 N·s/m |
+| Tangential and resistance channels | $k_t$, $\mu$, rolling/twisting | Zero |
+| Duration | $T$ | 1 s |
+| Base step and count | $\Delta t$; $N$ | $10^{-5}$ s; 100000 |
+| Refined step and count | $\Delta t/2$; $2N$ | $5\times10^{-6}$ s; 200000 |
+
+Let $\delta=R-z$ be the overlap, $g=10$ m/s² the positive gravitational acceleration magnitude and $F_n$ the signed upward contact force. While geometrical contact exists, the native Md=0 response and the corresponding gravity-inclusive continuous oscillator are
+
+$$
+F_n=k_n\delta-c_n v_z=k_n\delta+c_n\dot{\delta},\qquad m\ddot{\delta}+c_n\dot{\delta}+k_n\delta=mg.\tag{1}
+$$
+
+The contact force is zero outside geometrical contact. The Md=0 law can produce a negative unloading force while overlap remains positive; this dashpot tail is not an adhesion model. For the fixed wall, the effective contact mass is the **full sphere mass**. The public unforced oscillator relation is
+
+$$
+e_0=\exp\!\left(-\frac{\pi\beta_n}{\sqrt{1-\beta_n^2}}\right),\qquad \beta_n=\frac{-\ln e_0}{\sqrt{\pi^2+(\ln e_0)^2}},\qquad c_n=2\beta_n\sqrt{mk_n}.\tag{2}
+$$
+
+Both native material restitutions are set to $e_0$. Their harmonic pair value, $2e_0e_0/(e_0+e_0)$, is therefore exactly $e_0$. `setLinearStiffnessEnabled(true)` uses the prescribed $k_n$; `setDampingEnabled(false)` selects restitution-derived damping rather than the zero stored manual dashpots. Nominal bulk elastic properties do not replace the explicitly prescribed pair stiffness. No damping parameter is fitted to the rebound.
+
+## 2. Numerical method and verification procedure
+
+CPU and CUDA GPU runs use the same physical inputs, a 1 s endpoint and the velocity-Verlet sequence audited in the original campaign. The half-step runs double the step count, preserving physical duration. The first minimum of center height is passed before selecting the first rebound maximum; the initial falling branch and later bounces are excluded. Quantitative measurements use every-step CSV records, rather than the coarser 1 ms native-frame cadence.
+
+The height-derived restitution, absolute coefficient error and diagnostic relative error are
+
+$$
+e_h=\sqrt{\frac{\max(z_{\mathrm{apex}}-R,0)}{z_0-R}},\qquad E_{\mathrm{abs}}=|e_h-e_0|,\qquad E_{\mathrm{rel}}=\frac{E_{\mathrm{abs}}}{|e_0|}\times100\%.\tag{3}
+$$
+
+The published comparison target, interpreted using the official FISH expression `max(abs(e_num-e_ana))`, is
+
+$$
+E_{\mathrm{abs}}<0.01.\tag{4}
+$$
+
+This is an **absolute coefficient difference**, not a relative 1% tolerance. The source example reports the comparison but contains no automated acceptance assertion. No new threshold is introduced here. Gravity remains active during simulated contact, whereas Equation (2) is unforced; a finite physical difference from $e_0$ can remain as the time step is reduced.
+
+The independent force audit recovers the force-assembly velocity from the saved final-half-kick velocity before inferring damping:
+
+$$
+v_{n,\mathrm{assembly}}=v_{z,\mathrm{saved}}-\frac{\Delta t}{2}\left(\frac{F_n}{m}-g\right),\qquad c_{n,\mathrm{inferred}}=\frac{k_n\delta-F_n}{v_{n,\mathrm{assembly}}}.\tag{5}
+$$
+
+Near-zero denominators are excluded from division; direct force reconstruction still covers valid contact states. The inferred coefficient is an audited quantity, not a separate native output channel. The impulse audit includes both gravity and the fixed-wall contact force.
+
+## 3. Results and discussion
+
+**Table 2. Historical first-rebound measurements and the published absolute-error outcome.** Rounded values are shown; full precision is retained in the [checkpoint table](checkpoints/first_rebound_comparison.csv). CPU/GPU values remain separate even when displayed digits coincide.
+
+| Configuration | $e_h$ (–) | $E_{\mathrm{abs}}$ (–) | First apex $z$ (m) | Historical outcome |
+| --- | ---: | ---: | ---: | --- |
+| CPU, $\Delta t$ | 0.0881547443 | 0.0066255 | 0.032576977 | PASS |
+| GPU, $\Delta t$ | 0.0881547443 | 0.0066255 | 0.032576977 | PASS |
+| CPU, $\Delta t/2$ | 0.0888625165 | 0.0059177 | 0.032699133 | PASS |
+| GPU, $\Delta t/2$ | 0.0888625165 | 0.0059177 | 0.032699133 | PASS |
+
+![Historical first-rebound comparison](figures/comparison.svg)
+
+**Figure 1.** Historical first-rebound restitution for pfc-linear-restitution-md0-beta06. Panel (a) compares the retained first-apex height estimator $e_h=\sqrt{\max(z_{\mathrm{apex}}-R,0)/(z_{\mathrm{initial}}-R)}$ with the public PFC $M_d=0$ contact target $e_0=\exp[-\pi\beta/\sqrt{1-\beta^2}]$ for $0\leq\beta<1$, with $e_0=0$ at $\beta=1$ (black solid analytical curve or horizontal line). Panel (b) shows absolute coefficient errors and the strict published absolute-error limit 0.01 (black dashed line). Panel (c) shows relative discrepancy as a separate diagnostic, not the acceptance criterion. Blue open circles, orange crosses, green open squares and purple plus signs denote CPU at $\Delta t$, GPU at $\Delta t$, CPU at $\Delta t/2$ and GPU at $\Delta t/2$, respectively; all numerical observations are unconnected symbols, and coincident runs remain overlaid without averaging or jitter. $\Delta t=10^{-5}\,\mathrm{s}$; $\Delta t/2=5\times10^{-6}\,\mathrm{s}$. Only four summary observations exist at $\beta=0.6$; the horizontal categories do not form a time history. All three ordinates are linear and exact zeros retain their true value. PFC was not executed locally: the reference is its published analytical relation, not a PFC numerical trajectory. The historical PASS records absolute-error acceptance only and does not imply small relative error at strong damping.
+
+**Table 3. Historical normal-force, damping and gravity-aware impulse diagnostics.** The minimum signed force shows the retained Md=0 unloading tail; force and impulse residuals are supplemental consistency measurements rather than new official acceptance limits.
+
+| Configuration | Inferred $c_n$ (N·s/m) | Minimum $F_n$ (N) | Maximum force residual (N) | Maximum impulse residual (kg·m/s) |
+| --- | ---: | ---: | ---: | ---: |
+| CPU, $\Delta t$ | 111.748963297 | −48.90583 | $1.4\times10^{-14}$ | $4.2\times10^{-13}$ |
+| GPU, $\Delta t$ | 111.748963297 | −48.90583 | $5.7\times10^{-14}$ | $4.2\times10^{-13}$ |
+| CPU, $\Delta t/2$ | 111.748963297 | −49.01194 | $2.8\times10^{-14}$ | $2.1\times10^{-12}$ |
+| GPU, $\Delta t/2$ | 111.748963297 | −49.01194 | $5.7\times10^{-14}$ | $2.1\times10^{-12}$ |
+
+The relative restitution errors are 6.99036% at $\Delta t$ and 6.24361% at $\Delta t/2$. These diagnostic percentages do not replace the absolute acceptance criterion. The maximum whole-history CPU/GPU differences are $1.11\times10^{-16}$ m in position, $2.71\times10^{-14}$ m/s in velocity and $1.83\times10^{-11}$ N in signed normal force.
+
+An independent, unfitted gravity-inclusive continuous solution gives $e_h=0.089142243795$, an apex height of 0.032747681138 m and an apex time of 0.488359670757 s. It solves Equation (1), followed by ballistic flight; it does not replace the unforced published comparator. Absolute errors against this supplemental solution are 0.000987499519 and 0.00027972727 at $\Delta t$ and $\Delta t/2$. Errors against both comparators decrease, but two step sizes do not establish an order of convergence.
+
+The ball has two contact episodes, and the second persists through the 1 s endpoint. Static balance predicts $\delta_{\mathrm{eq}}=mg/k_n=3.46884188834\times10^{-5}$ m, $z_{\mathrm{eq}}=0.024965311581$ m and $F_{n,\mathrm{eq}}=1.73442094417$ N. Over 0.8–1 s, the declared supplemental limits are maximum height error $<10^{-9}$ m, relative force error $<10^{-6}$ and vertical speed $<10^{-8}$ m/s. These are analyst-declared equilibrium checks, **not** official PFC limits.
+
+**Table 4. Historical late-time equilibrium measurements over 0.8–1 s.** All four declared supplemental checks pass; final equilibrium does not replace the first-rebound measurement.
+
+| Configuration | Final $z$ (m) | Final $F_n$ (N) | Maximum height error (m) | Maximum vertical speed (m/s) |
+| --- | ---: | ---: | ---: | ---: |
+| CPU, $\Delta t$ | 0.024965311581 | 1.734420944 | $6.6\times10^{-17}$ | $9.1\times10^{-15}$ |
+| GPU, $\Delta t$ | 0.024965311581 | 1.734420944 | $6.6\times10^{-17}$ | $9.1\times10^{-15}$ |
+| CPU, $\Delta t/2$ | 0.024965311581 | 1.734420944 | $2.2\times10^{-16}$ | $8.8\times10^{-14}$ |
+| GPU, $\Delta t/2$ | 0.024965311581 | 1.734420944 | $2.2\times10^{-16}$ | $8.8\times10^{-14}$ |
+
+The maximum late force error is $2.22045\times10^{-16}$ N. The maximum gravity-plus-wall impulse residual is $2.07\times10^{-12}$ kg·m/s. The fixed wall supplies external impulse, and gravity acts throughout; sphere momentum alone is not conserved. Linear spring energy is counted once and gravitational potential is included in energy diagnostics. Energy conservation is not the acceptance criterion for this dissipative impact.
+
+## 4. Conclusions and limitations
+
+The four historical runs satisfy the absolute first-apex coefficient target and the separately declared late-time equilibrium checks. The retained audit supports the restitution-to-automatic-damping mapping, signed unloading and static force balance for this one sphere–wall case. Refinement reduces the reported errors but supplies no established convergence order.
+
+The Md=1 no-tension row, active tangential friction, rolling/torsional response and many-particle dynamics lie outside this case. The comparison is with a public analytical relation from a commercial code's documentation, not a local PFC run. Historical library-linked execution and current dedicated C++ construction have distinct provenance; the current case must be evaluated independently before receiving a new acceptance result.
+
+## References
+
+1. Itasca Consulting Group. *Linear Contact Model: Calibrating the Normal Critical Damping Ratio*. PFC 7.0 documentation. [Official example and embedded FISH input](https://docs.itascacg.com/pfc700/pfc/docproject/source/manual/examples/verification/linear_contact_model/cmlinear_restitution.html). Accessed 31 October 2026. The original source-snapshot identity is retained in [PROVENANCE.md](PROVENANCE.md).
+
+## Appendix A. Reproducibility and evidence
+
+The [dedicated C++ program](pfc-linear-restitution-md0-beta06.cpp) constructs this case directly with the public native core. From the directory containing `FunDEMBeta/`, build and run the four configurations below. Use a CUDA-enabled build and an available CUDA device for the GPU commands; append `-DFUNDEM_ENABLE_CUDA=OFF` for a CPU-only build. Every output directory must be new.
+
+```bash
+cmake -S FunDEMBeta -B build -DFUNDEM_BUILD_VALIDATIONS=ON
+cmake --build build --target pfc_pfc_linear_restitution_md0_beta06 --parallel
+build/validation/PFCComparison/pfc_pfc_linear_restitution_md0_beta06 --mode cpu --output build/comparisons/pfc-linear-restitution-md0-beta06-cpu
+build/validation/PFCComparison/pfc_pfc_linear_restitution_md0_beta06 --mode gpu --output build/comparisons/pfc-linear-restitution-md0-beta06-gpu
+build/validation/PFCComparison/pfc_pfc_linear_restitution_md0_beta06 --mode cpu --half-step --output build/comparisons/pfc-linear-restitution-md0-beta06-cpu-half
+build/validation/PFCComparison/pfc_pfc_linear_restitution_md0_beta06 --mode gpu --half-step --output build/comparisons/pfc-linear-restitution-md0-beta06-gpu-half
+```
+
+The native program writes `trajectory.csv`, `contacts.csv`, `comparison.csv` and `summary.txt`. Its case definition has no fresh automatic acceptance gate: a completed run is **NOT EVALUATED**, and a capped `--steps N` run is **INCOMPLETE**. Evaluate new results independently using Equations (2)–(4); a historical PASS must not be copied into a new-run verdict. Multi-configuration generators require the configuration directory and the platform executable suffix; see the [family build instructions](../../README.md#build-and-run).
+
+The numerical evidence consists of the [checkpoint table](checkpoints/first_rebound_comparison.csv), [historical numerical record](HISTORICAL-RESULTS.csv), its [field guide](HISTORICAL-RESULTS.md), [original detailed report](HISTORICAL-REPORT.md) and [source/archive provenance](PROVENANCE.md). The historical campaign retained 1001 configured native frames per run, or 4004 frames in total, in addition to every-step particle/contact CSV records. The original runs used SimulationSession linked to CPU/CUDA native libraries; identity with the installed GUI executable was not established. Full raw histories, native archives and execution logs remain retained separately and are not distributed here. Regenerating the figure from the checkpoint table does not execute PFC or rerun the physical benchmark.

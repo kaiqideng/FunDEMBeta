@@ -1,0 +1,468 @@
+{
+  "schemaVersion": 2,
+  "kind": "Publication presentation of immutable historical checkpoints; no new simulation",
+  "presentationDate": "2026-10-31",
+  "family": "PFC",
+  "style": {
+    "width_mm": 180.0,
+    "font": "STIXGeneral",
+    "mathFont": "STIX",
+    "fontSize_pt": 8.5,
+    "axisLabelSize_pt": 9,
+    "tickSize_pt": 8,
+    "panelLetterSize_pt": 10,
+    "lineWidth_pt": 0.8,
+    "pngDpi": 600,
+    "pdfFontType": 42,
+    "svgText": "editable text; installed STIX font needed for identical display",
+    "colors": [
+      "#0072B2",
+      "#D55E00",
+      "#009E73",
+      "#CC79A7"
+    ],
+    "markers": [
+      "o",
+      "x",
+      "s",
+      "+"
+    ],
+    "markerSizes_pt": [
+      6.2,
+      5.5,
+      4.4,
+      4.2
+    ],
+    "checkpointLines": "none",
+    "jitter": "none"
+  },
+  "renderer": {
+    "matplotlib": "3.10.3",
+    "python": "3.12.3",
+    "fontFile": "STIXGeneral.ttf",
+    "fontSha256": "167378031e2dddc6216d67819c9260e9a06ffc4c478e4e23cb98a6fd44b183c2",
+    "deterministicMetadata": "No timestamps; fixed SVG hash salt and creator strings"
+  },
+  "cases": [
+    {
+      "case": "pfc-linear-restitution-md0-beta02",
+      "historicalOutcome": "PASS",
+      "caption": "Historical first-rebound restitution for pfc-linear-restitution-md0-beta02. Panel (a) compares the retained first-apex height estimator $e_h=\\sqrt{\\max(z_{\\mathrm{apex}}-R,0)/(z_{\\mathrm{initial}}-R)}$ with the public PFC $M_d=0$ contact target $e_0=\\exp[-\\pi\\beta/\\sqrt{1-\\beta^2}]$ for $0\\leq\\beta<1$, with $e_0=0$ at $\\beta=1$ (black solid analytical curve or horizontal line). Panel (b) shows absolute coefficient errors and the strict published absolute-error limit 0.01 (black dashed line). Panel (c) shows relative discrepancy as a separate diagnostic, not the acceptance criterion. Blue open circles, orange crosses, green open squares and purple plus signs denote CPU at $\\Delta t$, GPU at $\\Delta t$, CPU at $\\Delta t/2$ and GPU at $\\Delta t/2$, respectively; all numerical observations are unconnected symbols, and coincident runs remain overlaid without averaging or jitter. $\\Delta t=10^{-5}\\,\\mathrm{s}$; $\\Delta t/2=5\\times10^{-6}\\,\\mathrm{s}$. Only four summary observations exist at $\\beta=0.2$; the horizontal categories do not form a time history. All three ordinates are linear and exact zeros retain their true value. PFC was not executed locally: the reference is its published analytical relation, not a PFC numerical trajectory. The historical PASS records absolute-error acceptance only and does not imply small relative error at strong damping.",
+      "width_mm": 180.0,
+      "height_mm": 92.0,
+      "source": "cases/pfc-linear-restitution-md0-beta02/checkpoints/first_rebound_comparison.csv",
+      "sourceSha256": "083803bc42e8a03189f2c5d3d3cacf7eb95ec6ac84eb9aa2e020d70b6db6f060",
+      "rows": 4,
+      "sources": [
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta02/checkpoints/first_rebound_comparison.csv",
+          "sha256": "083803bc42e8a03189f2c5d3d3cacf7eb95ec6ac84eb9aa2e020d70b6db6f060"
+        }
+      ],
+      "panels": [
+        {
+          "letter": "a",
+          "kind": "restitution",
+          "actualField": "measured_restitution",
+          "reference": "exp(-pi*beta/sqrt(1-beta^2)), endpoint 0 at beta=1",
+          "analyticalCurveSamples": 1,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "scale": "linear"
+        },
+        {
+          "letter": "b",
+          "kind": "absolute error",
+          "field": "absolute_restitution_error",
+          "boundary": 0.01,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "scale": "linear"
+        },
+        {
+          "letter": "c",
+          "kind": "relative discrepancy",
+          "derivation": "100*absolute_restitution_error/analytic_restitution",
+          "undefinedAt": "analytic_restitution == 0",
+          "maximumPercent": 0.5499935577753434,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "scale": "linear"
+        }
+      ],
+      "textBoundsAndLegendLayoutChecked": true,
+      "artifacts": [
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta02/figures/comparison.svg",
+          "sha256": "04b9ba3d8720db7f44637563e49471d7b68f451711bd371e8dd30c5814fec769",
+          "format": "svg",
+          "dpi": "vector"
+        },
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta02/figures/comparison.pdf",
+          "sha256": "629f56be1f5e76a59b92e3f78b9e3ba6aaa7659cf79365e36ae7e5d10f4d55f2",
+          "format": "pdf",
+          "dpi": "vector"
+        },
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta02/figures/comparison.png",
+          "sha256": "c2f2664baade1a18ce20e67485611c9154c5073eadb481ef467522d61f76968c",
+          "format": "png",
+          "dpi": 600
+        }
+      ]
+    },
+    {
+      "case": "pfc-linear-restitution-md0-beta06",
+      "historicalOutcome": "PASS",
+      "caption": "Historical first-rebound restitution for pfc-linear-restitution-md0-beta06. Panel (a) compares the retained first-apex height estimator $e_h=\\sqrt{\\max(z_{\\mathrm{apex}}-R,0)/(z_{\\mathrm{initial}}-R)}$ with the public PFC $M_d=0$ contact target $e_0=\\exp[-\\pi\\beta/\\sqrt{1-\\beta^2}]$ for $0\\leq\\beta<1$, with $e_0=0$ at $\\beta=1$ (black solid analytical curve or horizontal line). Panel (b) shows absolute coefficient errors and the strict published absolute-error limit 0.01 (black dashed line). Panel (c) shows relative discrepancy as a separate diagnostic, not the acceptance criterion. Blue open circles, orange crosses, green open squares and purple plus signs denote CPU at $\\Delta t$, GPU at $\\Delta t$, CPU at $\\Delta t/2$ and GPU at $\\Delta t/2$, respectively; all numerical observations are unconnected symbols, and coincident runs remain overlaid without averaging or jitter. $\\Delta t=10^{-5}\\,\\mathrm{s}$; $\\Delta t/2=5\\times10^{-6}\\,\\mathrm{s}$. Only four summary observations exist at $\\beta=0.6$; the horizontal categories do not form a time history. All three ordinates are linear and exact zeros retain their true value. PFC was not executed locally: the reference is its published analytical relation, not a PFC numerical trajectory. The historical PASS records absolute-error acceptance only and does not imply small relative error at strong damping.",
+      "width_mm": 180.0,
+      "height_mm": 92.0,
+      "source": "cases/pfc-linear-restitution-md0-beta06/checkpoints/first_rebound_comparison.csv",
+      "sourceSha256": "9ac4854e50b274aab9083a2e2053ee3525da7978ce756469d8da8a3aeee1aa97",
+      "rows": 4,
+      "sources": [
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta06/checkpoints/first_rebound_comparison.csv",
+          "sha256": "9ac4854e50b274aab9083a2e2053ee3525da7978ce756469d8da8a3aeee1aa97"
+        }
+      ],
+      "panels": [
+        {
+          "letter": "a",
+          "kind": "restitution",
+          "actualField": "measured_restitution",
+          "reference": "exp(-pi*beta/sqrt(1-beta^2)), endpoint 0 at beta=1",
+          "analyticalCurveSamples": 1,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "scale": "linear"
+        },
+        {
+          "letter": "b",
+          "kind": "absolute error",
+          "field": "absolute_restitution_error",
+          "boundary": 0.01,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "scale": "linear"
+        },
+        {
+          "letter": "c",
+          "kind": "relative discrepancy",
+          "derivation": "100*absolute_restitution_error/analytic_restitution",
+          "undefinedAt": "analytic_restitution == 0",
+          "maximumPercent": 6.990361731296995,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "scale": "linear"
+        }
+      ],
+      "textBoundsAndLegendLayoutChecked": true,
+      "artifacts": [
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta06/figures/comparison.svg",
+          "sha256": "cebcb4cf4c9a1a799e6135f982ce4e1d702f8292f7b79c4ce14d2f28bb0a30d0",
+          "format": "svg",
+          "dpi": "vector"
+        },
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta06/figures/comparison.pdf",
+          "sha256": "1b716fddf3f61d50f0b3cdef5969776e9a33bb383f99a2a657af2197b975b379",
+          "format": "pdf",
+          "dpi": "vector"
+        },
+        {
+          "file": "cases/pfc-linear-restitution-md0-beta06/figures/comparison.png",
+          "sha256": "1ff73cf4941ddfc1ba1a62a660d110b4f418ece8488f16c0d4593813bdefadbe",
+          "format": "png",
+          "dpi": 600
+        }
+      ]
+    },
+    {
+      "case": "pfc-linear-restitution-md0-sweep",
+      "historicalOutcome": "PASS",
+      "caption": "Historical first-rebound restitution for pfc-linear-restitution-md0-sweep. Panel (a) compares the retained first-apex height estimator $e_h=\\sqrt{\\max(z_{\\mathrm{apex}}-R,0)/(z_{\\mathrm{initial}}-R)}$ with the public PFC $M_d=0$ contact target $e_0=\\exp[-\\pi\\beta/\\sqrt{1-\\beta^2}]$ for $0\\leq\\beta<1$, with $e_0=0$ at $\\beta=1$ (black solid analytical curve or horizontal line). Panel (b) shows absolute coefficient errors and the strict published absolute-error limit 0.01 (black dashed line). Panel (c) shows relative discrepancy as a separate diagnostic, not the acceptance criterion. Blue open circles, orange crosses, green open squares and purple plus signs denote CPU at $\\Delta t$, GPU at $\\Delta t$, CPU at $\\Delta t/2$ and GPU at $\\Delta t/2$, respectively; all numerical observations are unconnected symbols, and coincident runs remain overlaid without averaging or jitter. $\\Delta t=10^{-5}\\,\\mathrm{s}$; $\\Delta t/2=5\\times10^{-6}\\,\\mathrm{s}$. Sixteen independent damping ratios are retained per run. Relative discrepancy is undefined at $e_0=0$ ($\\beta=1$) and that point is omitted only from (c); the largest plotted relative discrepancy is 100.000%. At $\\beta=0.9$ and $\\beta=1$, the retained $e_h=0$ denotes non-rebound. The recorded extremum at $\\beta=0.9$ is below the nominal radius and is clamped to zero by the height estimator; $\\beta=1$ has no recorded apex, so its retained zero is a non-rebound convention rather than an observed apex-height measurement. The black analytical curve is an evaluation of the stated closed-form equation, not interpolation of the numerical observations. All three ordinates are linear and exact zeros retain their true value. PFC was not executed locally: the reference is its published analytical relation, not a PFC numerical trajectory. The historical PASS records absolute-error acceptance only and does not imply small relative error at strong damping.",
+      "width_mm": 180.0,
+      "height_mm": 92.0,
+      "source": "cases/pfc-linear-restitution-md0-sweep/checkpoints/sixteen_beta_comparison.csv",
+      "sourceSha256": "9d04db3914c5b51d1ade13ef3273d2db2e39b86155122a4b92ec9d09730225a5",
+      "rows": 64,
+      "sources": [
+        {
+          "file": "cases/pfc-linear-restitution-md0-sweep/checkpoints/sixteen_beta_comparison.csv",
+          "sha256": "9d04db3914c5b51d1ade13ef3273d2db2e39b86155122a4b92ec9d09730225a5"
+        }
+      ],
+      "panels": [
+        {
+          "letter": "a",
+          "kind": "restitution",
+          "actualField": "measured_restitution",
+          "reference": "exp(-pi*beta/sqrt(1-beta^2)), endpoint 0 at beta=1",
+          "analyticalCurveSamples": 1001,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65
+          ],
+          "scale": "linear"
+        },
+        {
+          "letter": "b",
+          "kind": "absolute error",
+          "field": "absolute_restitution_error",
+          "boundary": 0.01,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65
+          ],
+          "scale": "linear"
+        },
+        {
+          "letter": "c",
+          "kind": "relative discrepancy",
+          "derivation": "100*absolute_restitution_error/analytic_restitution",
+          "undefinedAt": "analytic_restitution == 0",
+          "maximumPercent": 100.0,
+          "sourceCsvRows": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65
+          ],
+          "scale": "linear"
+        }
+      ],
+      "textBoundsAndLegendLayoutChecked": true,
+      "artifacts": [
+        {
+          "file": "cases/pfc-linear-restitution-md0-sweep/figures/comparison.svg",
+          "sha256": "5ab2427cdd2267aedcb4992ec6d951d451a4168090a80266cce9fad3ead0710d",
+          "format": "svg",
+          "dpi": "vector"
+        },
+        {
+          "file": "cases/pfc-linear-restitution-md0-sweep/figures/comparison.pdf",
+          "sha256": "c47211cb8b8bb31ab582e8aa605bf020720c32c134718f09c1fe44b0d04bde77",
+          "format": "pdf",
+          "dpi": "vector"
+        },
+        {
+          "file": "cases/pfc-linear-restitution-md0-sweep/figures/comparison.png",
+          "sha256": "a8ed6db96a9c335ccad88c864e541797a39a7a4d03de20b034cc66d6c4a4c33e",
+          "format": "png",
+          "dpi": 600
+        }
+      ]
+    }
+  ]
+}

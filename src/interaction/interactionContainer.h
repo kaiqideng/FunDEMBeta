@@ -12,6 +12,7 @@
 #include "particle/particle.h"
 
 #include <vector>
+#include <stdexcept>
 
 namespace fundem
 {
@@ -36,6 +37,42 @@ public:
     const bondContainer& bonds() const noexcept { return bonds_; }
 
     const surfaceNodeMappingContainer& surfaceNodeMappings() const noexcept { return surfaceNodeMappings_; }
+
+    /** Remaps a compacted population without reconnecting Bonds or changing spring/damage state.
+     * Maps contain an old-index entry for every endpoint; -1 removes that particle.
+     * Bonds incident to removed particles are rejected before any state is changed.
+     */
+    void remapParticles(const std::vector<int>& masters, const std::vector<int>& slaves)
+    {
+        const auto mapped = [](const std::vector<int>& indices, int index)
+        {
+            if (index < 0 || index >= static_cast<int>(indices.size()))
+                throw std::logic_error("An interaction endpoint is outside the runtime index map.");
+            return indices[index];
+        };
+        for (const bond& value : bonds_.host())
+            if (mapped(masters, value.masterParticleIndex()) < 0 || mapped(slaves, value.slaveParticleIndex()) < 0)
+                throw std::invalid_argument("A removed runtime particle is referenced by a Bond.");
+        std::vector<contact> contacts;
+        contacts.reserve(contacts_.hostSize());
+        for (const contact& value : contacts_.host())
+        {
+            const int master = mapped(masters, value.masterParticleIndex());
+            const int slave = mapped(slaves, value.slaveParticleIndex());
+            if (master < 0 || slave < 0)
+                continue;
+            contacts.push_back(value);
+            contacts.back().*contact::masterParticleIndexField::member = master;
+            contacts.back().*contact::slaveParticleIndexField::member = slave;
+        }
+        contacts_.host() = std::move(contacts);
+        for (bond& value : bonds_.host())
+        {
+            value.*bond::masterParticleIndexField::member = masters[value.masterParticleIndex()];
+            value.*bond::slaveParticleIndexField::member = slaves[value.slaveParticleIndex()];
+        }
+        resetSearchStorage();
+    }
 
     neighborRange::device_type particleNeighborRanges() noexcept
     {
@@ -300,7 +337,7 @@ private:
         const bool sizeDecreased = particleCount < static_cast<int>(particleNeighborRanges_.hostSize()) || surfaceNodeCount < static_cast<int>(surfaceNodeNeighborRanges_.hostSize());
         if (sizeDecreased)
         {
-            resetStorage();
+            resetSearchStorage();
         }
 
         particleNeighborRanges_.host().resize(particleCount);
@@ -311,15 +348,14 @@ private:
         surfaceNodeNeighborRanges_.copyHostToDeviceAsync(stream);
 
         initializeContactHistoryAsync(particleCount, usesSurfaceNodeRanges, stream);
+        contacts_.copyHostToDeviceAsync(stream);
 
         host_device_detail::synchronize(stream);
     }
 
-    /** Drops contacts, histories, candidates, bonds, and range allocations together. */
-    void resetStorage() noexcept
+    /** Drops only disposable search/history allocations; accepted contacts and Bonds remain. */
+    void resetSearchStorage() noexcept
     {
-        contacts_ = contactContainer{};
-        bonds_ = bondContainer{};
         particleNeighborRanges_ = neighborRangeContainer{};
         surfaceNodeNeighborRanges_ = neighborRangeContainer{};
         particleNeighbors_ = particleNeighborContainer{};

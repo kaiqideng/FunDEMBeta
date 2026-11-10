@@ -1,0 +1,282 @@
+field,type,value
+source_commit,string,f9720ce2d176d615495d1d6c31349b1f71be1c73
+official_git_blob,string,9d4f2bbc7cf3aa5c10728a2cb2e90cbce024fa91
+official_source,string,Omitted historical artifact location.
+official_analytic_tolerance,number,0.01
+official_analytic_step,number,75000
+official_analytic_time_s,number,0.75
+official_analytic_model,string,slip_cessation
+case_directory,string,dem05-hookehistory-slip
+parameters.diam,number,0.005
+parameters.dens,number,2700.0
+parameters.knorm,number,10000.0
+parameters.kt,number,2800.0
+parameters.en,number,1.0
+parameters.xmu,number,0.4
+parameters.grav,number,1.0
+parameters.u0,number,1.0
+parameters.radius,number,0.0025
+parameters.dt,number,1e-05
+parameters.z0,number,0.002499982
+derived.mass_kg,number,0.0001767145867644259
+derived.inertia_kg_m2,number,4.4178646691106484e-10
+derived.nominal_radius_m,number,0.0025
+derived.initial_center_height_m,number,0.002499982
+derived.normal_stiffness_N_m,number,10000.0
+derived.tangential_stiffness_N_m,number,2800.0
+derived.equilibrium_overlap_m,number,1.767145867644259e-08
+derived.equilibrium_height_m,number,0.0024999823285413235
+derived.initial_normal_force_N,number,0.00018000000000066574
+derived.initial_normal_force_over_weight,number,1.0185916357918972
+derived.normal_oscillation_angular_frequency_rad_s,number,7522.527780636749
+derived.normal_oscillation_period_s,number,0.0008352491995247562
+derived.initial_spring_normal_energy_J,number,1.6200000000119832e-12
+derived.ideal_final_kinetic_energy_fraction,number,0.7142857142857143
+derived.analytic_slip_cessation_time_s,number,0.7142857142857142
+derived.analytic_final_vx_m_s,number,0.7142857142857143
+derived.analytic_final_omega_y_rad_s,number,285.7142857142857
+derived.geometric_model_final_vx_m_s,number,0.7142828291306665
+derived.geometric_model_final_omega_y_rad_s,number,285.71515125366204
+derived.geometric_model_slip_cessation_time_s,number,0.7142929271733336
+derived.normal_weight_N,number,0.0001767145867644259
+derived.analytic_initial_friction_N,number,7.068583470577037e-05
+runs[0].run,string,cpu
+runs[0].label,string,CPU dt
+runs[0].dt_s,number,1e-05
+runs[0].native_steps,number,75000
+runs[0].frames,number,751
+runs[0].trajectory_csv_rows,number,75001
+runs[0].contact_csv_rows,number,75000
+runs[0].archive,string,Omitted historical artifact location.
+runs[0].project,string,Omitted historical artifact location.
+runs[0].final_vx_m_s,number,0.7142368055107156
+runs[0].final_omega_y_rad_s,number,285.76117470295503
+runs[0].final_geometric_slip_m_s,number,-0.00016102504315551602
+runs[0].final_nominal_slip_m_s,number,-0.00016613124667208545
+runs[0].relative_vx_error_to_analytic,number,6.847228499828883e-05
+runs[0].relative_omega_error_to_analytic,number,0.00016411146034256419
+runs[0].signed_relative_vx_error_to_analytic,number,-6.847228499828883e-05
+runs[0].signed_relative_omega_error_to_analytic,number,0.00016411146034256419
+runs[0].passes_official_vx_tolerance,boolean,true
+runs[0].passes_official_omega_tolerance,boolean,true
+runs[0].passes_official_analytic_tolerance,boolean,true
+runs[0].first_geometric_slip_zero_time_s,number,0.7142964117156357
+runs[0].sliding_friction_ratio_mean,number,0.4
+runs[0].maximum_coulomb_ratio,number,0.4
+runs[0].minimum_normal_force_over_weight,number,0.9814082803659413
+runs[0].maximum_normal_force_over_weight,number,1.0185917283126622
+runs[0].maximum_normal_force_law_error_over_weight,number,0.0
+runs[0].maximum_tangential_force_law_error_over_coulomb_force,number,1.917290389578219e-16
+runs[0].maximum_torque_lever_arm_error_m,number,4.336808689942018e-19
+runs[0].sliding_effective_torque_arm_mean_m,number,0.0024999823284933666
+runs[0].maximum_x_velocity_impulse_residual_m_s,number,1.103802514884969e-16
+runs[0].maximum_angular_impulse_residual_rad_s,number,5.6604894382861204e-14
+runs[0].maximum_absolute_y_m,number,0.0
+runs[0].maximum_other_spin_rad_s,number,0.0
+runs[0].minimum_z_m,number,0.0024999819999982154
+runs[0].maximum_z_m,number,0.0024999826570840052
+runs[0].final_normal_contact_overlap_m,number,1.7868779836425347e-08
+runs[0].tail_geometric_slip_RMS_m_s,number,0.00012599488902690248
+runs[0].tail_nominal_slip_RMS_m_s,number,0.00012611105863869791
+runs[0].final_kinetic_energy_fraction,number,0.7142828367690831
+runs[0].maximum_native_point_height_error_m,number,2.3028454143592114e-16
+runs[0].automatic_normal_damping_coefficient_N_s_m,number,0.0
+runs[0].automatic_tangential_damping_coefficient_N_s_m,number,0.0
+runs[0].maximum_spring_return_mapping_residual_m,number,9.926167350636332e-24
+runs[0].maximum_normal_elastic_energy_law_error_J,number,2.0194839173657902e-28
+runs[0].maximum_sliding_elastic_energy_law_error_J,number,0.0
+runs[0].maximum_full_linear_impulse_residual_kg_m_s,number,7.571426386251728e-18
+runs[0].maximum_full_angular_impulse_residual_kg_m2_s,number,1.5087774372967225e-21
+runs[0].maximum_net_vertical_force_residual_N,number,0.0
+runs[0].initial_total_mechanical_energy_J,number,8.879907828826147e-05
+runs[0].final_total_mechanical_energy_J,number,6.355388322056269e-05
+runs[0].dissipated_mechanical_energy_J,number,2.5245195067698776e-05
+runs[0].final_sliding_elastic_energy_J,number,1.4857401479471086e-13
+runs[0].first_native_contact_time_s,number,1e-05
+runs[0].initial_force_reconstruction,string,Saved force excludes gravity and step-zero is pre-contact-assembly. Derived impulse subtracts mg at every step and uses Fn0=kn*(R-z0) at t0; Fx0 and torque0 remain zero. Raw CSV is unchanged.
+runs[1].run,string,gpu
+runs[1].label,string,GPU dt
+runs[1].dt_s,number,1e-05
+runs[1].native_steps,number,75000
+runs[1].frames,number,751
+runs[1].trajectory_csv_rows,number,75001
+runs[1].contact_csv_rows,number,75000
+runs[1].archive,string,Omitted historical artifact location.
+runs[1].project,string,Omitted historical artifact location.
+runs[1].final_vx_m_s,number,0.7142368054942138
+runs[1].final_omega_y_rad_s,number,285.76117471944315
+runs[1].final_geometric_slip_m_s,number,-0.00016102510132287584
+runs[1].final_nominal_slip_m_s,number,-0.00016613130439413482
+runs[1].relative_vx_error_to_analytic,number,6.847230810080873e-05
+runs[1].relative_omega_error_to_analytic,number,0.00016411151805106883
+runs[1].signed_relative_vx_error_to_analytic,number,-6.847230810080873e-05
+runs[1].signed_relative_omega_error_to_analytic,number,0.00016411151805106883
+runs[1].passes_official_vx_tolerance,boolean,true
+runs[1].passes_official_omega_tolerance,boolean,true
+runs[1].passes_official_analytic_tolerance,boolean,true
+runs[1].first_geometric_slip_zero_time_s,number,0.7142964117319713
+runs[1].sliding_friction_ratio_mean,number,0.4
+runs[1].maximum_coulomb_ratio,number,0.4
+runs[1].minimum_normal_force_over_weight,number,0.9814083406639572
+runs[1].maximum_normal_force_over_weight,number,1.0185916579527066
+runs[1].maximum_normal_force_law_error_over_weight,number,0.0
+runs[1].maximum_tangential_force_law_error_over_coulomb_force,number,1.917290389578219e-16
+runs[1].maximum_torque_lever_arm_error_m,number,4.336808689942018e-19
+runs[1].sliding_effective_torque_arm_mean_m,number,0.002499982328493367
+runs[1].maximum_x_velocity_impulse_residual_m_s,number,1.1052424708953013e-16
+runs[1].maximum_angular_impulse_residual_rad_s,number,5.6364635181438416e-14
+runs[1].maximum_absolute_y_m,number,0.0
+runs[1].maximum_other_spin_rad_s,number,0.0
+runs[1].minimum_z_m,number,0.002499981999999477
+runs[1].maximum_z_m,number,0.00249998265708295
+runs[1].final_normal_contact_overlap_m,number,1.7868778276908942e-08
+runs[1].tail_geometric_slip_RMS_m_s,number,0.00012599493703868548
+runs[1].tail_nominal_slip_RMS_m_s,number,0.00012611110618519742
+runs[1].final_kinetic_energy_fraction,number,0.714282836769069
+runs[1].maximum_native_point_height_error_m,number,2.2985086056692694e-16
+runs[1].automatic_normal_damping_coefficient_N_s_m,number,0.0
+runs[1].automatic_tangential_damping_coefficient_N_s_m,number,0.0
+runs[1].maximum_spring_return_mapping_residual_m,number,9.926167350636332e-24
+runs[1].maximum_normal_elastic_energy_law_error_J,number,2.0194839173657902e-28
+runs[1].maximum_sliding_elastic_energy_law_error_J,number,0.0
+runs[1].maximum_full_linear_impulse_residual_kg_m_s,number,7.750429744379098e-18
+runs[1].maximum_full_angular_impulse_residual_kg_m2_s,number,3.017554874593445e-21
+runs[1].maximum_net_vertical_force_residual_N,number,0.0
+runs[1].initial_total_mechanical_energy_J,number,8.879907828826147e-05
+runs[1].final_total_mechanical_energy_J,number,6.35538832205616e-05
+runs[1].dissipated_mechanical_energy_J,number,2.5245195067699874e-05
+runs[1].final_sliding_elastic_energy_J,number,1.485741436786416e-13
+runs[1].first_native_contact_time_s,number,1e-05
+runs[1].initial_force_reconstruction,string,Saved force excludes gravity and step-zero is pre-contact-assembly. Derived impulse subtracts mg at every step and uses Fn0=kn*(R-z0) at t0; Fx0 and torque0 remain zero. Raw CSV is unchanged.
+runs[2].run,string,cpu-dt-half
+runs[2].label,string,CPU dt/2
+runs[2].dt_s,number,5e-06
+runs[2].native_steps,number,150000
+runs[2].frames,number,751
+runs[2].trajectory_csv_rows,number,150001
+runs[2].contact_csv_rows,number,150000
+runs[2].archive,string,Omitted historical artifact location.
+runs[2].project,string,Omitted historical artifact location.
+runs[2].final_vx_m_s,number,0.7142374452055252
+runs[2].final_omega_y_rad_s,number,285.7605351278976
+runs[2].final_geometric_slip_m_s,number,-0.00015874916771108083
+runs[2].final_nominal_slip_m_s,number,-0.00016389261421878576
+runs[2].relative_vx_error_to_analytic,number,6.757671226464979e-05
+runs[2].relative_omega_error_to_analytic,number,0.00016187294764158366
+runs[2].signed_relative_vx_error_to_analytic,number,-6.757671226464979e-05
+runs[2].signed_relative_omega_error_to_analytic,number,0.00016187294764158366
+runs[2].passes_official_vx_tolerance,boolean,true
+runs[2].passes_official_omega_tolerance,boolean,true
+runs[2].passes_official_analytic_tolerance,boolean,true
+runs[2].first_geometric_slip_zero_time_s,number,0.7142930192423208
+runs[2].sliding_friction_ratio_mean,number,0.4
+runs[2].maximum_coulomb_ratio,number,0.4
+runs[2].minimum_normal_force_over_weight,number,0.9814083507258972
+runs[2].maximum_normal_force_over_weight,number,1.0185916478907666
+runs[2].maximum_normal_force_law_error_over_weight,number,0.0
+runs[2].maximum_tangential_force_law_error_over_coulomb_force,number,1.917290389578219e-16
+runs[2].maximum_torque_lever_arm_error_m,number,4.336808689942018e-19
+runs[2].sliding_effective_torque_arm_mean_m,number,0.002499982328462923
+runs[2].maximum_x_velocity_impulse_residual_m_s,number,1.1075696939178824e-16
+runs[2].maximum_angular_impulse_residual_rad_s,number,5.669726840795697e-14
+runs[2].maximum_absolute_y_m,number,0.0
+runs[2].maximum_other_spin_rad_s,number,0.0
+runs[2].minimum_z_m,number,0.00249998199999963
+runs[2].maximum_z_m,number,0.0024999826570828378
+runs[2].final_normal_contact_overlap_m,number,1.7999149201468334e-08
+runs[2].tail_geometric_slip_RMS_m_s,number,0.00012703163838370855
+runs[2].tail_nominal_slip_RMS_m_s,number,0.00012712081715510616
+runs[2].final_kinetic_energy_fraction,number,0.7142828367252032
+runs[2].maximum_native_point_height_error_m,number,2.3028454143592114e-16
+runs[2].automatic_normal_damping_coefficient_N_s_m,number,0.0
+runs[2].automatic_tangential_damping_coefficient_N_s_m,number,0.0
+runs[2].maximum_spring_return_mapping_residual_m,number,1.1100763820461631e-21
+runs[2].maximum_normal_elastic_energy_law_error_J,number,2.0194839173657902e-28
+runs[2].maximum_sliding_elastic_energy_law_error_J,number,0.0
+runs[2].maximum_full_linear_impulse_residual_kg_m_s,number,1.319587810728681e-17
+runs[2].maximum_full_angular_impulse_residual_kg_m2_s,number,5.955700410381799e-21
+runs[2].maximum_net_vertical_force_residual_N,number,0.0
+runs[2].initial_total_mechanical_energy_J,number,8.879907828826147e-05
+runs[2].final_total_mechanical_energy_J,number,6.355388323344652e-05
+runs[2].dissipated_mechanical_energy_J,number,2.5245195054814944e-05
+runs[2].final_sliding_elastic_energy_J,number,1.6499272779052545e-13
+runs[2].first_native_contact_time_s,number,5e-06
+runs[2].initial_force_reconstruction,string,Saved force excludes gravity and step-zero is pre-contact-assembly. Derived impulse subtracts mg at every step and uses Fn0=kn*(R-z0) at t0; Fx0 and torque0 remain zero. Raw CSV is unchanged.
+runs[3].run,string,gpu-dt-half
+runs[3].label,string,GPU dt/2
+runs[3].dt_s,number,5e-06
+runs[3].native_steps,number,150000
+runs[3].frames,number,751
+runs[3].trajectory_csv_rows,number,150001
+runs[3].contact_csv_rows,number,150000
+runs[3].archive,string,Omitted historical artifact location.
+runs[3].project,string,Omitted historical artifact location.
+runs[3].final_vx_m_s,number,0.7142374452025353
+runs[3].final_omega_y_rad_s,number,285.76053513094047
+runs[3].final_geometric_slip_m_s,number,-0.00015874917829761248
+runs[3].final_nominal_slip_m_s,number,-0.00016389262481586453
+runs[3].relative_vx_error_to_analytic,number,6.757671645063468e-05
+runs[3].relative_omega_error_to_analytic,number,0.00016187295829150905
+runs[3].signed_relative_vx_error_to_analytic,number,-6.757671645063468e-05
+runs[3].signed_relative_omega_error_to_analytic,number,0.00016187295829150905
+runs[3].passes_official_vx_tolerance,boolean,true
+runs[3].passes_official_omega_tolerance,boolean,true
+runs[3].passes_official_analytic_tolerance,boolean,true
+runs[3].first_geometric_slip_zero_time_s,number,0.7142930192436437
+runs[3].sliding_friction_ratio_mean,number,0.4
+runs[3].maximum_coulomb_ratio,number,0.4
+runs[3].minimum_normal_force_over_weight,number,0.9814083507258972
+runs[3].maximum_normal_force_over_weight,number,1.0185916478907666
+runs[3].maximum_normal_force_law_error_over_weight,number,0.0
+runs[3].maximum_tangential_force_law_error_over_coulomb_force,number,1.917290389578219e-16
+runs[3].maximum_torque_lever_arm_error_m,number,4.336808689942018e-19
+runs[3].sliding_effective_torque_arm_mean_m,number,0.0024999823284629226
+runs[3].maximum_x_velocity_impulse_residual_m_s,number,1.1077412180897014e-16
+runs[3].maximum_angular_impulse_residual_rad_s,number,5.630066725326177e-14
+runs[3].maximum_absolute_y_m,number,0.0
+runs[3].maximum_other_spin_rad_s,number,0.0
+runs[3].minimum_z_m,number,0.0024999819999996747
+runs[3].maximum_z_m,number,0.002499982657082805
+runs[3].final_normal_contact_overlap_m,number,1.7999149238331208e-08
+runs[3].tail_geometric_slip_RMS_m_s,number,0.00012703163290002603
+runs[3].tail_nominal_slip_RMS_m_s,number,0.00012712081180938387
+runs[3].final_kinetic_energy_fraction,number,0.7142828367252799
+runs[3].maximum_native_point_height_error_m,number,2.3028454143592114e-16
+runs[3].automatic_normal_damping_coefficient_N_s_m,number,0.0
+runs[3].automatic_tangential_damping_coefficient_N_s_m,number,0.0
+runs[3].maximum_spring_return_mapping_residual_m,number,9.926167350636332e-24
+runs[3].maximum_normal_elastic_energy_law_error_J,number,2.0194839173657902e-28
+runs[3].maximum_sliding_elastic_energy_law_error_J,number,0.0
+runs[3].maximum_full_linear_impulse_residual_kg_m_s,number,5.55585416388245e-18
+runs[3].maximum_full_angular_impulse_residual_kg_m2_s,number,4.552802091491864e-21
+runs[3].maximum_net_vertical_force_residual_N,number,0.0
+runs[3].initial_total_mechanical_energy_J,number,8.879907828826147e-05
+runs[3].final_total_mechanical_energy_J,number,6.355388323345319e-05
+runs[3].dissipated_mechanical_energy_J,number,2.5245195054808276e-05
+runs[3].final_sliding_elastic_energy_J,number,1.6499261493022623e-13
+runs[3].first_native_contact_time_s,number,5e-06
+runs[3].initial_force_reconstruction,string,Saved force excludes gravity and step-zero is pre-contact-assembly. Derived impulse subtracts mg at every step and uses Fn0=kn*(R-z0) at t0; Fx0 and torque0 remain zero. Raw CSV is unchanged.
+cpu_gpu_comparison[0].runs[0],string,cpu
+cpu_gpu_comparison[0].runs[1],string,gpu
+cpu_gpu_comparison[0].maximum_absolute_position_difference_m,number,9.325873406851315e-15
+cpu_gpu_comparison[0].maximum_absolute_velocity_difference_m_s,number,1.957012329967256e-11
+cpu_gpu_comparison[0].maximum_absolute_spin_difference_rad_s,number,1.9562207853596192e-08
+cpu_gpu_comparison[1].runs[0],string,cpu-dt-half
+cpu_gpu_comparison[1].runs[1],string,gpu-dt-half
+cpu_gpu_comparison[1].maximum_absolute_position_difference_m,number,2.942091015256665e-14
+cpu_gpu_comparison[1].maximum_absolute_velocity_difference_m_s,number,1.2139239781251515e-11
+cpu_gpu_comparison[1].maximum_absolute_spin_difference_rad_s,number,8.379743121622596e-09
+timestep_convergence.cpu_final_vx_change_m_s,number,6.396948096787369e-07
+timestep_convergence.cpu_final_omega_change_rad_s,number,0.0006395750574483827
+timestep_convergence.gpu_final_vx_change_m_s,number,6.397083215370358e-07
+timestep_convergence.gpu_final_omega_change_rad_s,number,0.0006395885026790893
+notes[0],string,"Official analytic acceptance checks final vx=5u0/7 and omega_y=5u0/(7R), each within 1%."
+notes[1],string,"LAMMPS wall uses nominal R for contact slip and friction torque. FunDEM uses the native plane contact point, at arm R-delta=z."
+notes[2],string,The geometric constant-height model explains the different rolling limit; it is not the official acceptance target and is not a fitted input.
+notes[3],string,Finite Hooke-history spring oscillations persist after the first slip reversal. A first zero crossing is not sustained exact zero slip.
+notes[4],string,Final-time acceptance does not assert zero instantaneous slip; finite spring oscillations persist with zero contact damping.
+notes[5],string,Official explicit Hooke kn=10000 N/m and tangential kt=2800 N/m are used directly. E/nu are inactive schema placeholders; e=1 gives zero automatic damping. No coefficient was fitted.
+notes[6],string,"Native result frames are saved every 1 ms (751 per run), with every numerical step separately retained in trajectory and contacts CSV."
+notes[7],string,Unwrapped free x/y on the uniform plane is equivalent here to periodic x/y; wrapped x uses xmin=-0.05 and length=0.55 m. Upper wall z=1 is inactive.
+notes[8],string,Official epsilon=1e-10 is a same-code regression threshold; analytic pass/fail is reported separately.
+notes[9],string,No local LAMMPS executable was run. Reference states are from pinned official YAML. Native library identity with installed GUI binary is not established.

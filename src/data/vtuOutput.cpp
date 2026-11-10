@@ -376,6 +376,9 @@ void addBondField(vtuWriter& writer, const bondContainer& bonds, const MasterSto
     case bondVTUField::force:
         writer.addPointData("force", collectValues(bonds, [](const bond& value) { return value.force(); }));
         break;
+    case bondVTUField::torque:
+        writer.addPointData("torque", collectValues(bonds, [](const bond& value) { return value.torque(); }));
+        break;
     case bondVTUField::masterTorque:
         writer.addPointData("masterTorque", collectValues(bonds, [](const bond& value) { return value.masterTorque(); }));
         break;
@@ -460,11 +463,44 @@ void addBondField(vtuWriter& writer, const bondContainer& bonds, const MasterSto
     case bondVTUField::modeMixityExponent:
         writer.addPointData("modeMixityExponent", collectValues(bonds, [](const bond& value) { return value.modeMixityExponent(); }));
         break;
-    case bondVTUField::damageInitiationRatio:
-        writer.addPointData("damageInitiationRatio", collectValues(bonds, [](const bond& value) { return value.damageInitiationRatio(); }));
+    case bondVTUField::tensileStrength:
+        writer.addPointData("tensileStrength", collectValues(bonds, [](const bond& value) { return value.tensileStrength(); }));
         break;
-    case bondVTUField::maximumEnergyReleaseRatio:
-        writer.addPointData("maximumEnergyReleaseRatio", collectValues(bonds, [](const bond& value) { return value.maximumEnergyReleaseRatio(); }));
+    case bondVTUField::cohesion:
+        writer.addPointData("cohesion", collectValues(bonds, [](const bond& value) { return value.cohesion(); }));
+        break;
+    case bondVTUField::internalFrictionCoefficient:
+        writer.addPointData("internalFrictionCoefficient", collectValues(bonds, [](const bond& value) { return value.internalFrictionCoefficient(); }));
+        break;
+    case bondVTUField::damageStarted:
+        writer.addPointData("damageStarted", collectValues(bonds, [](const bond& value) { return (value.getDamageStarted() ? 1 : 0); }));
+        break;
+    case bondVTUField::onsetEffectiveStress:
+        writer.addPointData("onsetEffectiveStress", collectValues(bonds, [](const bond& value) { return value.getOnsetEffectiveStress(); }));
+        break;
+    case bondVTUField::onsetEffectiveDisplacement:
+        writer.addPointData("onsetEffectiveDisplacement", collectValues(bonds, [](const bond& value) { return value.getOnsetEffectiveDisplacement(); }));
+        break;
+    case bondVTUField::maximumEffectiveDisplacement:
+        writer.addPointData("maximumEffectiveDisplacement", collectValues(bonds, [](const bond& value) { return value.getMaximumEffectiveDisplacement(); }));
+        break;
+    case bondVTUField::failureEffectiveDisplacement:
+        writer.addPointData("failureEffectiveDisplacement", collectValues(bonds, [](const bond& value) { return value.getFailureEffectiveDisplacement(); }));
+        break;
+    case bondVTUField::normalStiffness:
+        writer.addPointData("normalStiffness", collectValues(bonds, [](const bond& value) { return value.normalStiffness(); }));
+        break;
+    case bondVTUField::shearStiffness:
+        writer.addPointData("shearStiffness", collectValues(bonds, [](const bond& value) { return value.shearStiffness(); }));
+        break;
+    case bondVTUField::bendingStiffness:
+        writer.addPointData("bendingStiffness", collectValues(bonds, [](const bond& value) { return value.bendingStiffness(); }));
+        break;
+    case bondVTUField::torsionalStiffness:
+        writer.addPointData("torsionalStiffness", collectValues(bonds, [](const bond& value) { return value.torsionalStiffness(); }));
+        break;
+    case bondVTUField::effectiveFractureEnergy:
+        writer.addPointData("effectiveFractureEnergy", collectValues(bonds, [](const bond& value) { return value.getEffectiveFractureEnergy(); }));
         break;
     }
 }

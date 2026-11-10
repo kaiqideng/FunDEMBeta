@@ -6,6 +6,8 @@
 
 | Test | File | Coverage |
 | --- | --- | --- |
+| `FunDEM.BondDefinition` | `BondDefinitionTest.cpp` | Fracture modes, bounding-sphere reference geometry, derived endpoint torques without persistent fields, partial compression/full failure, serial/parallel CPU scatter, and guarded CUDA readback using current particle poses |
+| `FunDEM.BondFracture` | `BondFractureTest.cpp` | Constitutive reference cases for strength onset, frozen BK mixity, stress-based equivalent lengths, compression preservation, elastic formulas/TBT convention, stiffness lifecycle, unloading and guarded CPU/GPU checks |
 | `FunDEM.Physics` | `PhysicsTest.cpp` | Mass/inertia, contacts, bonds, materials, geometry, execution modes, SPH wall-reaction conservation, and important degenerate states |
 | `FunDEM.MaterialPair` | `MaterialPairTest.cpp` | Four-property bulk materials, two group switches, explicit zero overrides, LS unset sentinels, stable symmetric pair indices, append-only growth, and move semantics |
 | `FunDEM.ContactPairResponse` | `ContactPairResponseTest.cpp` | Hertz–Mindlin defaults and energy, final pair overrides, group-controlled dashpots, LS nodal damping weights, and missing LS-pair configuration |
@@ -28,9 +30,9 @@
 
 ## Key Rules
 
-- Pure C++ unit tests, including `FunDEM.MaterialPair` and `FunDEM.ContactPairResponse`, and the CPU integration test `FunDEM.Fiber` are always built; CUDA-specific tests are added when CUDA is enabled.
+- With `BUILD_TESTING=ON`, pure C++ unit tests, including `FunDEM.MaterialPair` and `FunDEM.ContactPairResponse`, and the CPU integration test `FunDEM.Fiber` are registered; CUDA-specific tests are added when CUDA is enabled. Registration does not imply that every source currently compiles.
 - All test targets enable the project's standard compiler warnings.
-- CTest labels use `unit;cpu`, `unit;cuda`, or `integration;cpu`.
+- Standard CTest labels use `unit;cpu`, `unit;cuda`, or `integration;cpu`; the prescribed-pose Bond smoke family additionally uses `constitutive;smoke`.
 - Long physical validation belongs in an explicitly labeled integration test or the repository-root [`example/`](../../example/README.md), not in the unit-test suite.
 
 When the ON-DEM validation check targets are built, CMake additionally registers
@@ -51,6 +53,76 @@ ctest --test-dir build --output-on-failure
 ```
 
 The CMake source directory remains the repository root. Test sources live in `FunDEMBeta/src/tests/`, and single-configuration builds place their executables in `build/src/tests/`. For example, run `build/src/tests/fundem_physics_test` directly when diagnosing `FunDEM.Physics`.
+
+The prescribed-loading Bond fracture programs live in
+[`BondFracture/`](BondFracture/README.md), alongside the focused
+`FunDEM.BondFracture` unit test in `BondFractureTest.cpp`. Build them with the
+`bondFractureTests` aggregate target. They require `BUILD_TESTING=ON` and remain
+available with `FUNDEM_BUILD_VALIDATIONS=OFF`; they are internal constitutive
+checks rather than official external-reference comparison cases. Their
+single-configuration executables are in `build/src/tests/BondFracture/`.
+See the family README for the CPU/GPU loading-increment campaign at
+`h`, `h/2` and `h/4`, and the five independently registered constitutive smoke
+checks. A smoke pass does not replace the strict parity/refinement campaign
+or establish specimen-scale physical validation.
+
+### Current Bond law and regression scope
+
+The authoritative implementation is the live shared
+[`execution/bondFunctions.h`](../execution/bondFunctions.h), called by host
+`bond::calculateForce()` and the CUDA Bond kernel. It retains the original
+trial force and moment. Modal energies use squared-vector forms; bending
+uses stored original `kb`, and stored torsion is `max(Ut_raw,0)`.
+
+The current damage mapping is:
+
+```text
+sigma_a = -dot(F,n)/A
+sigma_b = |M_perp|*R/I
+tau = |F_perp|/A + |dot(M,n)|*R/J
+sigma_criterion = sigma_a + sigma_b
+sigma_open = max(sigma_a,0) + sigma_b
+U_open = (sigma_a>0 ? max(Un,0) : 0) + max(Ub,0)
+U_shear = max(Us,0) + max(Ut,0)
+dn = sigma_open>0 ? 2*U_open/(A*sigma_open) : 0
+ds = tau>0 ? 2*U_shear/(A*tau) : 0
+d = hypot(dn,ds)
+sigma_e0 = hypot(sigma_open,tau) at onset
+df = 2*Gc/sigma_e0
+```
+
+The helper no longer accepts axial displacement or normal/shear stiffness
+arguments. It freezes BK toughness and the onset values at the sampled
+strength crossing; maximum displacement and damage remain irreversible.
+`sigma_criterion` and `sigma_open` have different roles under compression
+and bending. The old `sqrt(2*U/k)` lengths and onset radial traction are not
+the current law. The retained `bond::isValid()` guard still requires positive
+normal/shear stiffness for positive-energy damage mode.
+
+Unbreakable mode skips fracture; brittle mode checks strength irrespective
+of stored energies. Damage mode with both critical energies zero also fails
+at strength onset. Otherwise zero onset toughness or equivalent length, or
+`df<=d0`, gives immediate failure. Pure axial compression is preserved for
+partial damage; full removal also releases any retained compression energy.
+The current definitions do not by themselves establish mechanical fracture
+work equal to `A*Gc`.
+
+`BondFractureTest.cpp`, `PhysicsTest.cpp` and
+`BondFracture/bondValidation.h` use the current helper signatures: three
+section-stress outputs (axial, bending, shear), without retired displacement
+or stiffness inputs to `updateBondDamage()`. Current numerical references
+must use the stress-based lengths and onset norm above, not the retired
+square-root/stiffness mapping or radial-traction work identity.
+
+**Updating a regression is not a verification pass.** Retain actual build,
+CTest, backend-parity and refinement logs for the source being delivered.
+The `BondFracture/` family README and saved reports include historical
+formulas, source snapshots and FAIL records; preserve that evidence, but
+do not read its old law or campaign verdicts as current implementation
+documentation. See the
+[Bond user guide](../../docs/UserGuide.md#94-strength-initiation-and-bk-softening)
+for current formulas and limits. Constitutive checks do not establish
+specimen-scale physical validation or free-integrator accuracy.
 
 Run only one backend label:
 
@@ -76,6 +148,11 @@ ctest --test-dir build -L cuda --output-on-failure
 
 ## Labels and Intended Runtime
 
+`FunDEM.RuntimeParticleMutation` directly checks component-selective sphere
+and LS velocity resets: removed kinetic energy, no-op switches, unchanged
+unselected state and continued integration. CUDA builds also exercise GPU
+and Hybrid execution in this same C++ fixture.
+
 - `unit;cpu`: fast host tests suitable for every edit.
 - `unit;cuda`: fast device tests requiring a CUDA-capable runtime.
 - `integration;cpu`: longer physical evolution such as the fiber convergence test.
@@ -87,7 +164,7 @@ when compiled with CUDA. A registered test or coverage description is not a
 claim that it has passed on the current machine; retain the actual CTest output
 when reporting verification.
 
-Use `ctest --test-dir build -L unit` during normal development. Run integration tests before publishing changes to time integration, force assembly, damping, bonds, or convergence criteria. Examples and tutorials are not registered as tests because they are user workflows and may produce substantial output.
+Use `ctest --test-dir build -L unit` during normal development. Run integration tests before publishing changes to time integration, force assembly, damping, bonds, or convergence criteria. Tutorials and the native C++ template in [`example/`](../../example/README.md) are runnable programs, not registered CTest checks. The template builds as `fundem_example` when `FUNDEM_BUILD_EXAMPLES=ON`; its output does not establish a physical-validation pass.
 
 ## Writing a Focused Test
 

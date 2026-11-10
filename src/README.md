@@ -16,7 +16,7 @@ This directory contains FunDEMBeta's eight library modules and the test suite. E
 
 ## Build and include paths
 
-The project entry point is the repository-root [`CMakeLists.txt`](../CMakeLists.txt). Open a terminal in the parent `workplace/` directory containing `FunDEMBeta/` and keep it there for all commands:
+The core component's entry point is its top-level [`CMakeLists.txt`](../CMakeLists.txt). Open a terminal in the parent `workplace/` directory containing `FunDEMBeta/` and keep it there for all commands:
 
 ```bash
 cmake -S FunDEMBeta -B build -DFUNDEM_ENABLE_CUDA=OFF -DBUILD_TESTING=ON
@@ -31,6 +31,12 @@ CMake exposes this `src/` directory as the build include root. Public include di
 ```
 
 Applications should link `FunDEM::FunDEM` to receive the include paths and transitive dependencies. Installation keeps public headers under `include/FunDEM/<module>/`. A single-configuration build places test executables under `build/src/tests/`; invoke CTest from `workplace/` with `--test-dir build`.
+
+These are build/test entry points, not a report that every registered test
+passes for a particular configuration. The
+[test guide](tests/README.md#current-bond-law-and-regression-scope) separates
+current constitutive references from historical campaign results. Record the
+actual source revision, build configuration and CTest output for each run.
 
 ## Repository-level resources
 

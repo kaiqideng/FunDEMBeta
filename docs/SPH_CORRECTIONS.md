@@ -1,6 +1,6 @@
 # SPH State, Coupling, and Search Corrections
 
-Documentation reviewed against the source on October 30, 2026. The search and robustness notes originated in the September 2026 review; the current coupling schedule below supersedes its endpoint impulse correction. This review updates the description, not the numerical algorithm, and is not a new simulation-validation result.
+Documentation checked against the current source, including explicit runtime mutation. The search and robustness notes originated in the September 2026 review; the current coupling schedule below supersedes its endpoint impulse correction. This review updates the description, not the numerical algorithm, and is not a new simulation-validation result.
 
 This note distinguishes committed numerical integration from current-time observations. FunDEM keeps SPH drift-kick-drift (DKD) and DEM kick-drift-kick (KDK); it does not claim to implement every feature of SPHinXsys.
 
@@ -133,6 +133,46 @@ held loads, source ownership, and search phase described in section 1.
 Refer to the application's current user documentation for its storage limits,
 cleanup policy, and supported reload behavior, rather than using historical
 workbench-version notes as a core-library contract.
+
+## 10. Explicit completed-step state changes
+
+Affected code: `solver::prepareRuntimeMutation()`,
+`SPHDEM::commitDeferredStateForMutation()`,
+`SPHDEM::initializeRuntimeState()`, and the solid reset/removal interfaces.
+
+This is distinct from a reversible observation or an unchanged continuation.
+The caller must stop between completed steps on the solver's owning thread.
+Before a physical runtime edit, `prepareRuntimeMutation()` synchronizes the
+current host state. For SPH, the mutation hook accepts the represented
+common-time fluid state and discards the now-incompatible leading acoustic
+endpoint. It invalidates interval/search caches but retains inlet source
+schedules, already-created particle membership, and permanent released-layer
+prefixes. Source completion is recomputed at the retained solver time rather
+than inherited from a discarded future endpoint. There is no additional step or
+reset of the solver clock.
+
+`resetLSParticleVelocities(indices, resetLinear, resetAngular)` changes only the
+selected velocity components; both switches default to `true`. The sphere
+counterpart, `resetSphereVelocities()`, has the same contract. Each returns
+only the kinetic energy removed by the selected reset.
+`removeLSParticles()` compacts solids and returns an old-to-new particle map.
+Incident Contacts are removed, retained Contacts keep their springs, and any
+Bond referencing a removed solid is rejected. Neither operation deletes SPH
+fluid particles. Their lifetime policy is outside this library.
+
+The next initialization rebuilds virtual-wall samples for the remaining solids,
+SPH neighborhoods, coupling references, and current forces. Contact history is
+held fixed and Bond damage evolution is disabled during the zero-history-time
+force refresh. GPU/Hybrid rebuild device state from the accepted host state;
+this infrequent refresh includes a host reduction/assembly, unlike ordinary
+device integration. It must not upload a stale pre-mutation fluid prefix or
+resume the old acoustic plan. Generic cache preparation belongs here; event
+definitions, convergence thresholds and archive timelines do not.
+
+These operations intentionally alter the physical state or model. They are not
+claimed to reproduce an uninterrupted unmodified trajectory. An unchanged
+pause/resume continues to use the private-endpoint restoration described in
+section 1 and must not take this mutation path merely to inspect state.
 
 ## Focused verification
 

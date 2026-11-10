@@ -1,217 +1,61 @@
-/**
- * @file tutorial2.cpp
- * @brief Demonstrates a bonded spherical-particle cloth falling onto a level-set box.
- */
-#include "data/myLSObject.h"
-#include "execution/cpu/parallelPolicy.h"
-#include "interaction/bond.h"
-#include "material/material.h"
-#include "material/materialPair.h"
-#include "particle/LSParticle.h"
-#include "particle/particle.h"
-#include "solver/SphereDEM.h"
-#include "tutorialOptions.h"
+/** @file tutorial2.cpp @brief A five-sphere bonded beam bending under gravity. */
+#include "solver/solvers.h"
 
-#if FUNDEM_HAS_CUDA
-#include "tutorial2DampingKernel.cuh"
-#endif
-
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <exception>
-#include <iostream>
-#include <stdexcept>
-#include <vector>
-
-namespace
+int main()
 {
+    using namespace fundem;
+    using Real = math::Real;
 
-using fundem::math::Real;
-using fundem::math::Vec3;
+    // 1. Choose dimensions/material properties in SI units and run settings.
+    constexpr int particleCount = 5;
+    constexpr Real radius = 0.01, pitch = 0.025, density = 1000.0;
+    constexpr Real young = 5.0e5, poisson = 0.3, timeStep = 2.0e-5;
+    constexpr int steps = 5000;
+    SphereDEM simulation(executionMode::CPU);
+    const int materialIndex = simulation.addMaterial(material{young, poisson, 1.0, density});
 
-/** Applies the Workbench sample's linear and angular particle damping after force assembly. */
-class ClothSimulation : public fundem::SphereDEM
-{
-public:
-    /** Configures the execution backend and the two independent drag coefficients. */
-    ClothSimulation(fundem::executionMode mode, int device, Real velocityDampingRate, Real rotationalDragCoefficient)
-        : SphereDEM(mode, device), velocityDampingRate_(velocityDampingRate), rotationalDragCoefficient_(rotationalDragCoefficient)
-    {}
+    // 2. Disable ordinary sphere contact stiffness to isolate the bonds.
+    materialPair contacts{materialIndex, materialIndex};
+    contacts.setLinearStiffness(0.0, 0.0);
+    simulation.setMaterialPair(contacts);
 
-protected:
-    /** Adds F = -gamma m v and T = -c omega to finite-mass cloth spheres. */
-    void addSphereExternalForceAndTorque(fundem::particleContainer::host_container_type& particles) override
+    // 3. Add five spheres; infinite mass fixes the first one as the beam root.
+    for (int index = 0; index < particleCount; ++index)
     {
-        const int particleCount = static_cast<int>(particles.size());
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(static) if (particleCount >= fundem::cpu::parallelParticleThreshold)
-#endif
-        for (int particleIndex = 0; particleIndex < particleCount; ++particleIndex)
-        {
-            fundem::particle& value = particles[particleIndex];
-            if (value.inverseMass() > 0.0)
-            {
-                value.addForce(-(velocityDampingRate_ / value.inverseMass()) * value.velocity());
-                value.addTorque(-rotationalDragCoefficient_ * value.angularVelocity());
-            }
-        }
+        particle value;
+        value.setPosition({pitch * index, 0.0, 0.0});
+        value.setRadius(radius);
+        value.setMaterial(simulation.materials(), materialIndex);
+        if (index == 0)
+            value.setInfiniteMass();
+        simulation.addSphere(value);
     }
 
-#if FUNDEM_HAS_CUDA
-    /** Enqueues the same damping for both GPU and hybrid execution. */
-    void addSphereExternalForceAndTorque(fundem::particle::device_type particles, cudaStream_t stream) override
+    // 4. Connect adjacent particle indices. Circular-section axial/shear
+    // stiffnesses use N/m; bending/torsional stiffnesses use N m.
+    constexpr Real area = math::pi * radius * radius;
+    constexpr Real secondMoment = 0.25 * area * radius * radius;
+    constexpr Real shearModulus = young / (2.0 * (1.0 + poisson));
+    for (int index = 0; index + 1 < particleCount; ++index)
     {
-        fundem::tutorial::launchClothDamping(particles, velocityDampingRate_, rotationalDragCoefficient_, stream);
+        bond connection{pitch};
+        connection.setCrossSectionArea(0.0); // Disable fracture, not elastic stiffness.
+        if (!connection.setConnection(simulation.spheres(), index, index + 1) ||
+            !connection.setStiffness(young * area / pitch,
+                12.0 * young * secondMoment / (pitch * pitch * pitch),
+                young * secondMoment / pitch, 2.0 * shearModulus * secondMoment / pitch))
+            return 1; // Both setters report failure through their return values.
+        simulation.addBond(connection);
     }
-#endif
 
-private:
-    Real velocityDampingRate_;        ///< Mass-proportional translational damping rate, in inverse seconds.
-    Real rotationalDragCoefficient_; ///< Isotropic rotational drag coefficient, in N m s.
-};
-
-/** Particle centers and neighbor edges of one triangular cloth lattice. */
-struct ClothMesh {
-    std::vector<Vec3> positions_;          ///< Row-major sphere centers matching the software HCP packing.
-    std::vector<std::array<int, 2>> edges_; ///< Unique nearest-neighbor pairs with the smaller index first.
-};
-
-/** Builds a horizontal staggered triangular lattice and its nearest-neighbor edges. */
-ClothMesh makeClothMesh(const Vec3& origin, int columnCount, int rowCount, Real particleDiameter)
-{
-    ClothMesh result;
-    const Real radius = 0.5 * particleDiameter;
-    const Real rowSpacing = std::sqrt(3.0) * radius;
-    result.positions_.reserve(columnCount * rowCount);
-    result.edges_.reserve(rowCount * (columnCount - 1) + (rowCount - 1) * (2 * columnCount - 1));
-
-    for (int rowIndex = 0; rowIndex < rowCount; ++rowIndex)
-    {
-        const Real xOffset = rowIndex % 2 == 0 ? 0.0 : radius;
-        for (int columnIndex = 0; columnIndex < columnCount; ++columnIndex)
-        {
-            const int particleIndex = rowIndex * columnCount + columnIndex;
-            result.positions_.push_back(origin + Vec3{columnIndex * particleDiameter + xOffset, rowIndex * rowSpacing, 0.0});
-            if (columnIndex > 0)
-            {
-                result.edges_.push_back({particleIndex - 1, particleIndex});
-            }
-            if (rowIndex > 0)
-            {
-                result.edges_.push_back({particleIndex - columnCount, particleIndex});
-                const int secondNeighbor = rowIndex % 2 == 0 ? columnIndex - 1 : columnIndex + 1;
-                if (secondNeighbor >= 0 && secondNeighbor < columnCount)
-                {
-                    result.edges_.push_back({(rowIndex - 1) * columnCount + secondNeighbor, particleIndex});
-                }
-            }
-        }
-    }
-    return result;
-}
-
-} // namespace
-
-int main(int argc, char** argv)
-{
-    try
-    {
-        using namespace fundem;
-
-        constexpr Real clothSideLength = 0.60;
-        constexpr int clothColumnCount = 93;
-        constexpr int clothRowCount = 107;
-        constexpr Real particleDiameter = clothSideLength / (clothColumnCount + 0.5);
-        constexpr Real particleRadius = 0.5 * particleDiameter;
-        constexpr Real clothDensity = 1500.0;
-        constexpr Real youngsModulus = 1.0e6;
-        constexpr Real poissonRatio = 0.3;
-        constexpr Real frictionCoefficient = 0.6;
-        constexpr Real restitutionCoefficient = 0.05;
-        constexpr Real velocityDampingRate = 20.0;
-        constexpr Real angularDampingRate = 40.0;
-        constexpr Real clothHeight = 0.38;
-        constexpr Vec3 boxSize{0.24, 0.24, 0.24};
-        constexpr Vec3 boxCenter{0.30, 0.30, 0.12};
-        constexpr Real duration = 3.0;
-        constexpr Real timeStep = 1.0e-5;
-        constexpr Real outputTimeInterval = 0.05;
-
-        constexpr Real crossSectionArea = math::pi * particleRadius * particleRadius;
-        constexpr Real areaMomentOfInertia = 0.25 * crossSectionArea * particleRadius * particleRadius;
-        constexpr Real polarMomentOfInertia = 2.0 * areaMomentOfInertia;
-        constexpr Real shearModulus = youngsModulus / (2.0 * (1.0 + poissonRatio));
-        constexpr Real normalStiffness = youngsModulus * crossSectionArea / particleDiameter;
-        constexpr Real shearStiffness = 12.0 * youngsModulus * areaMomentOfInertia / (particleDiameter * particleDiameter * particleDiameter);
-        constexpr Real bendingStiffness = 0.01 * youngsModulus * areaMomentOfInertia / particleDiameter;
-        constexpr Real torsionalStiffness = 0.01 * shearModulus * polarMomentOfInertia / particleDiameter;
-        constexpr Real particleMass = (4.0 / 3.0) * math::pi * particleRadius * particleRadius * particleRadius * clothDensity;
-        constexpr Real rotationalDragCoefficient = angularDampingRate * (2.0 / 5.0) * particleMass * particleRadius * particleRadius;
-
-        const tutorial::TutorialOptions run = tutorial::parseTutorialOptions(argc, argv, "tutorial2_files");
-        ClothSimulation simulation(run.mode_, run.device_, velocityDampingRate, rotationalDragCoefficient);
-        const int clothMaterialIndex = simulation.addMaterial(material{youngsModulus, poissonRatio, restitutionCoefficient, clothDensity});
-        materialPair clothPair{clothMaterialIndex, clothMaterialIndex};
-        clothPair.setLinearStiffness(0.5 * normalStiffness, 0.5 * shearStiffness);
-        clothPair.setFrictionCoefficients(frictionCoefficient);
-        simulation.setMaterialPair(clothPair);
-
-        const Vec3 clothOrigin{particleRadius, 0.5 * (clothSideLength - (clothRowCount - 1) * std::sqrt(3.0) * particleRadius), clothHeight};
-        const ClothMesh cloth = makeClothMesh(clothOrigin, clothColumnCount, clothRowCount, particleDiameter);
-        for (const Vec3& position : cloth.positions_)
-        {
-            particle value;
-            value.setPosition(position);
-            value.setRadius(particleRadius);
-            value.setMaterial(simulation.materials(), clothMaterialIndex);
-            simulation.addSphere(value);
-        }
-
-        for (const std::array<int, 2>& edge : cloth.edges_)
-        {
-            const Real equivalentLength = math::norm(cloth.positions_[edge[0]] - cloth.positions_[edge[1]]);
-            bond connection{equivalentLength};
-            connection.setCrossSectionArea(0.0);
-            connection.setModeMixityExponent(1.0);
-            connection.setDamageInitiationRatio(1.0);
-            if (!connection.setConnection(simulation.spheres(), edge[0], edge[1]) ||
-                !connection.setStiffness(normalStiffness, shearStiffness, bendingStiffness, torsionalStiffness))
-            {
-                throw std::runtime_error("Failed to create the bonded cloth lattice.");
-            }
-            simulation.addBond(connection);
-        }
-
-        const int boxMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, restitutionCoefficient, 1.0});
-        materialPair boxPair{clothMaterialIndex, boxMaterialIndex};
-        boxPair.setLinearStiffness(normalStiffness, shearStiffness);
-        boxPair.setFrictionCoefficients(frictionCoefficient);
-        simulation.setMaterialPair(boxPair);
-        levelset::BoxWall box{boxSize};
-        box.buildLSGrid(particleDiameter, 3, true);
-        const int boxGeometryIndex = simulation.addGeometry(box);
-
-        LSParticle fixedBox;
-        fixedBox.setPosition(boxCenter);
-        fixedBox.setMaterial(simulation.materials(), boxMaterialIndex);
-        fixedBox.setGeometry(simulation.geometries(), boxGeometryIndex);
-        simulation.addLSParticle(fixedBox);
-
-        simulation.setBoundary({-0.20, -0.20, -0.60}, {0.80, 0.80, 0.70});
-        simulation.setGravity({0.0, 0.0, -9.81});
-        simulation.setTimeStep(timeStep);
-        simulation.setOutputDirectory(run.outputDirectory_);
-        simulation.setOutputStepInterval(std::max(1, static_cast<int>(std::lround(outputTimeInterval / timeStep))));
-        simulation.setVTUOutputFormat(run.vtuFormat_);
-
-        const int stepCount = run.stepCount_ >= 0 ? run.stepCount_ : static_cast<int>(std::ceil(duration / timeStep));
-        simulation.solve(stepCount);
-    }
-    catch (const std::exception& error)
-    {
-        std::cerr << "tutorial2 failed: " << error.what() << '\n';
-        return 1;
-    }
+    // 5. Set search bounds, gravity and output; solve initializes automatically.
+    simulation.setBoundary({-0.03, -0.03, -0.15}, {0.15, 0.03, 0.03});
+    simulation.setGravity({0.0, 0.0, -9.81});
+    simulation.setTimeStep(timeStep);
+    simulation.setOutputDirectory("tutorial2_files");
+    simulation.setOutputStepInterval(250); // 0.005 s between frames.
+    simulation.setVTUOutputEnabled(true);
+    simulation.setVTUOutputFormat(vtuFormat::binary);
+    simulation.solve(steps); // 0.1 s, 21 frames; an illustrative beam transient.
     return 0;
 }

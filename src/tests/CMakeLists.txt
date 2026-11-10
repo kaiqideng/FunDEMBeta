@@ -167,3 +167,9 @@ if(FUNDEM_HAS_CUDA)
 else()
     message(STATUS "CUDA tests are skipped because CUDA is unavailable.")
 endif()
+
+fundem_add_cpp_test(fundem_bond_fracture_test FunDEM.BondFracture BondFractureTest.cpp)
+fundem_add_cpp_test(fundem_bond_definition_test FunDEM.BondDefinition BondDefinitionTest.cpp)
+fundem_add_cpp_test(fundem_runtime_particle_mutation_test FunDEM.RuntimeParticleMutation RuntimeParticleMutationTest.cpp)
+
+add_subdirectory(BondFracture)

@@ -1,4 +1,5 @@
 #include "SphereDEM.h"
+#include "runtimeParticleMutation.h"
 
 #include "data/energyOutput.h"
 #include "execution/cpu/particleFunctions.h"
@@ -176,6 +177,55 @@ void SphereDEM::initialize(cpu::mode)
     assembleForceAndTorque(0.0, cpu::mode{});
 }
 
+SphereDEM::Real SphereDEM::resetSphereVelocities(const std::vector<int>& indices, bool resetLinear, bool resetAngular)
+{
+    runtime_detail::survivorMap(spheres_.hostSize(), indices);
+    if (indices.empty() || (!resetLinear && !resetAngular))
+        return 0.0;
+    bool changed = false;
+    observeCurrentState(
+        [&](const solver&)
+        {
+            for (const int index : indices)
+                changed = changed || (resetLinear && spheres_.host()[index].velocity() != Vec3::zero()) ||
+                          (resetAngular && spheres_.host()[index].angularVelocity() != Vec3::zero());
+        });
+    if (!changed)
+        return 0.0;
+    prepareRuntimeMutation();
+    return runtime_detail::resetVelocities(spheres_, indices, gpuStream(), resetLinear, resetAngular);
+}
+
+std::vector<int> SphereDEM::removeSpheres(const std::vector<int>& indices)
+{
+    const auto map = runtime_detail::survivorMap(spheres_.hostSize(), indices);
+    if (indices.empty())
+        return map;
+    prepareRuntimeMutation();
+    sphereInteractions_.remapParticles(map, map);
+    sphereLSInteractions_.remapParticles(map, runtime_detail::survivorMap(LSParticles().hostSize(), {}));
+    runtime_detail::compact(spheres_, map);
+    return map;
+}
+
+std::vector<int> SphereDEM::removeLSParticles(const std::vector<int>& indices)
+{
+    const auto map = runtime_detail::survivorMap(LSParticles().hostSize(), indices);
+    if (indices.empty())
+        return map;
+    prepareRuntimeMutation();
+    sphereLSInteractions_.remapParticles(runtime_detail::survivorMap(spheres_.hostSize(), {}), map);
+    return LSDEM::removeLSParticles(indices);
+}
+
+void SphereDEM::uploadRuntimeState(cudaStream_t stream)
+{
+    LSDEM::uploadRuntimeState(stream);
+    initializeSphereDevice(stream);
+    if (mode() == executionMode::Hybrid)
+        mutableLSParticleSpatialGrid().set(LSParticles(), minimumBoundary(), maximumBoundary(), stream);
+}
+
 void SphereDEM::initialize(gpu::mode, cudaStream_t stream)
 {
     initializeLSParticleDevice(stream);
@@ -333,20 +383,20 @@ void SphereDEM::calculateSphereForceAndTorque(Real historyTimeStep, cpu::mode)
     beforeSphereContactDetection(cpu::mode{});
     sphereSearch_.findContacts(sphereInteractions_.contacts(), spheres_);
     addSphereContactForceAndTorque(historyTimeStep, cpu::mode{});
-    cpu::addBondForceAndTorque(sphereInteractions_.bonds(), spheres_);
+    cpu::addBondForceAndTorque(sphereInteractions_.bonds(), spheres_, preservingInteractionHistory());
     sphereLSSearch_.findContacts(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles());
     addSphereLevelSetContactForceAndTorque(historyTimeStep, cpu::mode{});
-    cpu::addBondForceAndTorque(sphereLSInteractions_.bonds(), spheres_, mutableLSParticles());
+    cpu::addBondForceAndTorque(sphereLSInteractions_.bonds(), spheres_, mutableLSParticles(), preservingInteractionHistory());
 }
 
 void SphereDEM::addSphereContactForceAndTorque(Real historyTimeStep, cpu::mode)
 {
-    cpu::addContactForceAndTorque(sphereInteractions_.contacts(), spheres_, spheres_, materialPairs(), historyTimeStep);
+    cpu::addContactForceAndTorque(sphereInteractions_.contacts(), spheres_, spheres_, materialPairs(), historyTimeStep, preservingInteractionHistory());
 }
 
 void SphereDEM::addSphereLevelSetContactForceAndTorque(Real historyTimeStep, cpu::mode)
 {
-    cpu::addContactForceAndTorque(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materialPairs(), historyTimeStep);
+    cpu::addContactForceAndTorque(sphereLSInteractions_.contacts(), spheres_, mutableLSParticles(), materialPairs(), historyTimeStep, preservingInteractionHistory());
 }
 
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA

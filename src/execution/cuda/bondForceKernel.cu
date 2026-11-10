@@ -14,17 +14,7 @@ constexpr int blockSize = 256;
 __device__ inline void clearFailedBondState(bondDeviceView bonds, int bondIndex) noexcept
 {
     bonds.force_[bondIndex] = math::Vec3::zero();
-    bonds.masterTorque_[bondIndex] = math::Vec3::zero();
-    bonds.slaveTorque_[bondIndex] = math::Vec3::zero();
-    bonds.normal_[bondIndex] = math::Vec3::zero();
-    bonds.normalElasticEnergy_[bondIndex] = 0.0;
-    bonds.shearElasticEnergy_[bondIndex] = 0.0;
-    bonds.bendingElasticEnergy_[bondIndex] = 0.0;
-    bonds.torsionalElasticEnergy_[bondIndex] = 0.0;
-}
-
-__device__ inline void clearNewlyFailedBondEnergy(bondDeviceView bonds, int bondIndex) noexcept
-{
+    bonds.torque_[bondIndex] = math::Vec3::zero();
     bonds.normal_[bondIndex] = math::Vec3::zero();
     bonds.normalElasticEnergy_[bondIndex] = 0.0;
     bonds.shearElasticEnergy_[bondIndex] = 0.0;
@@ -62,6 +52,7 @@ __global__ void bondForceKernel(bondDeviceView bonds, bondParticleDeviceView mas
     bonds.point_[bondIndex] = 0.5 * (masterEndpointPosition + slaveEndpointPosition);
 
     math::Vec3 force;
+    math::Vec3 torque;
     math::Vec3 masterEndpointTorque;
     math::Vec3 slaveEndpointTorque;
     math::Vec3 normal;
@@ -70,7 +61,9 @@ __global__ void bondForceKernel(bondDeviceView bonds, bondParticleDeviceView mas
     math::Real shearElasticEnergy;
     math::Real bendingElasticEnergy;
     math::Real torsionalElasticEnergy;
+    // Strength initiation and damage use the undamaged elastic trial state.
     execution::calculateBondForceAndTorque(force,
+                                           torque,
                                            masterEndpointTorque,
                                            slaveEndpointTorque,
                                            normal,
@@ -87,11 +80,52 @@ __global__ void bondForceKernel(bondDeviceView bonds, bondParticleDeviceView mas
                                            slaveEndpointNormal,
                                            slaveEndpointTangent1,
                                            slaveEndpointTangent2,
-                                           softCoefficient * bonds.coefficientB1_[bondIndex],
-                                           softCoefficient * bonds.coefficientB2_[bondIndex],
-                                           softCoefficient * bonds.coefficientB3_[bondIndex],
-                                           softCoefficient * bonds.coefficientB4_[bondIndex],
+                                           bonds.coefficientB1_[bondIndex],
+                                           bonds.coefficientB2_[bondIndex],
+                                           bonds.coefficientB3_[bondIndex],
+                                           bonds.coefficientB4_[bondIndex],
+                                           bonds.bendingStiffness_[bondIndex],
                                            bonds.equivalentLength_[bondIndex]);
+    const fractureMode mode = bonds.fractureMode_[bondIndex];
+    const bool failed = mode != fractureMode::unbreakable && execution::updateBondDamage(bonds.damageFactor_[bondIndex],
+                                                                                         bonds.damageStarted_[bondIndex],
+                                                                                         bonds.onsetEffectiveStress_[bondIndex],
+                                                                                         bonds.onsetEffectiveDisplacement_[bondIndex],
+                                                                                         bonds.maximumEffectiveDisplacement_[bondIndex],
+                                                                                         bonds.failureEffectiveDisplacement_[bondIndex],
+                                                                                         bonds.effectiveFractureEnergy_[bondIndex],
+                                                                                         force,
+                                                                                         torque,
+                                                                                         normal,
+                                                                                         normalElasticEnergy,
+                                                                                         shearElasticEnergy,
+                                                                                         bendingElasticEnergy,
+                                                                                         torsionalElasticEnergy,
+                                                                                         bonds.crossSectionArea_[bondIndex],
+                                                                                         bonds.modeICriticalEnergy_[bondIndex],
+                                                                                         bonds.modeIICriticalEnergy_[bondIndex],
+                                                                                         bonds.modeMixityExponent_[bondIndex],
+                                                                                         bonds.tensileStrength_[bondIndex],
+                                                                                         bonds.cohesion_[bondIndex],
+                                                                                         bonds.internalFrictionCoefficient_[bondIndex],
+                                                                                         mode == fractureMode::damage);
+    if (failed)
+    {
+        clearFailedBondState(bonds, bondIndex);
+        return;
+    }
+    execution::applyBondDamageToResponse(force,
+                                         torque,
+                                         masterEndpointTorque,
+                                         slaveEndpointTorque,
+                                         normalElasticEnergy,
+                                         shearElasticEnergy,
+                                         bendingElasticEnergy,
+                                         torsionalElasticEnergy,
+                                         normal,
+                                         axialDisplacement,
+                                         bonds.normalStiffness_[bondIndex],
+                                         bonds.damageFactor_[bondIndex]);
     bonds.normal_[bondIndex] = normal;
     bonds.normalElasticEnergy_[bondIndex] = normalElasticEnergy;
     bonds.shearElasticEnergy_[bondIndex] = shearElasticEnergy;
@@ -101,29 +135,11 @@ __global__ void bondForceKernel(bondDeviceView bonds, bondParticleDeviceView mas
     const math::Vec3 masterTorque = masterEndpointTorque + math::cross(masterEndpointPosition - masterParticles.position_[masterIndex], force);
     const math::Vec3 slaveTorque = slaveEndpointTorque + math::cross(slaveEndpointPosition - slaveParticles.position_[slaveIndex], -force);
     bonds.force_[bondIndex] = force;
-    bonds.masterTorque_[bondIndex] = masterTorque;
-    bonds.slaveTorque_[bondIndex] = slaveTorque;
+    bonds.torque_[bondIndex] = torque;
     atomicAddVec3(masterParticles.force_, masterIndex, force);
     atomicAddVec3(masterParticles.torque_, masterIndex, masterTorque);
     atomicAddVec3(slaveParticles.force_, slaveIndex, -force);
     atomicAddVec3(slaveParticles.torque_, slaveIndex, slaveTorque);
-
-    const bool failed = execution::updateBKDamage(bonds.damageFactor_[bondIndex],
-                                                  bonds.maximumEnergyReleaseRatio_[bondIndex],
-                                                  axialDisplacement,
-                                                  normalElasticEnergy,
-                                                  shearElasticEnergy,
-                                                  bendingElasticEnergy,
-                                                  torsionalElasticEnergy,
-                                                  bonds.crossSectionArea_[bondIndex],
-                                                  bonds.modeICriticalEnergy_[bondIndex],
-                                                  bonds.modeIICriticalEnergy_[bondIndex],
-                                                  bonds.modeMixityExponent_[bondIndex],
-                                                  bonds.damageInitiationRatio_[bondIndex]);
-    if (failed)
-    {
-        clearNewlyFailedBondEnergy(bonds, bondIndex);
-    }
 }
 
 } // namespace

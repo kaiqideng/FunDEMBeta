@@ -1,158 +1,54 @@
-/** CPU level-set anchor-chain tutorial derived from the CollisionLab chain-link case. */
-#include "data/myLSObject.h"
-#include "material/material.h"
-#include "material/materialPair.h"
-#include "particle/LSParticle.h"
-#include "solver/LSDEM.h"
+/** @file tutorial1.cpp @brief A tilted level-set pyramid falling onto a plane. */
+#include "solver/solvers.h"
 
-#include <cmath>
-#include <exception>
-#include <filesystem>
-#include <iostream>
-#include <vector>
-
-namespace
+int main()
 {
+    using namespace fundem;
+    using math::Vec3;
 
-using fundem::math::Real;
-using fundem::math::Vec3;
+    // 1. Pure LSDEM supports CPU or GPU; select the mode before initialization.
+    LSDEM simulation;
+    simulation.setExecutionMode(executionMode::CPU);
+    const int materialIndex = simulation.addMaterial(material{1.0e7, 0.25, 0.6, 2000.0});
 
-struct linkRing {
-    Vec3 center_;
-    Vec3 normal_;
-};
+    // 2. Build surface nodes before the SDF grid. Grid construction computes
+    // mass properties and shifts the geometry into its centroid frame.
+    levelset::Pyramid pyramid{0.04, 0.03, 0.05};
+    pyramid.buildSurfaceNode(0.01);
+    pyramid.buildLSGrid(24);
+    const int pyramidIndex = simulation.addGeometry(pyramid);
 
-fundem::levelset::TriangleMesh makeChainLink()
-{
-    constexpr Real straightHalfLength = 0.03;
-    constexpr Real endRadius = 0.025;
-    constexpr Real rodRadius = 0.01;
-    constexpr int straightSegmentCount = 30;
-    constexpr int arcSegmentCount = 40;
-    constexpr int crossSectionSegmentCount = 32;
+    levelset::PlaneWall plane{Vec3::unitZ(), 0.4};
+    plane.buildLSGrid(0.02, 2);
+    const int planeIndex = simulation.addGeometry(plane);
 
-    std::vector<linkRing> rings;
-    rings.reserve(2 * (straightSegmentCount + arcSegmentCount));
-    for (int index = 0; index < straightSegmentCount; ++index)
-    {
-        const Real fraction = Real(index) / straightSegmentCount;
-        rings.push_back({{-straightHalfLength + 2.0 * straightHalfLength * fraction, endRadius, 0.0}, Vec3::unitY()});
-    }
-    for (int index = 0; index < arcSegmentCount; ++index)
-    {
-        const Real angle = 0.5 * fundem::math::pi - fundem::math::pi * Real(index) / arcSegmentCount;
-        rings.push_back({{straightHalfLength + endRadius * std::cos(angle), endRadius * std::sin(angle), 0.0}, {std::cos(angle), std::sin(angle), 0.0}});
-    }
-    for (int index = 0; index < straightSegmentCount; ++index)
-    {
-        const Real fraction = Real(index) / straightSegmentCount;
-        rings.push_back({{straightHalfLength - 2.0 * straightHalfLength * fraction, -endRadius, 0.0}, -Vec3::unitY()});
-    }
-    for (int index = 0; index < arcSegmentCount; ++index)
-    {
-        const Real angle = -0.5 * fundem::math::pi - fundem::math::pi * Real(index) / arcSegmentCount;
-        rings.push_back({{-straightHalfLength + endRadius * std::cos(angle), endRadius * std::sin(angle), 0.0}, {std::cos(angle), std::sin(angle), 0.0}});
-    }
+    // 3. Assign material/geometry before setting the particle's centroid pose.
+    LSParticle body;
+    body.setMaterial(simulation.materials(), materialIndex);
+    body.setGeometry(simulation.geometries(), pyramidIndex);
+    body.setPosition({0.0, 0.0, 0.06});
+    body.setOrientation(math::Quaternion::fromUnitAxisAngle(Vec3::unitY(), math::degreesToRadians(20.0)));
+    simulation.addLSParticle(body);
 
-    const int ringCount = static_cast<int>(rings.size());
-    std::vector<Vec3> vertices;
-    vertices.reserve(ringCount * crossSectionSegmentCount);
-    for (const linkRing& ring : rings)
-    {
-        for (int index = 0; index < crossSectionSegmentCount; ++index)
-        {
-            const Real angle = 2.0 * fundem::math::pi * Real(index) / crossSectionSegmentCount;
-            vertices.push_back(ring.center_ + rodRadius * std::cos(angle) * ring.normal_ + Vec3{0.0, 0.0, rodRadius * std::sin(angle)});
-        }
-    }
+    LSParticle wall;
+    wall.setMaterial(simulation.materials(), materialIndex);
+    wall.setGeometry(simulation.geometries(), planeIndex);
+    simulation.addLSParticle(wall); // The zero-volume plane is fixed.
 
-    std::vector<int3> triangles;
-    triangles.reserve(2 * ringCount * crossSectionSegmentCount);
-    for (int ringIndex = 0; ringIndex < ringCount; ++ringIndex)
-    {
-        const int nextRingIndex = (ringIndex + 1) % ringCount;
-        for (int sectionIndex = 0; sectionIndex < crossSectionSegmentCount; ++sectionIndex)
-        {
-            const int nextSectionIndex = (sectionIndex + 1) % crossSectionSegmentCount;
-            const int first = ringIndex * crossSectionSegmentCount + sectionIndex;
-            const int second = ringIndex * crossSectionSegmentCount + nextSectionIndex;
-            const int third = nextRingIndex * crossSectionSegmentCount + nextSectionIndex;
-            const int fourth = nextRingIndex * crossSectionSegmentCount + sectionIndex;
-            triangles.push_back({first, second, third});
-            triangles.push_back({first, third, fourth});
-        }
-    }
-    return {vertices, triangles};
-}
+    // 4. LS contact requires normal/shear stiffness per nodal area, in N/m^3.
+    materialPair contact{materialIndex, materialIndex};
+    contact.setLevelSetStiffness(1.0e8, 5.0e7);
+    contact.setFrictionCoefficients(0.3);
+    simulation.setMaterialPair(contact);
 
-std::filesystem::path executableDirectory(const char* executable)
-{
-    std::error_code error;
-    const std::filesystem::path absolutePath = std::filesystem::absolute(executable, error);
-    return error ? std::filesystem::current_path() : absolutePath.parent_path();
-}
-
-} // namespace
-
-int main(int, char** argv)
-{
-    try
-    {
-        using namespace fundem;
-
-        constexpr int particleCount = 11;
-        constexpr Real particleSpacing = 0.07;
-        constexpr Real initialHeight = 0.3;
-        constexpr Real gridSpacing = 0.002;
-        constexpr Real timeStep = 2.0e-5;
-        constexpr Real duration = 3.0;
-        constexpr Real outputTimeInterval = 0.05;
-
-        LSDEM simulation;
-        const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.2, 7850.0});
-        const int fixedMaterialIndex = simulation.addMaterial(material{1.0e9, 0.25, 0.2, 7850.0});
-        // Identical physical materials have separate pair identities to preserve
-        // the former finite/finite series compliance and rigid-end compliance.
-        materialPair mobilePair{materialIndex, materialIndex};
-        mobilePair.setLevelSetStiffness(1.0e10, 4.0e9);
-        mobilePair.setFrictionCoefficients(0.4);
-        simulation.setMaterialPair(mobilePair);
-        materialPair fixedPair{materialIndex, fixedMaterialIndex};
-        fixedPair.setLevelSetStiffness(2.0e10, 8.0e9);
-        fixedPair.setFrictionCoefficients(0.4);
-        simulation.setMaterialPair(fixedPair);
-
-        levelset::TriangleMesh chainLink = makeChainLink();
-        chainLink.buildLSGrid(gridSpacing, 2);
-        const int geometryIndex = simulation.addGeometry(chainLink);
-        const math::Quaternion perpendicularOrientation = math::Quaternion::fromUnitAxisAngle(Vec3::unitX(), 0.5 * math::pi);
-
-        for (int particleIndex = 0; particleIndex < particleCount; ++particleIndex)
-        {
-            LSParticle value;
-            value.setPosition({(particleIndex - particleCount / 2) * particleSpacing, 0.0, initialHeight});
-            value.setOrientation(particleIndex % 2 == 0 ? math::Quaternion::identity() : perpendicularOrientation);
-            value.setMaterial(simulation.materials(), materialIndex);
-            value.setGeometry(simulation.geometries(), geometryIndex);
-            if (particleIndex == 0 || particleIndex == particleCount - 1)
-            {
-                value.setMaterial(simulation.materials(), fixedMaterialIndex);
-                value.setInfiniteMass();
-            }
-            simulation.addLSParticle(value);
-        }
-
-        simulation.setBoundary({-0.5, -0.2, -0.2}, {0.5, 0.2, 0.5});
-        simulation.setGravity({0.0, 0.0, -9.81});
-        simulation.setTimeStep(timeStep);
-        simulation.setOutputDirectory((executableDirectory(argv[0]) / "tutorial1_files").string());
-        simulation.setOutputStepInterval(static_cast<int>(std::lround(outputTimeInterval / timeStep)));
-        simulation.solve(static_cast<int>(std::ceil(duration / timeStep)));
-    }
-    catch (const std::exception& error)
-    {
-        std::cerr << "tutorial1 failed: " << error.what() << '\n';
-        return 1;
-    }
+    // 5. Set the search region and run settings directly; rebuild after editing.
+    simulation.setBoundary({-0.25, -0.25, -0.25}, {0.25, 0.25, 0.25});
+    simulation.setGravity({0.0, 0.0, -9.81});
+    simulation.setTimeStep(1.0e-4);
+    simulation.setOutputDirectory("tutorial1_files");
+    simulation.setOutputStepInterval(100);
+    simulation.setVTUOutputEnabled(true);
+    simulation.setVTUOutputFormat(vtuFormat::binary);
+    simulation.solve(3000); // 0.3 s, 31 frames including the initial state.
     return 0;
 }

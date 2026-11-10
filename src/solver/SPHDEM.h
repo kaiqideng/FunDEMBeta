@@ -51,8 +51,6 @@ public:
     int addSPHParticles(std::vector<SPHParticle> values);
     /** Appends a cell-centered rectangular lattice of SPH particles. */
     int addSPHBlock(const Vec3& blockMinimum, const int3& particleCount, const Vec3& initialVelocity = Vec3::zero());
-    /** Adds a finite downstream cylindrical particle column without an inlet constraint. */
-    int addSPHJet(const Vec3& inletCenter, const Vec3& velocity, Real radius, Real length);
     /** Adds a short inlet buffer which emits append-only particle layers until its finite supply is exhausted. */
     int addSPHJet(const SPHJet& value);
     /** Returns this jet's currently created global indices, in axial-layer order; @p firstParticleIndex is the handle returned by addSPHJet. */
@@ -83,6 +81,8 @@ public:
     void setSPHParticleVTUFields(std::vector<SPHParticleVTUField> fields);
 
 protected:
+    void commitDeferredStateForMutation() override;
+    void initializeRuntimeState() override;
     /** Mutable fluid storage for derived frontends restoring a saved host state. */
     SPHParticleContainer& mutableSPHParticles() noexcept { return SPHParticles_; }
     /** Declares scheduled boundary motion that may start after initialization. */
@@ -105,6 +105,10 @@ protected:
     virtual void beforeLSParticleDrift(cpu::mode) {}
     /** Prepares device prescribed motion before the leading fluid interval is evaluated. */
     virtual void beforeLSParticleDrift(gpu::mode, cudaStream_t) {}
+    /** Optional host constraint projection after a new hydraulic interval load, before boundary sampling or the first kick. */
+    virtual void afterSPHIntervalLoad(cpu::mode) {}
+    /** Optional device constraint projection on the existing interval stream; the base implementation is a no-op. */
+    virtual void afterSPHIntervalLoad(gpu::mode, cudaStream_t) {}
     /** Advances one all-device multirate SPH/LS step. */
     void advanceGPU(Real timeStep) override;
     /** Advances one SPH-device/LS-host multirate step. */

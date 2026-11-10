@@ -91,7 +91,30 @@ elastic spring, subject to the existing Coulomb limit.
 
 ## Bond Response Sequence
 
-Bond formulas consume the current master/slave rigid-body copies, reference endpoint bases, equivalent length, four stiffnesses, and irreversible damage state. They calculate one force plus separate master/slave torques and four elastic energy components. BK damage is monotonic: once the damage factor reaches complete failure, later calls cannot heal the bond.
+Bond formulas consume the current master/slave rigid-body copies, reference
+endpoint bases, equivalent length, four stiffnesses, and irreversible damage
+state. They calculate force, the bending/torsion moment at the Bond point,
+temporary endpoint moments, and four elastic-energy components. A Bond retains
+`force()` and the Bond-point `torque()`, not separate master/slave torque arrays.
+Host particle torques are derived by `masterTorque()` / `slaveTorque()` from the
+evaluated response and current owning particles; CUDA derives its endpoint
+torques locally and immediately scatters them to particle accumulators. Those
+particle torques include force lever arms and are not interchangeable with the
+Bond-point moment used by damage and section-stress calculations.
+
+`fractureMode` selects unbreakable, brittle, or progressive-damage behavior.
+Strength initiation uses the undamaged trial response; the damage law then
+scales the accepted response. Damage is irreversible: a completely failed Bond
+cannot heal. The original normal, shear, bending and torsional stiffness inputs
+are retained separately from the EVM coefficients. Equivalent separation uses
+the Euclidean norm of the opening and shear energy-equivalent components; do
+not substitute the former normal-stiffness-weighted norm. The authoritative
+formula is `updateBondDamage()` in `bondFunctions.h`.
+
+The CPU assembly helpers accept `preserveHistory` for a solver-requested
+runtime cache refresh: Contact spring values survive reevaluation and Bond
+force evaluation does not advance damage. This is a lifecycle operation, not a
+different contact or fracture model for ordinary time steps.
 
 ## WCSPH Sequence
 
@@ -116,7 +139,7 @@ physical support requirement `4h < period`; these formulas neither wrap the
 retained particle coordinates nor create ghost particles. Solid DEM periodic
 contacts are a separate application-level policy.
 
-Finite-duration jets reuse the host/device pipe-membership predicate from `sphJetFunctions.h`. The solver owns a bounded upstream buffer, scheduled layer births, stable emitted-particle indices, and source completion; the execution formula owns no source clock. New layers are appended only at common acoustic starts, with timing quantized upward by at most one DEM step and insertion positions adjusted for that delay. Device-tail initialization preserves existing fluid fields and runs on the solver stream. The inlet imposes velocity and reference density before optional advection preparation and again after velocity integration. Outlet release advances a permanent released-layer prefix, so returning particles are not constrained again. Once all sources end, the completion fast path stops source work. The four-argument `addSPHJet` overload creates only a static downstream column and does not enter this sequence.
+Finite-duration jets reuse the host/device pipe-membership predicate from `sphJetFunctions.h`. The solver owns a bounded upstream buffer, scheduled layer births, stable emitted-particle indices, and source completion; the execution formula owns no source clock. New layers are appended only at common acoustic starts, with timing quantized upward by at most one DEM step and insertion positions adjusted for that delay. Device-tail initialization preserves existing fluid fields and runs on the solver stream. The inlet imposes velocity and reference density before optional advection preparation and again after velocity integration. Outlet release advances a permanent released-layer prefix, so returning particles are not constrained again. Once all sources end, the completion fast path stops source work.
 
 `isInsideSPHJetOpening` defines a separate virtual-wall mask: the finite upstream buffer cylinder expanded by half a particle spacing. Samples there use zero volume and cleared wall loads; samples that move out regain nominal volume. This is not an LS-grid or triangle edit. Changed quadrature requires a fresh viscous-prior-force preparation after the old owner hydraulic load has been removed. The same predicate drives CPU and CUDA, while observation applies it only to a reversible host view.
 

@@ -86,6 +86,7 @@ enum class contactVTUField
 enum class bondVTUField
 {
     force,
+    torque,
     masterTorque,
     slaveTorque,
     masterParticleIndex,
@@ -106,8 +107,19 @@ enum class bondVTUField
     modeICriticalEnergy,
     modeIICriticalEnergy,
     modeMixityExponent,
-    damageInitiationRatio,
-    maximumEnergyReleaseRatio
+    tensileStrength,
+    cohesion,
+    internalFrictionCoefficient,
+    damageStarted,
+    onsetEffectiveStress,
+    onsetEffectiveDisplacement,
+    maximumEffectiveDisplacement,
+    failureEffectiveDisplacement,
+    effectiveFractureEnergy,
+    normalStiffness,
+    shearStiffness,
+    bendingStiffness,
+    torsionalStiffness
 };
 
 /** Creates a sphere writer with position, radius, and velocity plus selected fields. */

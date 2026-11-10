@@ -1,0 +1,352 @@
+field,type,value
+date,string,2026-10-29
+case_directory,string,dem04-hertz-oblique
+reference_family,string,LAMMPS
+source_commit,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+official_git_blob,string,5b07ff13041a03aff78974ac92de06db51eafcc0
+official_source_url,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem04-hertz-oblique-3d-si.yaml
+source_snapshot_sha256,string,039f162617e935cbaaedd42104b279b4ee7085aa8f9ab4b4cdefaec9502835d0
+official_source_tags[0],string,granular
+official_analytic_model,string,oblique_impact
+official_analytic_tolerance,number,0.01
+official_analytic_check_step,number,3317
+official_analytic_time_s,number,3.317e-05
+parameters.diam,number,0.005
+parameters.dens,number,2700.0
+parameters.kn,number,52369700000.0
+parameters.kt,number,15000000000.0
+parameters.en,number,0.98
+parameters.xmu,number,0.092
+parameters.radius,number,0.0025
+parameters.vx_in,number,2.5069
+parameters.vz_in,number,2.9876
+parameters.dt,number,1e-08
+parameters.z0,number,0.00255
+native_spec.slug,string,dem04-hertz-oblique
+native_spec.sourceFamily,string,LAMMPS
+native_spec.sourcePin,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+native_spec.sourceBlob,string,5b07ff13041a03aff78974ac92de06db51eafcc0
+native_spec.sourcePath,string,Omitted historical artifact location.
+native_spec.officialUrl,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem04-hertz-oblique-3d-si.yaml
+native_spec.tags[0],string,granular
+native_spec.materials[0].id,string,particle-material
+native_spec.materials[0].density,number,2700.0
+native_spec.materials[0].young,number,73644890625.0
+native_spec.materials[0].poisson,number,0.25
+native_spec.materials[0].restitution,number,0.98
+native_spec.materials[0].isWall,boolean,false
+native_spec.materials[1].id,string,wall-material
+native_spec.materials[1].density,number,2700.0
+native_spec.materials[1].young,number,73644890625.0
+native_spec.materials[1].poisson,number,0.25
+native_spec.materials[1].restitution,number,0.98
+native_spec.materials[1].isWall,boolean,true
+native_spec.spheres[0].id,string,sphere
+native_spec.spheres[0].materialId,string,particle-material
+native_spec.spheres[0].radius,number,0.0025
+native_spec.spheres[0].position[0],number,0
+native_spec.spheres[0].position[1],number,0
+native_spec.spheres[0].position[2],number,0.00255
+native_spec.spheres[0].velocity[0],number,2.5069
+native_spec.spheres[0].velocity[1],number,0
+native_spec.spheres[0].velocity[2],number,-2.9876
+native_spec.spheres[0].angularVelocity[0],number,0
+native_spec.spheres[0].angularVelocity[1],number,0
+native_spec.spheres[0].angularVelocity[2],number,0
+native_spec.planes[0].id,string,floor
+native_spec.planes[0].normal[0],number,0
+native_spec.planes[0].normal[1],number,0
+native_spec.planes[0].normal[2],number,1
+native_spec.planes[0].size,number,0.2
+native_spec.planes[0].gridSpacing,number,0.0025
+native_spec.planes[0].materialId,string,wall-material
+native_spec.planes[0].position[0],number,0
+native_spec.planes[0].position[1],number,0
+native_spec.planes[0].position[2],number,0
+native_spec.pair.linear,boolean,false
+native_spec.pair.kn,number,0.0
+native_spec.pair.kt,number,0.0
+native_spec.pair.mu,number,0.092
+native_spec.pair.manualDamping,boolean,false
+native_spec.pair.cn,number,0.0
+native_spec.pair.ct,number,0.0
+native_spec.pair.kr,number,0.0
+native_spec.pair.mur,number,0.0
+native_spec.pair.cr,number,0.0
+native_spec.pair.ktw,number,0.0
+native_spec.pair.mut,number,0.0
+native_spec.pair.ctw,number,0.0
+native_spec.gravity[0],number,0
+native_spec.gravity[1],number,0
+native_spec.gravity[2],number,0
+native_spec.baseDt,number,1e-08
+native_spec.baseSteps,number,4217
+native_spec.outputIntervalBase,number,1
+native_spec.outputIntervalHalf,number,1
+native_spec.checkSteps[0],number,1724
+native_spec.checkSteps[1],number,3317
+native_spec.checkSteps[2],number,4217
+native_spec.analyticModel,string,oblique_impact
+native_spec.analyticTolerance,number,0.01
+native_spec.analyticCheckStep,number,3317
+native_spec.mappingStatus,string,conditional_total_force_cap_history_replay_required
+native_spec.sourceNormal.law,string,hertz
+native_spec.sourceNormal.kn_N_m_3_2_without_sqrtR,number,52369700000.0
+native_spec.sourceNormal.damping,string,coeff_restitution
+native_spec.sourceNormal.restitution,number,0.98
+native_spec.sourceTangential.law,string,linear_history
+native_spec.sourceTangential.constant_kt_N_m,number,15000000000.0
+native_spec.sourceTangential.ct_multiplier_of_cn,number,0
+native_spec.mappingNotes[0],string,CPU diagnostic only until every-contact original constant-kt/Ct0 history replay reproduces native total Ft. No tangential stiffness/damping equivalence is claimed outside a proven common-cap trajectory.
+native_spec.mappingNotes[1],string,Exact direct-Hertz normal mapping: E*=0.75kn. Both native materials E=1.5kn(1-nu_native^2); nu_native=0.25 is an explicit unfitted encoding choice because the source direct-kn law supplies no Poisson ratio.
+native_spec.mappingNotes[2],string,"The official tangential spring kt=1.5e10 N/m and ct=0 are retained in the independent source-history replay, while the actual native run uses its default Hertz/Mindlin kt(delta) and automatic ct(delta). They may only be accepted if total Ft equals the same source Coulomb cap at every contact state, including signed normal unloading and slip direction."
+native_spec.mappingNotes[3],string,Source torque uses R; native wall shared point uses R-delta. The difference must be quantified and disclosed.
+native_spec.title,string,LAMMPS official dem04-hertz-oblique
+native_spec.source.file,string,dem04-hertz-oblique-3d-si.yaml
+native_spec.source.path,string,Omitted historical artifact location.
+native_spec.source.commit,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+native_spec.source.gitBlob,string,5b07ff13041a03aff78974ac92de06db51eafcc0
+native_spec.source.sha256,string,039f162617e935cbaaedd42104b279b4ee7085aa8f9ab4b4cdefaec9502835d0
+native_spec.source.url,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem04-hertz-oblique-3d-si.yaml
+native_spec.source.family,string,LAMMPS
+native_spec.source.tags[0],string,granular
+native_spec.gravityZ,number,0
+native_spec.contact.normalStiffness,number,0.0
+native_spec.contact.slidingStiffness,number,0.0
+native_spec.contact.slidingFrictionCoefficient,number,0.092
+native_spec.contact.normalDampingCoefficient,number,0.0
+native_spec.contact.slidingDampingCoefficient,number,0.0
+native_spec.contact.rollingStiffness,number,0.0
+native_spec.contact.rollingFrictionCoefficient,number,0.0
+native_spec.contact.rollingDampingCoefficient,number,0.0
+native_spec.contact.torsionalStiffness,number,0.0
+native_spec.contact.torsionalFrictionCoefficient,number,0.0
+native_spec.contact.torsionalDampingCoefficient,number,0.0
+native_spec.contact.linearStiffnessEnabled,boolean,false
+native_spec.contact.dampingEnabled,boolean,false
+native_spec.cadenceNote,string,Fixed before execution from independent source queue; every integration-step state/contact retained in CSV.
+derived.spheres[0].instance,string,sphere
+derived.spheres[0].radius_m,number,0.0025
+derived.spheres[0].mass_kg,number,0.0001767145867644259
+derived.spheres[0].inertia_kg_m2,number,4.4178646691106484e-10
+runs[0].run,string,cpu
+runs[0].label,string,CPU dt
+runs[0].dt_s,number,1e-08
+runs[0].native_steps,number,4217
+runs[0].frames,number,4218
+runs[0].archive,string,Omitted historical artifact location.
+runs[0].project,string,Omitted historical artifact location.
+runs[0].native_output_interval_s,number,1e-08
+runs[0].trajectory_csv_rows,number,4218
+runs[0].contact_csv_rows,number,1397
+runs[0].official_check_step,number,3317
+runs[0].native_check_step,number,3317
+runs[0].official_check_time_s,number,3.317e-05
+runs[0].official_metrics[0].quantity,string,Rebound vz (m/s)
+runs[0].official_metrics[0].expected,number,2.927848
+runs[0].official_metrics[0].actual,number,2.9278423120178934
+runs[0].official_metrics[0].error_kind,string,relative
+runs[0].official_metrics[0].error,number,1.9427176911677874e-06
+runs[0].official_metrics[0].tolerance,number,0.01
+runs[0].official_metrics[0].passed,boolean,true
+runs[0].official_metrics[1].quantity,string,Rebound vx (m/s)
+runs[0].official_metrics[1].expected,number,1.962678784
+runs[0].official_metrics[1].actual,number,1.9626341308991568
+runs[0].official_metrics[1].error_kind,string,relative
+runs[0].official_metrics[1].error,number,2.2751099776048348e-05
+runs[0].official_metrics[1].tolerance,number,0.01
+runs[0].official_metrics[1].passed,boolean,true
+runs[0].official_metrics[2].quantity,string,Rebound omega_y (rad/s)
+runs[0].official_metrics[2].expected,number,544.2212159999999
+runs[0].official_metrics[2].actual,number,541.767965973193
+runs[0].official_metrics[2].error_kind,string,relative
+runs[0].official_metrics[2].error,number,0.004507817693764676
+runs[0].official_metrics[2].tolerance,number,0.01
+runs[0].official_metrics[2].passed,boolean,true
+runs[0].passes_official_analytic_tolerance,boolean,true
+runs[0].maximum_metric_error_over_tolerance,number,0.4507817693764676
+runs[0].maximum_individual_impulse_residual_kg_m_s,number,1.951563910473908e-18
+runs[0].maximum_position_drift_residual_m,number,2.1656084745005796e-19
+runs[0].maximum_velocity_kick_residual_m_s,number,4.38451358553138e-16
+runs[0].initial_precompressed_contacts_reconstructed,boolean,false
+runs[0].maximum_contacts,number,1
+runs[0].initial_mechanical_energy_J,number,0.0013439410605809656
+runs[0].final_mechanical_energy_J,number,0.0011626030271902473
+runs[0].whole_history_maximum_momentum_drift_kg_m_s,number,0.0010453882290794064
+runs[1].run,string,gpu
+runs[1].label,string,GPU dt
+runs[1].dt_s,number,1e-08
+runs[1].native_steps,number,4217
+runs[1].frames,number,4218
+runs[1].archive,string,Omitted historical artifact location.
+runs[1].project,string,Omitted historical artifact location.
+runs[1].native_output_interval_s,number,1e-08
+runs[1].trajectory_csv_rows,number,4218
+runs[1].contact_csv_rows,number,1397
+runs[1].official_check_step,number,3317
+runs[1].native_check_step,number,3317
+runs[1].official_check_time_s,number,3.317e-05
+runs[1].official_metrics[0].quantity,string,Rebound vz (m/s)
+runs[1].official_metrics[0].expected,number,2.927848
+runs[1].official_metrics[0].actual,number,2.9278423120178934
+runs[1].official_metrics[0].error_kind,string,relative
+runs[1].official_metrics[0].error,number,1.9427176911677874e-06
+runs[1].official_metrics[0].tolerance,number,0.01
+runs[1].official_metrics[0].passed,boolean,true
+runs[1].official_metrics[1].quantity,string,Rebound vx (m/s)
+runs[1].official_metrics[1].expected,number,1.962678784
+runs[1].official_metrics[1].actual,number,1.962634130899156
+runs[1].official_metrics[1].error_kind,string,relative
+runs[1].official_metrics[1].error,number,2.2751099776500883e-05
+runs[1].official_metrics[1].tolerance,number,0.01
+runs[1].official_metrics[1].passed,boolean,true
+runs[1].official_metrics[2].quantity,string,Rebound omega_y (rad/s)
+runs[1].official_metrics[2].expected,number,544.2212159999999
+runs[1].official_metrics[2].actual,number,541.7679659731928
+runs[1].official_metrics[2].error_kind,string,relative
+runs[1].official_metrics[2].error,number,0.004507817693765094
+runs[1].official_metrics[2].tolerance,number,0.01
+runs[1].official_metrics[2].passed,boolean,true
+runs[1].passes_official_analytic_tolerance,boolean,true
+runs[1].maximum_metric_error_over_tolerance,number,0.4507817693765094
+runs[1].maximum_individual_impulse_residual_kg_m_s,number,1.734723475976807e-18
+runs[1].maximum_position_drift_residual_m,number,2.1656084745005796e-19
+runs[1].maximum_velocity_kick_residual_m_s,number,4.38451358553138e-16
+runs[1].initial_precompressed_contacts_reconstructed,boolean,false
+runs[1].maximum_contacts,number,1
+runs[1].initial_mechanical_energy_J,number,0.0013439410605809656
+runs[1].final_mechanical_energy_J,number,0.0011626030271902471
+runs[1].whole_history_maximum_momentum_drift_kg_m_s,number,0.0010453882290794064
+runs[2].run,string,cpu-dt-half
+runs[2].label,string,CPU dt/2
+runs[2].dt_s,number,5e-09
+runs[2].native_steps,number,8434
+runs[2].frames,number,8435
+runs[2].archive,string,Omitted historical artifact location.
+runs[2].project,string,Omitted historical artifact location.
+runs[2].native_output_interval_s,number,5e-09
+runs[2].trajectory_csv_rows,number,8435
+runs[2].contact_csv_rows,number,2793
+runs[2].official_check_step,number,3317
+runs[2].native_check_step,number,6634
+runs[2].official_check_time_s,number,3.317e-05
+runs[2].official_metrics[0].quantity,string,Rebound vz (m/s)
+runs[2].official_metrics[0].expected,number,2.927848
+runs[2].official_metrics[0].actual,number,2.927849349539303
+runs[2].official_metrics[0].error_kind,string,relative
+runs[2].official_metrics[0].error,number,4.6093216006260885e-07
+runs[2].official_metrics[0].tolerance,number,0.01
+runs[2].official_metrics[0].passed,boolean,true
+runs[2].official_metrics[1].quantity,string,Rebound vx (m/s)
+runs[2].official_metrics[1].expected,number,1.962678784
+runs[2].official_metrics[1].actual,number,1.9626340795331507
+runs[2].official_metrics[1].error_kind,string,relative
+runs[2].official_metrics[1].error,number,2.27772711529104e-05
+runs[2].official_metrics[1].tolerance,number,0.01
+runs[2].official_metrics[1].passed,boolean,true
+runs[2].official_metrics[2].quantity,string,Rebound omega_y (rad/s)
+runs[2].official_metrics[2].expected,number,544.2212159999999
+runs[2].official_metrics[2].actual,number,541.7680045466929
+runs[2].official_metrics[2].error_kind,string,relative
+runs[2].official_metrics[2].error,number,0.004507746815418278
+runs[2].official_metrics[2].tolerance,number,0.01
+runs[2].official_metrics[2].passed,boolean,true
+runs[2].passes_official_analytic_tolerance,boolean,true
+runs[2].maximum_metric_error_over_tolerance,number,0.4507746815418278
+runs[2].maximum_individual_impulse_residual_kg_m_s,number,3.0493186101154812e-18
+runs[2].maximum_position_drift_residual_m,number,2.1681437830780547e-19
+runs[2].maximum_velocity_kick_residual_m_s,number,4.380176776841438e-16
+runs[2].initial_precompressed_contacts_reconstructed,boolean,false
+runs[2].maximum_contacts,number,1
+runs[2].initial_mechanical_energy_J,number,0.0013439410605809656
+runs[2].final_mechanical_energy_J,number,0.001162606659772361
+runs[2].whole_history_maximum_momentum_drift_kg_m_s,number,0.0010453889748930803
+runs[3].run,string,gpu-dt-half
+runs[3].label,string,GPU dt/2
+runs[3].dt_s,number,5e-09
+runs[3].native_steps,number,8434
+runs[3].frames,number,8435
+runs[3].archive,string,Omitted historical artifact location.
+runs[3].project,string,Omitted historical artifact location.
+runs[3].native_output_interval_s,number,5e-09
+runs[3].trajectory_csv_rows,number,8435
+runs[3].contact_csv_rows,number,2793
+runs[3].official_check_step,number,3317
+runs[3].native_check_step,number,6634
+runs[3].official_check_time_s,number,3.317e-05
+runs[3].official_metrics[0].quantity,string,Rebound vz (m/s)
+runs[3].official_metrics[0].expected,number,2.927848
+runs[3].official_metrics[0].actual,number,2.9278493495393025
+runs[3].official_metrics[0].error_kind,string,relative
+runs[3].official_metrics[0].error,number,4.6093215991093114e-07
+runs[3].official_metrics[0].tolerance,number,0.01
+runs[3].official_metrics[0].passed,boolean,true
+runs[3].official_metrics[1].quantity,string,Rebound vx (m/s)
+runs[3].official_metrics[1].expected,number,1.962678784
+runs[3].official_metrics[1].actual,number,1.9626340795331498
+runs[3].official_metrics[1].error_kind,string,relative
+runs[3].official_metrics[1].error,number,2.2777271153362932e-05
+runs[3].official_metrics[1].tolerance,number,0.01
+runs[3].official_metrics[1].passed,boolean,true
+runs[3].official_metrics[2].quantity,string,Rebound omega_y (rad/s)
+runs[3].official_metrics[2].expected,number,544.2212159999999
+runs[3].official_metrics[2].actual,number,541.7680045466929
+runs[3].official_metrics[2].error_kind,string,relative
+runs[3].official_metrics[2].error,number,0.004507746815418278
+runs[3].official_metrics[2].tolerance,number,0.01
+runs[3].official_metrics[2].passed,boolean,true
+runs[3].passes_official_analytic_tolerance,boolean,true
+runs[3].maximum_metric_error_over_tolerance,number,0.4507746815418278
+runs[3].maximum_individual_impulse_residual_kg_m_s,number,2.8731357570865868e-18
+runs[3].maximum_position_drift_residual_m,number,2.1681106958535525e-19
+runs[3].maximum_velocity_kick_residual_m_s,number,4.380176776841438e-16
+runs[3].initial_precompressed_contacts_reconstructed,boolean,false
+runs[3].maximum_contacts,number,1
+runs[3].initial_mechanical_energy_J,number,0.0013439410605809656
+runs[3].final_mechanical_energy_J,number,0.0011626066597723603
+runs[3].whole_history_maximum_momentum_drift_kg_m_s,number,0.00104538897489308
+cpu_gpu_comparison[0].runs[0],string,cpu
+cpu_gpu_comparison[0].runs[1],string,gpu
+cpu_gpu_comparison[0].maximum_absolute_position_difference_m,number,0.0
+cpu_gpu_comparison[0].maximum_absolute_velocity_difference_m_s,number,1.1102230246251565e-15
+cpu_gpu_comparison[0].maximum_absolute_spin_difference_rad_s,number,2.2737367544323206e-13
+cpu_gpu_comparison[0].maximum_absolute_force_difference_N,number,6.281197784119286e-12
+cpu_gpu_comparison[1].runs[0],string,cpu-dt-half
+cpu_gpu_comparison[1].runs[1],string,gpu-dt-half
+cpu_gpu_comparison[1].maximum_absolute_position_difference_m,number,6.776263578034403e-21
+cpu_gpu_comparison[1].maximum_absolute_velocity_difference_m_s,number,1.1102230246251565e-15
+cpu_gpu_comparison[1].maximum_absolute_spin_difference_rad_s,number,2.8421709430404007e-13
+cpu_gpu_comparison[1].maximum_absolute_force_difference_N,number,6.423306331271306e-12
+timestep_convergence[0].quantity,string,Rebound vz (m/s)
+timestep_convergence[0].coarse_error,number,1.9427176911677874e-06
+timestep_convergence[0].half_error,number,4.6093216006260885e-07
+timestep_convergence[0].error_kind,string,relative
+timestep_convergence[0].tolerance,number,0.01
+timestep_convergence[1].quantity,string,Rebound vx (m/s)
+timestep_convergence[1].coarse_error,number,2.2751099776048348e-05
+timestep_convergence[1].half_error,number,2.27772711529104e-05
+timestep_convergence[1].error_kind,string,relative
+timestep_convergence[1].tolerance,number,0.01
+timestep_convergence[2].quantity,string,Rebound omega_y (rad/s)
+timestep_convergence[2].coarse_error,number,0.004507817693764676
+timestep_convergence[2].half_error,number,0.004507746815418278
+timestep_convergence[2].error_kind,string,relative
+timestep_convergence[2].tolerance,number,0.01
+notes[0],string,CPU diagnostic only until every-contact original constant-kt/Ct0 history replay reproduces native total Ft. No tangential stiffness/damping equivalence is claimed outside a proven common-cap trajectory.
+notes[1],string,Exact direct-Hertz normal mapping: E*=0.75kn. Both native materials E=1.5kn(1-nu_native^2); nu_native=0.25 is an explicit unfitted encoding choice because the source direct-kn law supplies no Poisson ratio.
+notes[2],string,"The official tangential spring kt=1.5e10 N/m and ct=0 are retained in the independent source-history replay, while the actual native run uses its default Hertz/Mindlin kt(delta) and automatic ct(delta). They may only be accepted if total Ft equals the same source Coulomb cap at every contact state, including signed normal unloading and slip direction."
+notes[3],string,Source torque uses R; native wall shared point uses R-delta. The difference must be quantified and disclosed.
+notes[4],string,Official analytic assertions use the selected source segment and unchanged physical coefficients. Same-code epsilon is not a cross-software limit.
+notes[5],string,Four fresh native SimulationSession runs retain every configured native frame and all-step state/contact CSV. Native force excludes separate gravity.
+notes[6],string,"Raw eventStart output precedes initialization. Where initially compressed, geometric initial preload is used only in derived impulse/bootstrap audits, never injected into raw frames."
+notes[7],string,Linked static executable is held stable across the four runs; installed GUI and historical-library byte identity is not asserted.
+notes[8],string,Supplemental whole-history energy/impulse and source golden checkpoints do not replace each official selected-time criterion.
+source_checkpoint_comparisons.rows,number,48
+source_checkpoint_comparisons.source_segments,number,3
+source_checkpoint_comparisons.path,string,Omitted historical artifact location.
+source_checkpoint_comparisons.acceptance_policy,string,Diagnostic only; YAML epsilon1e-10 is same-code precision and not used for cross-software pass/fail.
+source_checkpoint_comparisons.position_coordinate_mapping.policy,string,identity
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_pos,number,1.1516957941637086e-10
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_vel,number,7.036138667019798e-06
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_omega,number,2.497903272198073
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_torque,number,8.148698382283784e-07

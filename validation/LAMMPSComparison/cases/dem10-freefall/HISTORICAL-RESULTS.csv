@@ -1,0 +1,286 @@
+field,type,value
+date,string,2026-10-29
+case_directory,string,dem10-freefall
+reference_family,string,LAMMPS
+source_commit,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+official_git_blob,string,be3161683b34bb6cecb5bc8474e8a89bceebfa1b
+official_source_url,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem10-freefall-3d-si.yaml
+source_snapshot_sha256,string,c8e1a18f434b724691bbbcd32d6636c264350b2318b83ed9953aa12a5aac8356
+official_source_tags[0],string,granular
+official_source_tags[1],string,unvetted
+official_analytic_model,string,freefall
+official_analytic_tolerance,number,1e-09
+official_analytic_check_step,number,8000
+official_analytic_time_s,number,0.08
+parameters.diam,number,0.005
+parameters.dens,number,2700.0
+parameters.grav,number,9.81
+parameters.radius,number,0.0025
+parameters.dt,number,1e-05
+parameters.z0,number,0.05
+native_spec.slug,string,dem10-freefall
+native_spec.sourceFamily,string,LAMMPS
+native_spec.sourcePin,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+native_spec.sourceBlob,string,be3161683b34bb6cecb5bc8474e8a89bceebfa1b
+native_spec.sourcePath,string,Omitted historical artifact location.
+native_spec.officialUrl,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem10-freefall-3d-si.yaml
+native_spec.tags[0],string,granular
+native_spec.tags[1],string,unvetted
+native_spec.materials[0].id,string,particle-material
+native_spec.materials[0].density,number,2700.0
+native_spec.materials[0].young,number,10000.0
+native_spec.materials[0].poisson,number,0.25
+native_spec.materials[0].restitution,number,1.0
+native_spec.materials[0].isWall,boolean,false
+native_spec.spheres[0].id,string,sphere
+native_spec.spheres[0].materialId,string,particle-material
+native_spec.spheres[0].radius,number,0.0025
+native_spec.spheres[0].position[0],number,0
+native_spec.spheres[0].position[1],number,0
+native_spec.spheres[0].position[2],number,0.05
+native_spec.spheres[0].velocity[0],number,0
+native_spec.spheres[0].velocity[1],number,0
+native_spec.spheres[0].velocity[2],number,0
+native_spec.spheres[0].angularVelocity[0],number,0
+native_spec.spheres[0].angularVelocity[1],number,0
+native_spec.spheres[0].angularVelocity[2],number,0
+native_spec.pair.linear,boolean,true
+native_spec.pair.kn,number,10000.0
+native_spec.pair.kt,number,0.0
+native_spec.pair.mu,number,0.0
+native_spec.pair.manualDamping,boolean,false
+native_spec.pair.cn,number,0.0
+native_spec.pair.ct,number,0.0
+native_spec.pair.kr,number,0.0
+native_spec.pair.mur,number,0.0
+native_spec.pair.cr,number,0.0
+native_spec.pair.ktw,number,0.0
+native_spec.pair.mut,number,0.0
+native_spec.pair.ctw,number,0.0
+native_spec.gravity[0],number,0
+native_spec.gravity[1],number,0
+native_spec.gravity[2],number,-9.81
+native_spec.baseDt,number,1e-05
+native_spec.baseSteps,number,8000
+native_spec.outputIntervalBase,number,10
+native_spec.outputIntervalHalf,number,20
+native_spec.checkSteps[0],number,4000
+native_spec.checkSteps[1],number,8000
+native_spec.analyticModel,string,freefall
+native_spec.analyticTolerance,number,1e-09
+native_spec.analyticCheckStep,number,8000
+native_spec.mappingStatus,string,ready_for_native_preflight
+native_spec.mappingNotes[0],string,No wall and no particle pair; configured Hooke material pair is inactive. Official tight ballistic z/vz assertions are independent.
+native_spec.title,string,LAMMPS official dem10-freefall
+native_spec.source.file,string,dem10-freefall-3d-si.yaml
+native_spec.source.path,string,Omitted historical artifact location.
+native_spec.source.commit,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+native_spec.source.gitBlob,string,be3161683b34bb6cecb5bc8474e8a89bceebfa1b
+native_spec.source.sha256,string,c8e1a18f434b724691bbbcd32d6636c264350b2318b83ed9953aa12a5aac8356
+native_spec.source.url,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem10-freefall-3d-si.yaml
+native_spec.source.family,string,LAMMPS
+native_spec.source.tags[0],string,granular
+native_spec.source.tags[1],string,unvetted
+native_spec.gravityZ,number,-9.81
+native_spec.contact.normalStiffness,number,10000.0
+native_spec.contact.slidingStiffness,number,0.0
+native_spec.contact.slidingFrictionCoefficient,number,0.0
+native_spec.contact.normalDampingCoefficient,number,0.0
+native_spec.contact.slidingDampingCoefficient,number,0.0
+native_spec.contact.rollingStiffness,number,0.0
+native_spec.contact.rollingFrictionCoefficient,number,0.0
+native_spec.contact.rollingDampingCoefficient,number,0.0
+native_spec.contact.torsionalStiffness,number,0.0
+native_spec.contact.torsionalFrictionCoefficient,number,0.0
+native_spec.contact.torsionalDampingCoefficient,number,0.0
+native_spec.contact.linearStiffnessEnabled,boolean,true
+native_spec.contact.dampingEnabled,boolean,false
+native_spec.cadenceNote,string,Chosen before execution: same physical cadence across base/half; all integration-step state/contact data retained in CSV. Avoids quadratic manifest overhead for14k/16k refined-step runs.
+derived.spheres[0].instance,string,sphere
+derived.spheres[0].radius_m,number,0.0025
+derived.spheres[0].mass_kg,number,0.0001767145867644259
+derived.spheres[0].inertia_kg_m2,number,4.4178646691106484e-10
+runs[0].run,string,cpu
+runs[0].label,string,CPU dt
+runs[0].dt_s,number,1e-05
+runs[0].native_steps,number,8000
+runs[0].frames,number,801
+runs[0].archive,string,Omitted historical artifact location.
+runs[0].project,string,Omitted historical artifact location.
+runs[0].native_output_interval_s,number,0.0001
+runs[0].trajectory_csv_rows,number,8001
+runs[0].contact_csv_rows,number,0
+runs[0].official_check_step,number,8000
+runs[0].native_check_step,number,8000
+runs[0].official_check_time_s,number,0.08
+runs[0].official_metrics[0].quantity,string,Freefall z (m)
+runs[0].official_metrics[0].expected,number,0.01860799999999868
+runs[0].official_metrics[0].actual,number,0.018608000000002727
+runs[0].official_metrics[0].error_kind,string,relative
+runs[0].official_metrics[0].error,number,2.1739978213554389e-13
+runs[0].official_metrics[0].tolerance,number,1e-09
+runs[0].official_metrics[0].passed,boolean,true
+runs[0].official_metrics[1].quantity,string,Freefall vz (m/s)
+runs[0].official_metrics[1].expected,number,-0.7848000000000165
+runs[0].official_metrics[1].actual,number,-0.7847999999999261
+runs[0].official_metrics[1].error_kind,string,relative
+runs[0].official_metrics[1].error,number,1.1515310168767308e-13
+runs[0].official_metrics[1].tolerance,number,1e-09
+runs[0].official_metrics[1].passed,boolean,true
+runs[0].passes_official_analytic_tolerance,boolean,true
+runs[0].maximum_metric_error_over_tolerance,number,0.00021739978213554387
+runs[0].maximum_individual_impulse_residual_kg_m_s,number,1.5910666881224778e-17
+runs[0].maximum_position_drift_residual_m,number,3.469129314598394e-18
+runs[0].maximum_velocity_kick_residual_m_s,number,1.7604732775733378e-17
+runs[0].initial_precompressed_contacts_reconstructed,boolean,false
+runs[0].maximum_contacts,number,0
+runs[0].initial_mechanical_energy_J,number,8.667850480795092e-05
+runs[0].final_mechanical_energy_J,number,8.667850480794539e-05
+runs[0].whole_history_maximum_momentum_drift_kg_m_s,number,0.0001386856076927084
+runs[1].run,string,gpu
+runs[1].label,string,GPU dt
+runs[1].dt_s,number,1e-05
+runs[1].native_steps,number,8000
+runs[1].frames,number,801
+runs[1].archive,string,Omitted historical artifact location.
+runs[1].project,string,Omitted historical artifact location.
+runs[1].native_output_interval_s,number,0.0001
+runs[1].trajectory_csv_rows,number,8001
+runs[1].contact_csv_rows,number,0
+runs[1].official_check_step,number,8000
+runs[1].native_check_step,number,8000
+runs[1].official_check_time_s,number,0.08
+runs[1].official_metrics[0].quantity,string,Freefall z (m)
+runs[1].official_metrics[0].expected,number,0.01860799999999868
+runs[1].official_metrics[0].actual,number,0.018608000000002727
+runs[1].official_metrics[0].error_kind,string,relative
+runs[1].official_metrics[0].error,number,2.1739978213554389e-13
+runs[1].official_metrics[0].tolerance,number,1e-09
+runs[1].official_metrics[0].passed,boolean,true
+runs[1].official_metrics[1].quantity,string,Freefall vz (m/s)
+runs[1].official_metrics[1].expected,number,-0.7848000000000165
+runs[1].official_metrics[1].actual,number,-0.7847999999999261
+runs[1].official_metrics[1].error_kind,string,relative
+runs[1].official_metrics[1].error,number,1.1515310168767308e-13
+runs[1].official_metrics[1].tolerance,number,1e-09
+runs[1].official_metrics[1].passed,boolean,true
+runs[1].passes_official_analytic_tolerance,boolean,true
+runs[1].maximum_metric_error_over_tolerance,number,0.00021739978213554387
+runs[1].maximum_individual_impulse_residual_kg_m_s,number,1.5910666881224778e-17
+runs[1].maximum_position_drift_residual_m,number,3.469129314598394e-18
+runs[1].maximum_velocity_kick_residual_m_s,number,1.7604732775733378e-17
+runs[1].initial_precompressed_contacts_reconstructed,boolean,false
+runs[1].maximum_contacts,number,0
+runs[1].initial_mechanical_energy_J,number,8.667850480795092e-05
+runs[1].final_mechanical_energy_J,number,8.667850480794539e-05
+runs[1].whole_history_maximum_momentum_drift_kg_m_s,number,0.0001386856076927084
+runs[2].run,string,cpu-dt-half
+runs[2].label,string,CPU dt/2
+runs[2].dt_s,number,5e-06
+runs[2].native_steps,number,16000
+runs[2].frames,number,801
+runs[2].archive,string,Omitted historical artifact location.
+runs[2].project,string,Omitted historical artifact location.
+runs[2].native_output_interval_s,number,0.0001
+runs[2].trajectory_csv_rows,number,16001
+runs[2].contact_csv_rows,number,0
+runs[2].official_check_step,number,8000
+runs[2].native_check_step,number,16000
+runs[2].official_check_time_s,number,0.08
+runs[2].official_metrics[0].quantity,string,Freefall z (m)
+runs[2].official_metrics[0].expected,number,0.01860799999999245
+runs[2].official_metrics[0].actual,number,0.018607999999993626
+runs[2].official_metrics[0].error_kind,string,relative
+runs[2].official_metrics[0].error,number,6.320628314234482e-14
+runs[2].official_metrics[0].tolerance,number,1e-09
+runs[2].official_metrics[0].passed,boolean,true
+runs[2].official_metrics[1].quantity,string,Freefall vz (m/s)
+runs[2].official_metrics[1].expected,number,-0.7848000000000944
+runs[2].official_metrics[1].actual,number,-0.7848000000005672
+runs[2].official_metrics[1].error_kind,string,relative
+runs[2].official_metrics[1].error,number,6.023610650934439e-13
+runs[2].official_metrics[1].tolerance,number,1e-09
+runs[2].official_metrics[1].passed,boolean,true
+runs[2].passes_official_analytic_tolerance,boolean,true
+runs[2].maximum_metric_error_over_tolerance,number,0.0006023610650934439
+runs[2].maximum_individual_impulse_residual_kg_m_s,number,5.860112742284151e-17
+runs[2].maximum_position_drift_residual_m,number,3.469446951953614e-18
+runs[2].maximum_velocity_kick_residual_m_s,number,1.0594688104256789e-16
+runs[2].initial_precompressed_contacts_reconstructed,boolean,false
+runs[2].maximum_contacts,number,0
+runs[2].initial_mechanical_energy_J,number,8.667850480795092e-05
+runs[2].final_mechanical_energy_J,number,8.667850480801852e-05
+runs[2].whole_history_maximum_momentum_drift_kg_m_s,number,0.00013868560769282167
+runs[3].run,string,gpu-dt-half
+runs[3].label,string,GPU dt/2
+runs[3].dt_s,number,5e-06
+runs[3].native_steps,number,16000
+runs[3].frames,number,801
+runs[3].archive,string,Omitted historical artifact location.
+runs[3].project,string,Omitted historical artifact location.
+runs[3].native_output_interval_s,number,0.0001
+runs[3].trajectory_csv_rows,number,16001
+runs[3].contact_csv_rows,number,0
+runs[3].official_check_step,number,8000
+runs[3].native_check_step,number,16000
+runs[3].official_check_time_s,number,0.08
+runs[3].official_metrics[0].quantity,string,Freefall z (m)
+runs[3].official_metrics[0].expected,number,0.01860799999999245
+runs[3].official_metrics[0].actual,number,0.018607999999993612
+runs[3].official_metrics[0].error_kind,string,relative
+runs[3].official_metrics[0].error,number,6.246048629110772e-14
+runs[3].official_metrics[0].tolerance,number,1e-09
+runs[3].official_metrics[0].passed,boolean,true
+runs[3].official_metrics[1].quantity,string,Freefall vz (m/s)
+runs[3].official_metrics[1].expected,number,-0.7848000000000944
+runs[3].official_metrics[1].actual,number,-0.7848000000005672
+runs[3].official_metrics[1].error_kind,string,relative
+runs[3].official_metrics[1].error,number,6.023610650934439e-13
+runs[3].official_metrics[1].tolerance,number,1e-09
+runs[3].official_metrics[1].passed,boolean,true
+runs[3].passes_official_analytic_tolerance,boolean,true
+runs[3].maximum_metric_error_over_tolerance,number,0.0006023610650934439
+runs[3].maximum_individual_impulse_residual_kg_m_s,number,5.860112742284151e-17
+runs[3].maximum_position_drift_residual_m,number,3.469446951953614e-18
+runs[3].maximum_velocity_kick_residual_m_s,number,1.0594688104256789e-16
+runs[3].initial_precompressed_contacts_reconstructed,boolean,false
+runs[3].maximum_contacts,number,0
+runs[3].initial_mechanical_energy_J,number,8.667850480795092e-05
+runs[3].final_mechanical_energy_J,number,8.667850480801849e-05
+runs[3].whole_history_maximum_momentum_drift_kg_m_s,number,0.00013868560769282167
+cpu_gpu_comparison[0].runs[0],string,cpu
+cpu_gpu_comparison[0].runs[1],string,gpu
+cpu_gpu_comparison[0].maximum_absolute_position_difference_m,number,0.0
+cpu_gpu_comparison[0].maximum_absolute_velocity_difference_m_s,number,0.0
+cpu_gpu_comparison[0].maximum_absolute_spin_difference_rad_s,number,0.0
+cpu_gpu_comparison[0].maximum_absolute_force_difference_N,number,0.0
+cpu_gpu_comparison[1].runs[0],string,cpu-dt-half
+cpu_gpu_comparison[1].runs[1],string,gpu-dt-half
+cpu_gpu_comparison[1].maximum_absolute_position_difference_m,number,1.3877787807814457e-17
+cpu_gpu_comparison[1].maximum_absolute_velocity_difference_m_s,number,0.0
+cpu_gpu_comparison[1].maximum_absolute_spin_difference_rad_s,number,0.0
+cpu_gpu_comparison[1].maximum_absolute_force_difference_N,number,0.0
+timestep_convergence[0].quantity,string,Freefall z (m)
+timestep_convergence[0].coarse_error,number,2.1739978213554389e-13
+timestep_convergence[0].half_error,number,6.320628314234482e-14
+timestep_convergence[0].error_kind,string,relative
+timestep_convergence[0].tolerance,number,1e-09
+timestep_convergence[1].quantity,string,Freefall vz (m/s)
+timestep_convergence[1].coarse_error,number,1.1515310168767308e-13
+timestep_convergence[1].half_error,number,6.023610650934439e-13
+timestep_convergence[1].error_kind,string,relative
+timestep_convergence[1].tolerance,number,1e-09
+notes[0],string,No wall and no particle pair; configured Hooke material pair is inactive. Official tight ballistic z/vz assertions are independent.
+notes[1],string,Official analytic assertions use the selected source segment and unchanged physical coefficients. Same-code epsilon is not a cross-software limit.
+notes[2],string,Four fresh native SimulationSession runs retain every configured native frame and all-step state/contact CSV. Native force excludes separate gravity.
+notes[3],string,"Raw eventStart output precedes initialization. Where initially compressed, geometric initial preload is used only in derived impulse/bootstrap audits, never injected into raw frames."
+notes[4],string,Linked static executable is held stable across the four runs; installed GUI and historical-library byte identity is not asserted.
+notes[5],string,Supplemental whole-history energy/impulse and source golden checkpoints do not replace each official selected-time criterion.
+source_checkpoint_comparisons.rows,number,32
+source_checkpoint_comparisons.source_segments,number,2
+source_checkpoint_comparisons.path,string,Omitted historical artifact location.
+source_checkpoint_comparisons.acceptance_policy,string,Diagnostic only; YAML epsilon1e-10 is same-code precision and not used for cross-software pass/fail.
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_pos,number,9.114237142782144e-15
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_vel,number,6.410427744185654e-13
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_omega,number,0.0
+source_checkpoint_comparisons.maximum_vector_norm_difference_by_quantity.run_torque,number,0.0

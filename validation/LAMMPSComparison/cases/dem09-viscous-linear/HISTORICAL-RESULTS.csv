@@ -1,0 +1,263 @@
+field,type,value
+date,string,2026-10-29
+case_directory,string,dem09-viscous-linear
+source_commit,string,29dd3fd7642a6fe9e8b4dd99120df4068b221250
+official_git_blob,string,c1948eb56cac61f1c6159fc060d7d191c1ab897c
+source_snapshot_sha256,string,49c4ead259f1f98b3a913e67665d862ff787041d1654ad0f0724ae20e3a5c419
+official_source,string,Omitted historical artifact location.
+official_source_url,string,https://github.com/lammps/lammps/blob/29dd3fd7642a6fe9e8b4dd99120df4068b221250/unittest/granular/tests/dem09-viscous-linear-3d-si.yaml
+official_source_tags[0],string,granular
+official_source_tags[1],string,unvetted
+official_analytic_model,string,terminal_velocity_linear
+official_analytic_tolerance,number,0.005
+official_analytic_tolerance_kind,string,relative error to asymptotic terminal speed at final physical time
+official_analytic_time_s,number,0.08
+official_analytic_step,number,800
+official_analytic_segment,number,1
+parameters.diam,number,0.0001
+parameters.dens,number,2000.0
+parameters.grav,number,9.81
+parameters.gamma,number,1e-07
+parameters.radius,number,5e-05
+parameters.dt,number,0.0001
+parameters.z0,number,0.008
+derived.sphere_mass_kg,number,1.047197551196598e-09
+derived.mass_kg,number,1.047197551196598e-09
+derived.inertia_kg_m2,number,1.047197551196598e-18
+derived.gamma_kg_s,number,1e-07
+derived.damping_rate_s_inverse,number,95.49296585513719
+derived.relaxation_time_s,number,0.01047197551196598
+derived.terminal_velocity_m_s,number,-0.10273007977238627
+derived.terminal_speed_m_s,number,0.10273007977238627
+derived.weight_N,number,1.0273007977238626e-08
+derived.initial_mechanical_energy_J,number,8.218406381790901e-11
+derived.official_check_time_s,number,0.08
+derived.exact_final_velocity_m_s,number,-0.10268065642289338
+derived.exact_final_z_m,number,0.0008568629378222304
+derived.exact_final_dissipated_energy_J,number,6.786103604379738e-11
+derived.finite_time_remaining_fraction_to_terminal,number,0.0004810991055627517
+runs[0].run,string,cpu
+runs[0].label,string,CPU dt
+runs[0].dt_s,number,0.0001
+runs[0].native_steps,number,800
+runs[0].frames,number,801
+runs[0].native_output_interval_s,number,0.0001
+runs[0].archive,string,Omitted historical artifact location.
+runs[0].project,string,Omitted historical artifact location.
+runs[0].trajectory_csv_rows,number,801
+runs[0].contact_csv_rows,number,0
+runs[0].measured_terminal_speed_m_s,number,0.10268243673602176
+runs[0].official_terminal_speed_relative_error,number,0.00046376909732837035
+runs[0].passes_official_analytic_tolerance,boolean,true
+runs[0].final_z_m,number,0.0008517474708094134
+runs[0].final_vz_m_s,number,-0.10268243673602176
+runs[0].final_drag_force_N,number,1.0268220816593776e-08
+runs[0].final_finite_time_velocity_error_m_s,number,1.780313128377231e-06
+runs[0].final_finite_time_position_error_m,number,5.115467012686858e-06
+runs[0].maximum_finite_time_velocity_error_m_s,number,0.00018030109550280782
+runs[0].maximum_finite_time_position_error_m,number,5.115467012686858e-06
+runs[0].inferred_drag_coefficient_kg_s,number,1e-07
+runs[0].minimum_inferred_drag_coefficient_kg_s,number,9.999999999999997e-08
+runs[0].maximum_inferred_drag_coefficient_kg_s,number,1.0000000000000001e-07
+runs[0].inferred_damping_rate_s_inverse,number,95.49296585513719
+runs[0].maximum_drag_coefficient_relative_error,number,2.220446049250313e-16
+runs[0].inference_samples,number,800
+runs[0].maximum_drag_force_reconstruction_error_N,number,1.6543612251060553e-24
+runs[0].maximum_drag_force_reconstruction_error_over_weight,number,1.610396126209128e-16
+runs[0].maximum_linear_impulse_balance_error_kg_m_s,number,3.877409121342317e-25
+runs[0].maximum_relative_impulse_balance_error,number,3.6042539600000026e-15
+runs[0].maximum_position_drift_residual_m,number,8.667264632779628e-19
+runs[0].maximum_step_velocity_residual_m_s,number,1.3877787807814457e-17
+runs[0].maximum_discrete_position_error_m,number,4.336808689942018e-18
+runs[0].maximum_discrete_velocity_error_m_s,number,1.6653345369377348e-16
+runs[0].maximum_discrete_drag_force_error_N,number,1.6543612251060553e-23
+runs[0].initial_mechanical_energy_J,number,8.218406381790901e-11
+runs[0].final_mechanical_energy_J,number,1.4270667973949823e-11
+runs[0].dissipated_mechanical_energy_J,number,6.791339584395919e-11
+runs[0].integrated_drag_dissipation_J,number,6.788703675427444e-11
+runs[0].final_energy_work_balance_residual_J,number,-2.6359089684741698e-14
+runs[0].maximum_energy_work_balance_residual_relative,number,0.0003207323714624793
+runs[0].maximum_energy_above_initial_J,number,0.0
+runs[0].maximum_spin_rad_s,number,0.0
+runs[0].maximum_torque_N_m,number,0.0
+runs[0].maximum_transverse_speed_m_s,number,0.0
+runs[0].contact_count,number,0
+runs[0].native_force_excludes_gravity,boolean,true
+runs[1].run,string,gpu
+runs[1].label,string,GPU dt
+runs[1].dt_s,number,0.0001
+runs[1].native_steps,number,800
+runs[1].frames,number,801
+runs[1].native_output_interval_s,number,0.0001
+runs[1].archive,string,Omitted historical artifact location.
+runs[1].project,string,Omitted historical artifact location.
+runs[1].trajectory_csv_rows,number,801
+runs[1].contact_csv_rows,number,0
+runs[1].measured_terminal_speed_m_s,number,0.10268243673602176
+runs[1].official_terminal_speed_relative_error,number,0.00046376909732837035
+runs[1].passes_official_analytic_tolerance,boolean,true
+runs[1].final_z_m,number,0.0008517474708094132
+runs[1].final_vz_m_s,number,-0.10268243673602176
+runs[1].final_drag_force_N,number,1.0268220816593776e-08
+runs[1].final_finite_time_velocity_error_m_s,number,1.780313128377231e-06
+runs[1].final_finite_time_position_error_m,number,5.115467012687075e-06
+runs[1].maximum_finite_time_velocity_error_m_s,number,0.00018030109550280782
+runs[1].maximum_finite_time_position_error_m,number,5.115467012687075e-06
+runs[1].inferred_drag_coefficient_kg_s,number,1e-07
+runs[1].minimum_inferred_drag_coefficient_kg_s,number,9.999999999999998e-08
+runs[1].maximum_inferred_drag_coefficient_kg_s,number,1.0000000000000001e-07
+runs[1].inferred_damping_rate_s_inverse,number,95.49296585513719
+runs[1].maximum_drag_coefficient_relative_error,number,2.220446049250313e-16
+runs[1].inference_samples,number,800
+runs[1].maximum_drag_force_reconstruction_error_N,number,1.6543612251060553e-24
+runs[1].maximum_drag_force_reconstruction_error_over_weight,number,1.610396126209128e-16
+runs[1].maximum_linear_impulse_balance_error_kg_m_s,number,4.006656092053728e-25
+runs[1].maximum_relative_impulse_balance_error,number,3.724395758666669e-15
+runs[1].maximum_position_drift_residual_m,number,8.668323423963696e-19
+runs[1].maximum_step_velocity_residual_m_s,number,1.3877787807814457e-17
+runs[1].maximum_discrete_position_error_m,number,4.336808689942018e-18
+runs[1].maximum_discrete_velocity_error_m_s,number,1.6653345369377348e-16
+runs[1].maximum_discrete_drag_force_error_N,number,1.6543612251060553e-23
+runs[1].initial_mechanical_energy_J,number,8.218406381790901e-11
+runs[1].final_mechanical_energy_J,number,1.427066797394982e-11
+runs[1].dissipated_mechanical_energy_J,number,6.791339584395919e-11
+runs[1].integrated_drag_dissipation_J,number,6.788703675427444e-11
+runs[1].final_energy_work_balance_residual_J,number,-2.6359089684741698e-14
+runs[1].maximum_energy_work_balance_residual_relative,number,0.0003207323714624793
+runs[1].maximum_energy_above_initial_J,number,0.0
+runs[1].maximum_spin_rad_s,number,0.0
+runs[1].maximum_torque_N_m,number,0.0
+runs[1].maximum_transverse_speed_m_s,number,0.0
+runs[1].contact_count,number,0
+runs[1].native_force_excludes_gravity,boolean,true
+runs[2].run,string,cpu-dt-half
+runs[2].label,string,CPU dt/2
+runs[2].dt_s,number,5e-05
+runs[2].native_steps,number,1600
+runs[2].frames,number,1601
+runs[2].native_output_interval_s,number,5e-05
+runs[2].archive,string,Omitted historical artifact location.
+runs[2].project,string,Omitted historical artifact location.
+runs[2].trajectory_csv_rows,number,1601
+runs[2].contact_csv_rows,number,0
+runs[2].measured_terminal_speed_m_s,number,0.10268155217635498
+runs[2].official_terminal_speed_relative_error,number,0.00047237961986212884
+runs[2].passes_official_analytic_tolerance,boolean,true
+runs[2].final_z_m,number,0.0008543052822293353
+runs[2].final_vz_m_s,number,-0.10268155217635498
+runs[2].final_drag_force_N,number,1.0268143604801723e-08
+runs[2].final_finite_time_velocity_error_m_s,number,8.957534615994245e-07
+runs[2].final_finite_time_position_error_m,number,2.557655592961899e-06
+runs[2].maximum_finite_time_velocity_error_m_s,number,9.018641427002705e-05
+runs[2].maximum_finite_time_position_error_m,number,2.557655592961899e-06
+runs[2].inferred_drag_coefficient_kg_s,number,1e-07
+runs[2].minimum_inferred_drag_coefficient_kg_s,number,9.999999999999997e-08
+runs[2].maximum_inferred_drag_coefficient_kg_s,number,1.0000000000000002e-07
+runs[2].inferred_damping_rate_s_inverse,number,95.49296585513719
+runs[2].maximum_drag_coefficient_relative_error,number,2.220446049250313e-16
+runs[2].inference_samples,number,1600
+runs[2].maximum_drag_force_reconstruction_error_N,number,1.6543612251060553e-24
+runs[2].maximum_drag_force_reconstruction_error_over_weight,number,1.610396126209128e-16
+runs[2].maximum_linear_impulse_balance_error_kg_m_s,number,8.013312184107456e-25
+runs[2].maximum_relative_impulse_balance_error,number,7.448791517333338e-15
+runs[2].maximum_position_drift_residual_m,number,8.612339840106107e-19
+runs[2].maximum_step_velocity_residual_m_s,number,1.362028979184915e-17
+runs[2].maximum_discrete_position_error_m,number,9.107298248878237e-18
+runs[2].maximum_discrete_velocity_error_m_s,number,1.942890293094024e-16
+runs[2].maximum_discrete_drag_force_error_N,number,1.9852334701272664e-23
+runs[2].initial_mechanical_energy_J,number,8.218406381790901e-11
+runs[2].final_mechanical_energy_J,number,1.4296849275844415e-11
+runs[2].dissipated_mechanical_energy_J,number,6.788721454206459e-11
+runs[2].integrated_drag_dissipation_J,number,6.787403519542858e-11
+runs[2].final_energy_work_balance_residual_J,number,-1.3179346636008494e-14
+runs[2].maximum_energy_work_balance_residual_relative,number,0.00016036377399405915
+runs[2].maximum_energy_above_initial_J,number,0.0
+runs[2].maximum_spin_rad_s,number,0.0
+runs[2].maximum_torque_N_m,number,0.0
+runs[2].maximum_transverse_speed_m_s,number,0.0
+runs[2].contact_count,number,0
+runs[2].native_force_excludes_gravity,boolean,true
+runs[3].run,string,gpu-dt-half
+runs[3].label,string,GPU dt/2
+runs[3].dt_s,number,5e-05
+runs[3].native_steps,number,1600
+runs[3].frames,number,1601
+runs[3].native_output_interval_s,number,5e-05
+runs[3].archive,string,Omitted historical artifact location.
+runs[3].project,string,Omitted historical artifact location.
+runs[3].trajectory_csv_rows,number,1601
+runs[3].contact_csv_rows,number,0
+runs[3].measured_terminal_speed_m_s,number,0.10268155217635498
+runs[3].official_terminal_speed_relative_error,number,0.00047237961986212884
+runs[3].passes_official_analytic_tolerance,boolean,true
+runs[3].final_z_m,number,0.0008543052822293344
+runs[3].final_vz_m_s,number,-0.10268155217635498
+runs[3].final_drag_force_N,number,1.0268143604801723e-08
+runs[3].final_finite_time_velocity_error_m_s,number,8.957534615994245e-07
+runs[3].final_finite_time_position_error_m,number,2.5576555929627664e-06
+runs[3].maximum_finite_time_velocity_error_m_s,number,9.018641427002705e-05
+runs[3].maximum_finite_time_position_error_m,number,2.5576555929627664e-06
+runs[3].inferred_drag_coefficient_kg_s,number,1e-07
+runs[3].minimum_inferred_drag_coefficient_kg_s,number,9.999999999999997e-08
+runs[3].maximum_inferred_drag_coefficient_kg_s,number,1.0000000000000002e-07
+runs[3].inferred_damping_rate_s_inverse,number,95.49296585513719
+runs[3].maximum_drag_coefficient_relative_error,number,2.220446049250313e-16
+runs[3].inference_samples,number,1600
+runs[3].maximum_drag_force_reconstruction_error_N,number,1.6543612251060553e-24
+runs[3].maximum_drag_force_reconstruction_error_over_weight,number,1.610396126209128e-16
+runs[3].maximum_linear_impulse_balance_error_kg_m_s,number,6.979336418416171e-25
+runs[3].maximum_relative_impulse_balance_error,number,6.487657128000005e-15
+runs[3].maximum_position_drift_residual_m,number,8.612339840106107e-19
+runs[3].maximum_step_velocity_residual_m_s,number,1.362028979184915e-17
+runs[3].maximum_discrete_position_error_m,number,9.974659986866641e-18
+runs[3].maximum_discrete_velocity_error_m_s,number,1.942890293094024e-16
+runs[3].maximum_discrete_drag_force_error_N,number,1.9852334701272664e-23
+runs[3].initial_mechanical_energy_J,number,8.218406381790901e-11
+runs[3].final_mechanical_energy_J,number,1.4296849275844406e-11
+runs[3].dissipated_mechanical_energy_J,number,6.78872145420646e-11
+runs[3].integrated_drag_dissipation_J,number,6.787403519542857e-11
+runs[3].final_energy_work_balance_residual_J,number,-1.3179346636034344e-14
+runs[3].maximum_energy_work_balance_residual_relative,number,0.00016036377399437368
+runs[3].maximum_energy_above_initial_J,number,0.0
+runs[3].maximum_spin_rad_s,number,0.0
+runs[3].maximum_torque_N_m,number,0.0
+runs[3].maximum_transverse_speed_m_s,number,0.0
+runs[3].contact_count,number,0
+runs[3].native_force_excludes_gravity,boolean,true
+cpu_gpu_comparison[0].runs[0],string,cpu
+cpu_gpu_comparison[0].runs[1],string,gpu
+cpu_gpu_comparison[0].maximum_absolute_position_difference_m,number,2.168404344971009e-19
+cpu_gpu_comparison[0].maximum_absolute_velocity_difference_m_s,number,2.7755575615628914e-17
+cpu_gpu_comparison[0].maximum_absolute_force_difference_N,number,3.308722450212111e-24
+cpu_gpu_comparison[0].maximum_absolute_energy_difference_J,number,1.2924697071141057e-26
+cpu_gpu_comparison[0].terminal_speed_difference_m_s,number,0.0
+cpu_gpu_comparison[1].runs[0],string,cpu-dt-half
+cpu_gpu_comparison[1].runs[1],string,gpu-dt-half
+cpu_gpu_comparison[1].maximum_absolute_position_difference_m,number,1.734723475976807e-18
+cpu_gpu_comparison[1].maximum_absolute_velocity_difference_m_s,number,2.7755575615628914e-17
+cpu_gpu_comparison[1].maximum_absolute_force_difference_N,number,3.308722450212111e-24
+cpu_gpu_comparison[1].maximum_absolute_energy_difference_J,number,2.5849394142282115e-26
+cpu_gpu_comparison[1].terminal_speed_difference_m_s,number,0.0
+timestep_convergence.cpu_terminal_speed_change_m_s,number,-8.845596667778066e-07
+timestep_convergence.gpu_terminal_speed_change_m_s,number,-8.845596667778066e-07
+timestep_convergence.coarse_official_terminal_relative_error,number,0.00046376909732837035
+timestep_convergence.half_official_terminal_relative_error,number,0.00047237961986212884
+timestep_convergence.coarse_final_finite_time_velocity_error_m_s,number,1.780313128377231e-06
+timestep_convergence.half_final_finite_time_velocity_error_m_s,number,8.957534615994245e-07
+timestep_convergence.coarse_maximum_finite_time_velocity_error_m_s,number,0.00018030109550280782
+timestep_convergence.half_maximum_finite_time_velocity_error_m_s,number,9.018641427002705e-05
+timestep_convergence.coarse_maximum_finite_time_position_error_m,number,5.115467012686858e-06
+timestep_convergence.half_maximum_finite_time_position_error_m,number,2.557655592961899e-06
+timestep_convergence.finite_time_velocity_error_reduction_factor,number,1.9992046137123103
+timestep_convergence.finite_time_position_error_reduction_factor,number,2.000060925624032
+notes[0],string,"The official analytic assertion compares final falling speed with m*g/gamma, not the finite-time exponential solution."
+notes[1],string,"The official YAML is tagged unvetted. Its epsilon=1e-10 is same-code state-regression precision, not a cross-software tolerance."
+notes[2],string,The native accumulated force is external viscous drag only. Gravity is applied separately during integration.
+notes[3],string,"Remove the final half-kick, including gravity, before comparing F_drag=-gamma*v_assembly or inferring gamma."
+notes[4],string,The native input dampingRate=gamma/m has units 1/s; it is not the dimensionful gamma and is not contact restitution damping.
+notes[5],string,"Finite-time exponential velocity and position, work-energy diagnostics and the unfitted discrete recurrence are supplemental comparisons."
+notes[6],string,Mechanical energy dissipates through viscous drag; sphere momentum changes due to external drag and gravity.
+notes[7],string,LAMMPS uses two run segments of500/300steps and recomputes forces at the second setup. FunDEM runs one continuous800-step event; retained golden-state differences are reported separately.
+notes[8],string,"There are no contact pairs, other particles, walls or active SPH modules. Elasticity and restitution fields are inactive schema placeholders."
+notes[9],string,Four real native FunDEM0.4.3 CPU/CUDA SimulationSession runs are tested. Installed GUI executable byte identity is not established.
+notes[10],string,The historical24-input source catalog remains unchanged; dem09 and dem13 use the separately pinned newer official source.
