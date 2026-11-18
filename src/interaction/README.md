@@ -71,6 +71,27 @@ are not denominators in the current damage helper. Bending and torsional
 stiffness may be zero. Setting the mode does not reset irreversible history.
 Software configuration flags are mapped to these core modes by the application.
 
+To adopt an existing Bond in a fresh solver, configure the same equivalent
+length, endpoints, original physical stiffnesses and fracture parameters,
+then call `restoreReferenceState(bondReferenceState)` and
+`restoreDamageState(bondDamageState)` before insertion. Reference restoration
+validates finite positions and orthonormal local endpoint frames. Damage
+restoration validates and assigns the saved damage factor, onset flag/stress/
+separation, maximum separation, failure separation and frozen BK energy
+directly; it does not run onset or softening. Retain fully broken Bonds and
+their endpoint/recipe identities. These operations do not infer missing
+history or authorize healing a running specimen.
+
+For saved Contact memory, preserve the ordered endpoint identity and LS
+master-local surface-node index. Reversing a Sphere pair reverses sliding
+and torsional spring vectors while retaining rolling parity. LS node history
+cannot be transferred to the other body's surface by swapping endpoints;
+applications must preserve the applicable LS master ordering. Fresh solver
+installation uses `restoreInitialContacts()`, followed by
+`prepareInitialStateRestore()` and ordinary history-neutral initialization.
+GPU compact ranges/history are rebuilt from the accepted host Contacts,
+not persisted as device addresses.
+
 ### Energy-based EVM Damage
 
 The original B1--B4 force, endpoint-couple, and B3/B4 torsion/bending-moment
@@ -89,10 +110,15 @@ unconditionally nonnegative quadratic form.
 For the circular section, the undamaged trial force and bond-point moment
 give `sigma_a=-dot(F,n)/A`, `sigma_b=|M_perp|*R/I` and
 `tau=|F_perp|/A+|dot(M,n)|*R/J`, with `R=sqrt(A/pi)`, `I=A*R²/4`
-and `J=2*I`. Strength initiation uses `sigma_criterion=sigma_a+sigma_b`:
-the squared tensile ratio plus the squared shear ratio with capacity
-`cohesion-friction*sigma_criterion`. Nonpositive shear capacity with
-nonzero shear initiates failure directly.
+and `J=2*I`. Both fracture branches use
+`sigma_criterion=sigma_a+sigma_b` and
+`shearCapacity=cohesion-friction*sigma_criterion`. Nonpositive capacity
+returns a strength-condition value of 1, including zero shear.
+Brittle mode uses independent strict limits:
+`sigma_criterion>tensileStrength` or `tau>shearCapacity`.
+Progressive mode uses the squared tensile ratio plus the squared shear ratio,
+with initiation at a sum of at least 1. Its shear ratio is evaluated for
+positive tau. The helper's `progressiveDamage` argument defaults to true.
 
 Damage instead uses the distinct opening stress and trial energies:
 
@@ -121,9 +147,10 @@ Evolution uses `dmax=max(previousMaximum,d)` and
 `D=max(previousD,(1-d0/dmax)/(1-d0/df))`, with failure at `dmax>=df`.
 There is no within-step onset interpolation or healing.
 
-Brittle mode and damage mode with both critical energies zero check
-strength directly. Otherwise zero onset `Gc`, zero onset `d`, or `df<=d0`
-causes immediate failure without extending the configured toughness.
+Brittle mode fails at its independent strength limit. Damage mode with both
+critical energies zero retains the quadratic criterion and fails immediately
+at its crossing. With positive critical energy, zero onset `Gc`, zero onset
+`d`, or `df<=d0` causes immediate failure with the configured toughness.
 The last condition is not an independent `A*Gc<=U0` test.
 
 For `D<1`, pure axial compression and its stored energy are retained; the
@@ -272,6 +299,8 @@ Default-disabled domains preserve ordinary nonperiodic searches. Device grid
 and interaction launchers receive the caller's `cudaStream_t` explicitly.
 
 `virtualParticleCoupling` retains stable LS-owner mappings, sampled boundary kinematics, and held world forces and torques. At each common acoustic boundary it refreshes geometry from the current LS pose and prepares wall velocity/acceleration from the completed solid interval's samples, or from instantaneous kinematics at startup. `SPHDEM` advances SPH first, collects the new reaction, and installs it before the first DEM half kick. Both halves of every solid substep then use the same held hydraulic load. Replacing the hydraulic part of the cached total does not reevaluate contact/bond history or call external hooks a second time. There are no new-minus-held increment caches or endpoint impulse-correction stage. CUDA copies and launchers use the stream supplied by the solver.
+
+`SPHDEM` retains existing owner-local boundary samples across runtime initialization and appends samples for new LS owners. Owner-map and kinematic-reference refreshes consume that accepted sample collection. Removing LS owners retains the surviving sample order and remaps owner indices. CPU, GPU and Hybrid then refresh their required search storage and current loads; search-grid rebuilding itself leaves local sampling intact.
 
 Current-time observations are owned by `SPHDEM`: they expose dense-output fluid state and current solid-boundary geometry without changing these kinematic accumulators, the held reaction, search references, or device state. The interaction component does not select output times or maintain a second observation-time integration path.
 

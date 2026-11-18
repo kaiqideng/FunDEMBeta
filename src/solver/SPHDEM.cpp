@@ -86,7 +86,8 @@ void appendVirtualParticles(std::vector<virtualParticle>& virtualParticles,
                             const SPHParticleContainer& SPHParticles,
                             const LSParticleContainer& LSParticles,
                             math::Real samplingSpacing,
-                            math::Real boundaryBand)
+                            math::Real boundaryBand,
+                            int firstLSParticleIndex)
 {
     const auto& SPHParticleHost = SPHParticles.host();
     if (SPHParticleHost.empty() || samplingSpacing <= 0.0)
@@ -97,15 +98,14 @@ void appendVirtualParticles(std::vector<virtualParticle>& virtualParticles,
     const math::Vec3 samplingOrigin = SPHParticleHost.front().position();
     const math::Real samplingVolume = samplingSpacing * samplingSpacing * samplingSpacing;
     const auto& LSParticleHost = LSParticles.host();
-    for (int particleIndex = 0; particleIndex < static_cast<int>(LSParticleHost.size()); ++particleIndex)
+    for (int particleIndex = firstLSParticleIndex; particleIndex < static_cast<int>(LSParticleHost.size()); ++particleIndex)
     {
+        const std::size_t firstSample = virtualParticles.size();
         const LSParticle& particle = LSParticleHost[particleIndex];
         const int3 size = particle.gridNodeSize();
         const math::Real inverseGridSpacing = particle.gridNodeInverseSpacing();
         if (inverseGridSpacing <= 0.0)
-        {
-            continue;
-        }
+            throw std::invalid_argument("An SPH boundary LSParticle needs a positive level-set grid spacing.");
 
         const math::Real gridSpacing = 1.0 / inverseGridSpacing;
         const math::Vec3 localMinimum = particle.gridNodeOrigin();
@@ -168,6 +168,8 @@ void appendVirtualParticles(std::vector<virtualParticle>& virtualParticles,
                 }
             }
         }
+        if (virtualParticles.size() == firstSample)
+            throw std::invalid_argument("Every SPH boundary LSParticle must generate at least one virtual particle inside the two-smoothing-length boundary band.");
     }
 }
 
@@ -178,6 +180,98 @@ SPHDEM::SPHDEM(int device) : LSDEM(device) {}
 SPHDEM::SPHDEM(executionMode mode, int device) : LSDEM(device) { setExecutionMode(mode); }
 
 SPHDEM::~SPHDEM() = default;
+
+SPHContinuationState SPHDEM::captureContinuationState()
+{
+    SPHContinuationState result;
+    const auto capture = [&](const solver&)
+    {
+        result.representedTime = time();
+        result.particles = SPHParticles_.host();
+        result.jets.reserve(SPHJets_.constraints_.size());
+        for (const auto& source : SPHJets_.constraints_)
+            result.jets.push_back({source.value_, source.startTime_, source.axialCount_, source.bufferLayerCount_, source.firstInletLayer_, source.offsets_, source.particleIndices_});
+    };
+    if (initialized())
+        observeCurrentState(capture);
+    else
+        capture(*this);
+    return result;
+}
+
+void SPHDEM::restoreContinuationState(const SPHContinuationState& value)
+{
+    if (initialized() || stepCount() != 0 || time() != 0.0)
+        throw std::logic_error("An SPH State can only initialize a fresh solver at elapsed time zero.");
+    if (!SPHProperties_.set_ || !math::isFinite(value.representedTime) || value.representedTime < 0.0 || value.particles.size() != SPHParticles_.hostSize())
+        throw std::invalid_argument("The saved SPH State does not match the prepared fluid population.");
+    for (const auto& particle : value.particles)
+        if (!particle.isValid() || !math::isFinite(particle.inverseMass()) || particle.inverseMass() <= 0.0 || !math::isFinite(particle.density()) || particle.density() <= math::defaultTolerance ||
+            !math::isFinite(particle.pressure()) || !math::isFinite(particle.densityRate()) || !math::isFinite(particle.priorForce()))
+            throw std::invalid_argument("The saved SPH State contains invalid physical particle data.");
+    SPHJetState sources;
+    std::vector<bool> owned(value.particles.size(), false);
+    for (const auto& source : value.jets)
+    {
+        const auto layerSize = source.offsets.size();
+        if (!source.value.isValid() || !math::isFinite(source.startTime) || !math::isFinite(source.startTime - value.representedTime) || layerSize == 0 || source.particleIndices.empty() ||
+            source.particleIndices.size() % layerSize != 0 || source.axialCount <= 0 || source.bufferLayerCount <= 0 || source.bufferLayerCount > source.axialCount || source.firstInletLayer < 0 ||
+            source.firstInletLayer > static_cast<int>(source.particleIndices.size() / layerSize) || source.particleIndices.size() / layerSize > static_cast<std::size_t>(source.axialCount))
+            throw std::invalid_argument("The saved SPH inlet progress is invalid.");
+        for (const auto& offset : source.offsets)
+            if (!math::isFinite(offset))
+                throw std::invalid_argument("The saved SPH inlet offsets are non-finite.");
+        for (std::size_t ordinal = 0; ordinal < source.particleIndices.size(); ++ordinal)
+        {
+            const int index = source.particleIndices[ordinal];
+            const std::size_t layerBegin = ordinal - ordinal % layerSize;
+            if (index != source.particleIndices[layerBegin] + static_cast<int>(ordinal % layerSize))
+                throw std::invalid_argument("Each saved SPH inlet layer must retain contiguous particle ordinals.");
+            if (index < 0 || static_cast<std::size_t>(index) >= owned.size() || owned[index])
+                throw std::invalid_argument("The saved SPH inlet particle references are invalid or overlapping.");
+            owned[index] = true;
+        }
+        SPHJetState::constraint restored;
+        restored.value_ = source.value;
+        restored.startTime_ = source.startTime - value.representedTime;
+        restored.axialCount_ = source.axialCount;
+        restored.bufferLayerCount_ = source.bufferLayerCount;
+        restored.firstInletLayer_ = source.firstInletLayer;
+        restored.offsets_ = source.offsets;
+        restored.particleIndices_ = source.particleIndices;
+        sources.latestEndTime_ = std::max(sources.latestEndTime_, restored.endTime());
+        sources.constraints_.push_back(std::move(restored));
+    }
+    sources.completed_ = sources.completedAt(0.0);
+    SPHParticles_.host() = value.particles;
+    SPHJets_ = std::move(sources);
+    outputSnapshot_ = {};
+    outputObservationSnapshot_ = false;
+    SPHStepState_ = {};
+    invalidateSPHNeighborhood();
+    initialSPHStateRestored_ = true;
+}
+
+std::vector<int> SPHDEM::removeLSParticles(const std::vector<int>& indices)
+{
+    const auto map = LSDEM::removeLSParticles(indices);
+    if (indices.empty())
+        return map;
+    auto& samples = virtualParticles_.host();
+    samples.erase(std::remove_if(samples.begin(),
+                                 samples.end(),
+                                 [&](virtualParticle& sample)
+                                 {
+                                     const int owner = map[sample.ownerLSParticleIndex()];
+                                     if (owner < 0)
+                                         return true;
+                                     sample.*virtualParticle::ownerLSParticleIndexField::member = owner;
+                                     return false;
+                                 }),
+                  samples.end());
+    virtualParticleCoupling_.reset();
+    return map;
+}
 
 int SPHDEM::addSPHParticle(const SPHParticle& value) { return addSPHParticles({value}); }
 
@@ -340,6 +434,8 @@ void SPHDEM::setSPHProperties(Real spacing, Real smoothingLength, Real reference
     {
         throw std::invalid_argument("The SPH reference kernel sum is invalid.");
     }
+    if (spacing != SPHProperties_.spacing_ || smoothingLength != SPHProperties_.smoothingLength_)
+        virtualParticles_.host().clear();
     SPHProperties_.spacing_ = spacing;
     SPHProperties_.smoothingLength_ = smoothingLength;
     SPHProperties_.referenceDensity_ = referenceDensity;
@@ -602,20 +698,17 @@ void SPHDEM::initializeSPHState()
                                                    [](const LSParticle& value) { return value.inverseMass() == 0.0 && value.velocity() == Vec3::zero() && value.angularVelocity() == Vec3::zero(); });
     outputSnapshot_ = {};
     outputObservationSnapshot_ = false;
-    virtualParticles_.resetDevice();
-    virtualParticles_.host().clear();
     SPHStepState_ = {};
     SPHStepState_.neighborSearchRadius_ = 2.0 * SPHProperties_.smoothingLength_;
     SPHJets_.completed_ = SPHJets_.completedAt(time());
     auto& particleHost = SPHParticles_.host();
-    for (SPHParticle& value : particleHost)
+    if (!initialSPHStateRestored_)
     {
-        value.setConstrained(false);
-    }
-    applySPHJetVelocity(time(), cpu::mode{});
-    for (SPHParticle& value : particleHost)
-    {
-        value.setPressure(execution::computePressureFromDensity(value.density(), SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_));
+        for (SPHParticle& value : particleHost)
+            value.setConstrained(false);
+        applySPHJetVelocity(time(), cpu::mode{});
+        for (SPHParticle& value : particleHost)
+            value.setPressure(execution::computePressureFromDensity(value.density(), SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_));
     }
 
     if (SPHParticleCount > 0)
@@ -630,21 +723,22 @@ void SPHDEM::initializeSPHState()
         }
     }
 
-    std::vector<virtualParticle> newVirtualParticles;
-    appendVirtualParticles(newVirtualParticles, SPHParticles_, LSParticles(), SPHProperties_.spacing_, 2.0 * SPHProperties_.smoothingLength_);
-    if (SPHParticleCount > 0 && LSParticleCount > 0)
+    auto& samples = virtualParticles_.host();
+    // Every accepted owner has at least one sample, and new owners are appended.
+    // This ordered prefix is the sampling record; local geometry survives runtime edits.
+    const int firstLSParticleIndex = samples.empty() ? 0 : samples.back().ownerLSParticleIndex() + 1;
+    if (firstLSParticleIndex > LSParticleCount)
+        throw std::logic_error("The virtual-particle owner prefix does not match the LS particle population.");
+    const std::size_t retainedCount = samples.size();
+    try
     {
-        std::vector<int> virtualParticleCountByOwner(static_cast<std::size_t>(LSParticleCount), 0);
-        for (const virtualParticle& value : newVirtualParticles)
-        {
-            ++virtualParticleCountByOwner[static_cast<std::size_t>(value.ownerLSParticleIndex())];
-        }
-        if (std::any_of(virtualParticleCountByOwner.begin(), virtualParticleCountByOwner.end(), [](int count) { return count == 0; }))
-        {
-            throw std::invalid_argument("Every SPH boundary LSParticle must generate at least one virtual particle inside the two-smoothing-length boundary band.");
-        }
+        appendVirtualParticles(samples, SPHParticles_, LSParticles(), SPHProperties_.spacing_, 2.0 * SPHProperties_.smoothingLength_, firstLSParticleIndex);
     }
-    virtualParticles_.host() = std::move(newVirtualParticles);
+    catch (...)
+    {
+        samples.resize(retainedCount);
+        throw;
+    }
     auto& openings = SPHJetOpenings_.host();
     openings.clear();
     for (const auto& source : SPHJets_.constraints_)
@@ -652,6 +746,16 @@ void SPHDEM::initializeSPHState()
     if (mode() == executionMode::GPU)
     {
         virtualParticleCoupling_.reset();
+        // Refresh retained host poses before applying world-space inlet openings.
+        for (virtualParticle& sample : samples)
+        {
+            const LSParticle& owner = LSParticles().host()[sample.ownerLSParticleIndex()];
+            Vec3 position;
+            Vec3 normal;
+            execution::calculateVirtualParticlePositionAndNormal(position, normal, sample.localPosition(), sample.localNormal(), owner.position(), owner.orientation());
+            sample.setPosition(position);
+            sample.setNormal(normal);
+        }
     }
     else
     {
@@ -672,13 +776,15 @@ void SPHDEM::initializeSPH(cpu::mode)
     const auto parameters = SPHProperties_.interactionParameters(gravity(), SPHPeriodicDomain_);
 
     SPHStepState_.neighborSearchRadius_ = supportRadius;
-    SPHInteractions_->initializeParticles(SPHParticles_, SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_);
+    if (!initialSPHStateRestored_)
+        SPHInteractions_->initializeParticles(SPHParticles_, SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_);
     SPHInteractions_->buildNeighborhood(SPHParticles_, virtualParticles_, minimumBoundary() - boundaryPadding, maximumBoundary() + boundaryPadding, supportRadius, supportRadius, SPHPeriodicDomain_);
     SPHInteractions_->updatePriorForceAndBoundaryForce(SPHParticles_, virtualParticles_, parameters);
     SPHInteractions_->updatePressureForceAndBoundaryForce(SPHParticles_, virtualParticles_, parameters);
     updateSPHAcousticTimeStep(cpu::mode{});
     updateSPHAdvectionTimeStep();
     virtualParticleCoupling_.collectForceAndTorque(virtualParticles_, LSParticles());
+    initialSPHStateRestored_ = false;
 }
 
 void SPHDEM::beginSPHInterval(cudaStream_t stream)
@@ -1240,7 +1346,8 @@ void SPHDEM::initializeSPHDevice(cudaStream_t stream)
     setSPHSpatialGrid(virtualParticleSpatialGrid_, virtualParticles_, supportRadius, minimumBoundary(), maximumBoundary(), SPHPeriodicDomain_, stream);
 
     SPHStepState_.neighborSearchRadius_ = supportRadius;
-    cuda::launchInitializeSPHParticles(SPHParticles_, SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_, stream);
+    if (!initialSPHStateRestored_)
+        cuda::launchInitializeSPHParticles(SPHParticles_, SPHProperties_.referenceDensity_, SPHProperties_.soundSpeed_, stream);
     if (LSParticles().usesDevice())
     {
         cuda::launchUpdateVirtualParticlePositionAndNormal(virtualParticles_, LSParticles(), stream);
@@ -1274,6 +1381,7 @@ void SPHDEM::initializeSPHDevice(cudaStream_t stream)
     {
         virtualParticleCoupling_.copyForceAndTorqueFromDevice(virtualParticles_, LSParticles(), stream);
     }
+    initialSPHStateRestored_ = false;
 }
 
 void SPHDEM::prepareSPHAdvectionStep(gpu::mode, cudaStream_t stream)

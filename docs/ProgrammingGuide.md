@@ -257,6 +257,26 @@ For an explicit completed-step velocity reset or particle removal, use the
 instead of editing container storage. They preserve the remaining interaction
 history; removal rejects particles that are still referenced by Bonds.
 
+For a new initial-value problem that retains previously accepted solid
+interaction memory, use the
+[solid-state installation APIs](../src/solver/README.md#installing-a-retained-solid-initial-state).
+Insert dependencies first, restore particles/Contact springs/Bond local
+references and damage by stable application identity, and mark
+`prepareInitialStateRestore()` before the first initialization. Reassemble
+the retained system's loads; do not copy forces contributed by excluded
+objects. The new solver starts at time zero. This differs from repeated
+`solve()` on the same live solver.
+
+For SPH, an explicitly captured `SPHContinuationState` can preserve the
+represented physical particle fields and finite Jet progress through
+`captureContinuationState()` / `restoreContinuationState()`. Restore rebases
+source clocks to elapsed zero, then computes fresh neighborhoods and loads
+for a new acoustic interval. It deliberately does not resume the previous
+private leading endpoint or multirate phase. A plain visualization frame
+without that physical/source payload remains insufficient. See the
+[SPH physical-state contract](../src/solver/README.md#restoring-represented-time-sph-physical-state)
+before implementing a frontend.
+
 Scheduled output includes step zero but does not force a final frame when
 the last step is off cadence. `writeOutput()` writes immediately and resets
 the next scheduled step. `step()` alone does not trigger periodic output;

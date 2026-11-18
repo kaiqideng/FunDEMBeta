@@ -1,6 +1,6 @@
 # SPH State, Coupling, and Search Corrections
 
-Documentation checked against the current source, including explicit runtime mutation. The search and robustness notes originated in the September 2026 review; the current coupling schedule below supersedes its endpoint impulse correction. This review updates the description, not the numerical algorithm, and is not a new simulation-validation result.
+This note records the current SPH coupling, observation, search and runtime boundary-sample contracts. The search and robustness notes originated in the September 2026 review; the current coupling schedule supersedes its endpoint impulse correction. Verification results belong to the tests and source revision actually executed.
 
 This note distinguishes committed numerical integration from current-time observations. FunDEM keeps SPH drift-kick-drift (DKD) and DEM kick-drift-kick (KDK); it does not claim to implement every feature of SPHinXsys.
 
@@ -160,14 +160,23 @@ Incident Contacts are removed, retained Contacts keep their springs, and any
 Bond referencing a removed solid is rejected. Neither operation deletes SPH
 fluid particles. Their lifetime policy is outside this library.
 
-The next initialization rebuilds virtual-wall samples for the remaining solids,
-SPH neighborhoods, coupling references, and current forces. Contact history is
-held fixed and Bond damage evolution is disabled during the zero-history-time
-force refresh. GPU/Hybrid rebuild device state from the accepted host state;
-this infrequent refresh includes a host reduction/assembly, unlike ordinary
-device integration. It must not upload a stale pre-mutation fluid prefix or
-resume the old acoustic plan. Generic cache preparation belongs here; event
-definitions, convergence thresholds and archive timelines do not.
+The next initialization preserves accepted virtual-wall samples for existing LS
+owners: local position, local normal and sample order remain fixed. Only new
+owners receive new samples. Sampling waits until the fluid container is nonempty;
+new owners use its current first particle as the world-lattice anchor. Movement
+of that anchor affects new sampling only. LS removal retains surviving samples
+in order and remaps owner indices. A legal explicit spacing or smoothing-length
+change invalidates the old discretization before the next initialization.
+
+World positions and normals are refreshed from each current rigid owner pose.
+Inlet openings update the active sample volume through the existing mask policy.
+The solver refreshes owner mappings, SPH neighborhoods, coupling references and
+current forces. Contact history is held fixed and Bond damage evolution is
+disabled during the zero-history-time force refresh. GPU/Hybrid upload the
+accepted host samples and fluid state and rebuild their required search storage;
+this infrequent refresh includes host reduction/assembly. The new acoustic plan
+starts at the represented time. Generic cache preparation belongs here; event
+definitions, convergence thresholds and archive timelines belong to applications.
 
 These operations intentionally alter the physical state or model. They are not
 claimed to reproduce an uninterrupted unmodified trajectory. An unchanged

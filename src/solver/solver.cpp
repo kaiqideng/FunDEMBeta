@@ -399,6 +399,15 @@ void solver::prepareRuntimeMutation()
     runtimeMutationPending_ = true;
 }
 
+void solver::prepareInitialStateRestore()
+{
+    requireNoCurrentStateObservation();
+    if (initialized_ || advanceTemplate_ != nullptr || stepCount_ != 0 || time_ != 0.0)
+        throw std::logic_error("Initial state can only be restored before the first solver initialization.");
+    continuationValid_ = false;
+    runtimeMutationPending_ = true;
+}
+
 void solver::initializeRuntimeState()
 {
     switch (executionMode_)

@@ -45,6 +45,17 @@ struct bondReferenceState {
     bondEndpointState slave_;
 };
 
+/** Irreversible fracture history captured after a completed native step. */
+struct bondDamageState {
+    math::Real damageFactor_{0.0};
+    bool damageStarted_{false};
+    math::Real onsetEffectiveStress_{0.0};
+    math::Real onsetEffectiveDisplacement_{0.0};
+    math::Real maximumEffectiveDisplacement_{0.0};
+    math::Real failureEffectiveDisplacement_{0.0};
+    math::Real effectiveFractureEnergy_{0.0};
+};
+
 /**
  * Cohesive bond with body-local endpoint frames, stiffness coefficients,
  * mixed-mode fracture state, particle snapshots, and resultant loads.
@@ -247,10 +258,18 @@ public:
      */
     bool restoreReferenceState(const bondReferenceState& value) noexcept
     {
-        if (type_ == bondType::undefined)
+        const auto validEndpoint = [](const bondEndpointState& endpoint)
         {
+            return math::isFinite(endpoint.position_) && math::isFinite(endpoint.normal_) && math::isFinite(endpoint.tangent1_) &&
+                   math::isFinite(endpoint.tangent2_) && math::nearlyEqual(math::norm(endpoint.normal_), 1.0, 1.0e-8, 1.0e-8) &&
+                   math::nearlyEqual(math::norm(endpoint.tangent1_), 1.0, 1.0e-8, 1.0e-8) &&
+                   math::nearlyEqual(math::norm(endpoint.tangent2_), 1.0, 1.0e-8, 1.0e-8) &&
+                   math::detail::abs(math::dot(endpoint.normal_, endpoint.tangent1_)) <= 1.0e-8 &&
+                   math::detail::abs(math::dot(endpoint.normal_, endpoint.tangent2_)) <= 1.0e-8 &&
+                   math::detail::abs(math::dot(endpoint.tangent1_, endpoint.tangent2_)) <= 1.0e-8;
+        };
+        if (type_ == bondType::undefined || !validEndpoint(value.master_) || !validEndpoint(value.slave_))
             return false;
-        }
         const math::Quaternion masterOrientation = math::normalizedOrIdentity(masterParticle_.orientation());
         const math::Quaternion slaveOrientation = math::normalizedOrIdentity(slaveParticle_.orientation());
         const Vec3 masterPosition = masterParticle_.position() + math::rotateUnit(masterOrientation, value.master_.position_);
@@ -270,6 +289,26 @@ public:
         point_ = restoredPoint;
         normal_ = restoredNormal;
         particleCopiesUpdated_ = false;
+        return true;
+    }
+
+    /** Restores irreversible history directly; no onset, softening or healing calculation is run.
+     * Invalid input leaves every historical value unchanged.
+     */
+    bool restoreDamageState(const bondDamageState& value) noexcept
+    {
+        if (!isNonNegativeFinite(value.damageFactor_) || value.damageFactor_ > 1.0 || !isNonNegativeFinite(value.onsetEffectiveStress_) ||
+            !isNonNegativeFinite(value.onsetEffectiveDisplacement_) || !isNonNegativeFinite(value.maximumEffectiveDisplacement_) ||
+            !isNonNegativeFinite(value.failureEffectiveDisplacement_) || !isNonNegativeFinite(value.effectiveFractureEnergy_) ||
+            (value.damageStarted_ && value.maximumEffectiveDisplacement_ < value.onsetEffectiveDisplacement_))
+            return false;
+        damageFactor_ = value.damageFactor_;
+        damageStarted_ = value.damageStarted_ ? 1 : 0;
+        onsetEffectiveStress_ = value.onsetEffectiveStress_;
+        onsetEffectiveDisplacement_ = value.onsetEffectiveDisplacement_;
+        maximumEffectiveDisplacement_ = value.maximumEffectiveDisplacement_;
+        failureEffectiveDisplacement_ = value.failureEffectiveDisplacement_;
+        effectiveFractureEnergy_ = value.effectiveFractureEnergy_;
         return true;
     }
 

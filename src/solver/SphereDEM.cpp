@@ -114,6 +114,42 @@ void SphereDEM::setSphereAngularVelocity(int particleIndex, const Vec3& value)
     invalidateContinuation();
 }
 
+void SphereDEM::restoreInitialSphere(int particleIndex, const rigidBodyState& value)
+{
+    if (stepCount() != 0 || time() != 0.0)
+        throw std::logic_error("Initial sphere state cannot replace an advanced solver.");
+    particle& sphere = mutableSphere(particleIndex);
+    if (!sphere.restoreState(value))
+        throw std::invalid_argument("The saved sphere kinematics or mass properties are invalid.");
+    invalidateContinuation();
+}
+
+void SphereDEM::restoreInitialContacts(std::vector<contact> values, execution::contactType type)
+{
+    if (type == execution::contactType::levelSetLevelSet)
+    {
+        LSDEM::restoreInitialContacts(std::move(values), type);
+        return;
+    }
+    if (initialized() || stepCount() != 0 || time() != 0.0)
+        throw std::logic_error("Initial contact history cannot replace an initialized or advanced solver.");
+    const bool cross = type == execution::contactType::sphereLevelSet;
+    if (!cross && type != execution::contactType::sphereSphere)
+        throw std::invalid_argument("The saved contact family is unsupported.");
+    for (const auto& value : values)
+    {
+        const int master = value.masterParticleIndex(), slave = value.slaveParticleIndex();
+        const int slaveCount = cross ? static_cast<int>(LSParticles().hostSize()) : static_cast<int>(spheres_.hostSize());
+        if (master < 0 || slave < 0 || master >= static_cast<int>(spheres_.hostSize()) || slave >= slaveCount ||
+            (!cross && master == slave) || !math::isFinite(value.point()) || !math::isFinite(value.normal()) ||
+            !math::isFinite(value.slidingSpringDeformation()) || !math::isFinite(value.rollingSpringDeformation()) ||
+            !math::isFinite(value.torsionalSpringDeformation()))
+            throw std::invalid_argument("The saved sphere contact endpoints or spring history are invalid.");
+    }
+    (cross ? sphereLSInteractions_ : sphereInteractions_).contacts().host() = std::move(values);
+    invalidateContinuation();
+}
+
 int SphereDEM::addBond(const bond& value)
 {
     validateBondForAddition(value);

@@ -10,6 +10,19 @@
 namespace fundem
 {
 
+/** Accepted body-local mass properties and world kinematics of one completed-step state.
+ * Loads are intentionally absent: a retained subsystem must reassemble its own loads.
+ */
+struct rigidBodyState {
+    math::Vec3 position_{math::Vec3::zero()};
+    math::Quaternion orientation_{math::Quaternion::identity()};
+    math::Vec3 velocity_{math::Vec3::zero()};
+    math::Vec3 angularVelocity_{math::Vec3::zero()};
+    math::Real inverseMass_{0.0};
+    math::Mat3 inertiaTensor_{math::Mat3::zero()};
+    math::Mat3 inverseInertiaTensor_{math::Mat3::zero()};
+};
+
 /** Point mass extended with unit orientation and rotational dynamics. */
 class rigidBody : public pointMass
 {
@@ -70,6 +83,39 @@ public:
             inertiaTensor_ = Mat3::zero();
             inverseInertiaTensor_ = Mat3::zero();
         }
+    }
+
+    /** Restores validated kinematics and exact cached mass properties without reintegration.
+     * Failed validation leaves the body unchanged; accepted state clears both old load accumulators.
+     */
+    bool restoreState(const rigidBodyState& value) noexcept
+    {
+        if (!math::isFinite(value.position_) || !math::isFinite(value.orientation_) || !math::isFinite(value.velocity_) ||
+            !math::isFinite(value.angularVelocity_) || !math::isFinite(value.inverseMass_) || value.inverseMass_ < 0.0 ||
+            !math::isFinite(value.inertiaTensor_) || !math::isFinite(value.inverseInertiaTensor_) ||
+            !math::nearlyEqual(math::norm(value.orientation_), 1.0, 1.0e-10, 1.0e-10))
+            return false;
+        if (value.inverseMass_ == 0.0)
+        {
+            if (value.inertiaTensor_ != Mat3::zero() || value.inverseInertiaTensor_ != Mat3::zero())
+                return false;
+        }
+        else
+        {
+            if (value.inertiaTensor_(0, 0) <= 0.0 || value.inertiaTensor_(1, 1) <= 0.0 || value.inertiaTensor_(2, 2) <= 0.0 ||
+                !math::nearlyEqual(value.inertiaTensor_ * value.inverseInertiaTensor_, Mat3::identity(), 1.0e-8, 1.0e-8))
+                return false;
+        }
+        setPosition(value.position_);
+        setVelocity(value.velocity_);
+        this->*pointMass::inverseMassField::member = value.inverseMass_;
+        orientation_ = value.orientation_;
+        angularVelocity_ = value.angularVelocity_;
+        inertiaTensor_ = value.inertiaTensor_;
+        inverseInertiaTensor_ = value.inverseInertiaTensor_;
+        setForce(Vec3::zero());
+        torque_ = Vec3::zero();
+        return true;
     }
 
     /** Advances world position and unit orientation. */

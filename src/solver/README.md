@@ -65,6 +65,58 @@ zero is configured, while the initial `-1` sentinel is unset.
 
 Each DEM step uses a velocity-Verlet structure. Force assembly order is clear state → same-type contacts/bonds → cross-type contacts/bonds → user external fields. Protected virtual external-field interfaces receive a host container on CPU and the corresponding `device_type` on GPU.
 
+### Installing a Retained Solid Initial State
+
+A new solver may adopt a validated solid observation before its first
+initialization. Insert materials, pairs, geometries and particles normally,
+then use `restoreInitialSphere()` / `restoreInitialLSParticle()` with
+`rigidBodyState` to install exact world kinematics and cached inverse
+mass/body-local inertia. Reconnect saved Contacts and Bonds by the new
+container indices; `restoreInitialContacts()` accepts the host spring state
+for its explicit contact family. Restore Bond endpoint and damage state as
+described in the [interaction guide](../interaction/README.md#bond-setup),
+rather than generating undeformed Bonds again.
+
+Call `prepareInitialStateRestore()` after installing this state. It is valid
+only before the first initialization and with zero time/steps. The next
+ordinary `initialize()`, `step()` or `solve()` uses the existing
+history-neutral runtime initialization: searches and retained-system loads
+are rebuilt without advancing Contact springs or Bond damage, then GPU/Hybrid
+dependencies are uploaded. Subsequent ordinary particle additions and
+configuration setters retain this pending refresh. Do not copy source net
+forces/torques into the new first kick: they can include omitted interactions
+or external fields. No source clock is restored.
+
+This is a fresh initial-value problem with retained solid interaction memory,
+not access to a previous solver's private continuation. SPH integration/source
+state has a separate contract; solid restore APIs do not imply that an
+arbitrary fluid observation is a checkpoint.
+
+### Restoring Represented-time SPH Physical State
+
+`SPHDEM::captureContinuationState()` returns an `SPHContinuationState` at the
+represented completed DEM time. It includes unwrapped fluid coordinates,
+velocity, inverse mass, density/pressure and the other physical particle
+fields, plus each finite Jet's definition, emitted membership and released
+layer progress. Capture shares the solver's reversible observation scope;
+it does not advance integration or mutate the original source.
+
+`restoreContinuationState()` applies only to a fresh zero-time solver after
+the same uniform fluid properties and actual saved populations have been
+inserted. It restores those physical fields and subtracts the represented
+source time from each Jet's start time, retaining the remaining supply and
+release schedule. The first initialization skips ordinary fresh-fluid density
+and flag resets, then rebuilds the selected system's neighborhoods, virtual
+wall samples and pressure/viscous/coupling loads on CPU, GPU or Hybrid.
+
+This starts a new acoustic/advection interval at elapsed zero. It does not
+restore the old private leading endpoint, acoustic/advection phase or search
+buffers. Those future quantities may depend on omitted particles. Thus the
+physical-state rebase is distinct from uninterrupted same-solver continuation
+and does not promise identical subsequent floating-point trajectories. The
+core interfaces do not decode application files or assign stable application
+source IDs.
+
 ### Explicit Runtime Mutations
 
 These operations apply between completed steps on the thread owning the solver,
@@ -101,9 +153,13 @@ promised to keep their allocation or contents.
 
 For SPH, `commitDeferredStateForMutation()` accepts the represented common-time
 state and discards its incompatible leading acoustic endpoint. Source schedules,
-released-layer prefixes, and emitted-particle ownership survive; virtual-wall
-samples and coupling/search references are rebuilt for the remaining solids.
-An unchanged continuation or a mere observation must not call this mutation path.
+released-layer prefixes, and emitted-particle ownership survive. Existing LS
+owners retain their local virtual-wall samples; only new owners are sampled once
+fluid is available. Removal keeps surviving samples in order and remaps their
+owner indices. Initialization refreshes world geometry, coupling references,
+inlet masks, current loads and CPU/CUDA search storage. A legal explicit change
+to SPH spacing or smoothing length invalidates the sampling. An unchanged
+continuation or a mere observation must not call this mutation path.
 Object lifetime policies and stopping criteria belong to applications, not to
 these generic core interfaces.
 

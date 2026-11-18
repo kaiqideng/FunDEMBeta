@@ -7,6 +7,7 @@
 #include "particle/SPHParticle.h"
 #include "particle/virtualParticle.h"
 #include "solver/LSDEM.h"
+#include "solver/SPHContinuationState.h"
 #include "particle/SPHJet.h"
 #include "interaction/SPHNeighborhood.h"
 #include "interaction/SPHInteractionTypes.h"
@@ -53,10 +54,17 @@ public:
     int addSPHBlock(const Vec3& blockMinimum, const int3& particleCount, const Vec3& initialVelocity = Vec3::zero());
     /** Adds a short inlet buffer which emits append-only particle layers until its finite supply is exhausted. */
     int addSPHJet(const SPHJet& value);
+    /** Removes LS owners and their samples, preserving surviving local quadrature and remapping ownership. */
+    std::vector<int> removeLSParticles(const std::vector<int>& indices) override;
     /** Returns this jet's currently created global indices, in axial-layer order; @p firstParticleIndex is the handle returned by addSPHJet. */
     const std::vector<int>& SPHJetParticleIndices(int firstParticleIndex) const;
     /** Reports whether every finite-duration jet has ended at the solver's visible time. */
     bool SPHJetsCompleted() const noexcept { return SPHJets_.completedAt(time()); }
+    /** Pure represented-time capture; may share an existing output observation. */
+    SPHContinuationState captureContinuationState();
+    /** Fresh-solver restore; preserve physical fields and rebase Jet times to elapsed zero. */
+    void restoreContinuationState(const SPHContinuationState& value);
+
     Real SPHMaximumVelocity() const noexcept { return SPHProperties_.maximumVelocity_; }
     Real SPHSoundSpeed() const noexcept { return SPHProperties_.soundSpeed_; }
     Real SPHSpacing() const noexcept { return SPHProperties_.spacing_; }
@@ -215,9 +223,10 @@ private:
         virtualParticleContainer::host_container_type virtualParticles_; ///< Saved boundary host state.
         bool active_{false};                                             ///< Whether a snapshot is currently held.
     };
+    bool initialSPHStateRestored_{false};   ///< Skip fresh-fluid resets during the first restored initialization.
     bool outputObservationSnapshot_{false}; ///< Whether the observation scope owns the active snapshot.
 
-    /** Initializes persistent SPH state and selects the mode-specific interaction engine. */
+    /** Retains accepted owner-local boundary samples, appends new owners, and refreshes shared SPH state. */
     void initializeSPHState();
     /** Creates host neighborhoods and initializes host fluid state. */
     void initializeSPH(cpu::mode);
@@ -297,7 +306,7 @@ private:
 
     SPHParticleContainer SPHParticles_;                     ///< Fluid particles.
     SPHIntervalStorage SPHIntervalStart_;                   ///< Only position, velocity and density at acoustic start; device-local in CUDA modes.
-    virtualParticleContainer virtualParticles_;             ///< Generated LS boundary samples.
+    virtualParticleContainer virtualParticles_;             ///< Persistent owner-local LS boundary samples, ordered by owner.
     spatialGridContainer SPHSpatialGrid_;                   ///< Fluid background grid.
     SPHNeighborhood SPHNeighborhood_;                       ///< Actual-displacement validity of reused searches.
     spatialGridContainer virtualParticleSpatialGrid_;       ///< Boundary-sample background grid.

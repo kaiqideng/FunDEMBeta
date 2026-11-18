@@ -120,7 +120,7 @@ protected:
     }
 };
 
-void configureBoundary(SPHDEM& simulation, bool nearbyFluid, bool rotating = false, bool infinite = false, Real dynamicViscosity = 0.0)
+void configureBoundary(SPHDEM& simulation, bool nearbyFluid, bool rotating = false, bool infinite = false, Real dynamicViscosity = 0.0, bool withFluid = true)
 {
     constexpr Real spacing = 0.02;
     simulation.setBoundary({-0.3, -0.3, -0.3}, {0.3, 0.3, 0.3});
@@ -129,7 +129,8 @@ void configureBoundary(SPHDEM& simulation, bool nearbyFluid, bool rotating = fal
     simulation.setSPHProperties(spacing, 1.3 * spacing, 1000.0, dynamicViscosity);
     simulation.setSPHMaximumVelocity(1.0);
     simulation.setSPHSoundSpeed(10.0);
-    simulation.addSPHParticle(SPHParticle{nearbyFluid ? Vec3{0.0, 0.0, 0.055} : Vec3{0.2, 0.2, 0.2}, nearbyFluid ? Vec3{0.0, 0.0, -0.1} : Vec3::zero()});
+    if (withFluid)
+        simulation.addSPHParticle(SPHParticle{nearbyFluid ? Vec3{0.0, 0.0, 0.055} : Vec3{0.2, 0.2, 0.2}, nearbyFluid ? Vec3{0.0, 0.0, -0.1} : Vec3::zero()});
     const int materialIndex = simulation.addMaterial(material{1.0e9, 0.25, 1.0, 1000.0});
     levelset::BoxParticle box{{0.08, 0.08, 0.08}};
     box.buildLSGrid(spacing, 3);
@@ -144,7 +145,8 @@ void configureBoundary(SPHDEM& simulation, bool nearbyFluid, bool rotating = fal
     simulation.addLSParticle(owner);
     simulation.initialize();
     require(infinite == (simulation.LSParticles().host()[0].inverseMass() == 0.0), "Coupling test boundary mass classification is incorrect");
-    require(simulation.SPHStepInterval() > 2, "Coupling test must exercise multirate acoustic intervals");
+    if (withFluid)
+        require(simulation.SPHStepInterval() > 2, "Coupling test must exercise multirate acoustic intervals");
 }
 
 Vec3 momentum(const SPHDEM& simulation)
@@ -203,6 +205,206 @@ void requireSameState(const synchronizedState& first, const synchronizedState& s
         requireNear({a.orientation().x, a.orientation().y, a.orientation().z}, {b.orientation().x, b.orientation().y, b.orientation().z}, message, tolerance);
         require(std::abs(a.orientation().w - b.orientation().w) <= tolerance, message);
     }
+}
+
+virtualParticleContainer::host_container_type boundarySamples(SPHDEM& simulation)
+{
+    virtualParticleContainer::host_container_type result;
+    simulation.observeCurrentState([&](const solver&) { result = simulation.virtualParticles().host(); });
+    return result;
+}
+
+void requireSamplePrefix(const virtualParticleContainer::host_container_type& before, const virtualParticleContainer::host_container_type& after)
+{
+    require(after.size() >= before.size(), "A boundary refresh discarded an existing virtual-particle prefix");
+    for (std::size_t index = 0; index < before.size(); ++index)
+    {
+        const auto& a = before[index];
+        const auto& b = after[index];
+        require(a.ownerLSParticleIndex() == b.ownerLSParticleIndex() && a.localPosition() == b.localPosition() && a.localNormal() == b.localNormal() && a.volume() == b.volume(),
+                "A boundary refresh changed an existing virtual particle's order, owner, local geometry or volume");
+    }
+}
+
+void requireWorldSamples(SPHDEM& simulation)
+{
+    simulation.observeCurrentState(
+        [&](const solver&)
+        {
+            for (const auto& sample : simulation.virtualParticles().host())
+            {
+                require(sample.ownerLSParticleIndex() >= 0 && sample.ownerLSParticleIndex() < static_cast<int>(simulation.LSParticles().hostSize()), "A retained boundary sample has an invalid owner");
+                const auto& owner = simulation.LSParticles().host()[sample.ownerLSParticleIndex()];
+                requireNear(sample.position(),
+                            owner.position() + math::rotateUnit(owner.orientation(), sample.localPosition()),
+                            "A retained sample's world position does not follow its current owner pose");
+                requireNear(sample.normal(), math::rotateUnit(owner.orientation(), sample.localNormal()), "A retained sample's world normal does not follow its current owner orientation");
+            }
+        });
+}
+
+void appendFarBoundary(SPHDEM& simulation, const Vec3& position)
+{
+    LSParticle owner = simulation.LSParticles().host().front();
+    owner.setPosition(position);
+    owner.setVelocity(Vec3::zero());
+    owner.setAngularVelocity(Vec3::zero());
+    owner.setInfiniteMass();
+    simulation.addLSParticle(owner);
+}
+
+void requireOriginalSystem(SPHDEM& reference, SPHDEM& appended)
+{
+    const auto expected = currentState(reference);
+    auto actual = currentState(appended);
+    require(actual.owners.size() >= expected.owners.size(), "The appended solver lost an original LS owner");
+    actual.owners.resize(expected.owners.size());
+    requireSameState(expected, actual, "A remote new boundary changed existing particle states during an event refresh", 1.0e-9);
+    for (std::size_t index = 0; index < expected.owners.size(); ++index)
+    {
+        requireNear(actual.owners[index].force(), expected.owners[index].force(), "A remote new boundary changed the original instantaneous hydraulic force", 1.0e-8);
+        requireNear(actual.owners[index].torque(), expected.owners[index].torque(), "A remote new boundary changed the original instantaneous hydraulic torque", 1.0e-8);
+    }
+}
+
+void testIncrementalBoundarySamples(executionMode mode)
+{
+    SPHDEM reference{mode};
+    SPHDEM appended{mode};
+    configureBoundary(reference, true, true, true);
+    configureBoundary(appended, true, true, true);
+    const auto initial = boundarySamples(appended);
+    require(!initial.empty(), "Incremental boundary regression requires an initial sample population");
+    for (int step = 0; step < 7; ++step)
+    {
+        reference.step();
+        appended.step();
+    }
+    const auto evolved = currentState(appended);
+    require(math::norm(evolved.fluid.front().position() - Vec3{0.0, 0.0, 0.055}) > 1.0e-12, "Boundary regression must move the fluid lattice anchor before the event refresh");
+    require(std::abs(evolved.owners.front().orientation().z) > 1.0e-12, "Boundary regression must rotate the original LS owner before the event refresh");
+    reference.prepareRuntimeMutation();
+    appended.prepareRuntimeMutation();
+    appendFarBoundary(appended, {0.17, -0.17, -0.17});
+    reference.setTimeStep(5.0e-6);
+    appended.setTimeStep(5.0e-6);
+    reference.initialize();
+    appended.initialize();
+    const auto extended = boundarySamples(appended);
+    requireSamplePrefix(initial, extended);
+    require(extended.size() > initial.size(), "A newly added LS owner did not receive virtual boundary particles");
+    for (std::size_t index = initial.size(); index < extended.size(); ++index)
+        require(extended[index].ownerLSParticleIndex() == 1, "Incremental generation duplicated a previously sampled LS owner");
+    requireWorldSamples(appended);
+    requireOriginalSystem(reference, appended);
+    for (int step = 0; step < 3; ++step)
+    {
+        reference.step();
+        appended.step();
+    }
+    requireOriginalSystem(reference, appended);
+
+    // Changing event settings reconstructs instantaneous loads, while the
+    // accepted local boundary quadrature remains the same discrete object.
+    appended.prepareRuntimeMutation();
+    appended.setGravity({0.0, 0.0, -0.25});
+    appended.setTimeStep(2.5e-6);
+    appended.initialize();
+    const auto refreshed = boundarySamples(appended);
+    require(refreshed.size() == extended.size(), "A settings-only event refresh added or removed boundary samples");
+    requireSamplePrefix(extended, refreshed);
+    requireWorldSamples(appended);
+    appended.solve(0);
+    appended.initialize();
+    const auto resumed = boundarySamples(appended);
+    require(resumed.size() == refreshed.size(), "Repeated zero-step initialization duplicated boundary samples");
+    requireSamplePrefix(refreshed, resumed);
+}
+
+void testLateFluidBoundarySamples(executionMode mode)
+{
+    SPHDEM simulation{mode};
+    configureBoundary(simulation, false, false, true, 0.0, false);
+    require(simulation.virtualParticles().hostSize() == 0, "A solver without fluid unexpectedly generated SPH boundary particles");
+    simulation.prepareRuntimeMutation();
+    simulation.addSPHParticle(SPHParticle{{0.2, 0.2, 0.2}});
+    simulation.initialize();
+    const auto first = boundarySamples(simulation);
+    require(!first.empty(), "Adding the first SPH source failed to sample an already present LS owner");
+    simulation.prepareRuntimeMutation();
+    simulation.addSPHParticle(SPHParticle{{0.2, 0.18, 0.2}});
+    simulation.initialize();
+    const auto second = boundarySamples(simulation);
+    require(first.size() == second.size(), "Adding fluid duplicated existing LS boundary samples");
+    requireSamplePrefix(first, second);
+    requireWorldSamples(simulation);
+}
+
+void testBoundaryRetryAndOwnerRemoval(executionMode mode)
+{
+    SPHDEM simulation{mode};
+    configureBoundary(simulation, true, false, true);
+    const auto original = boundarySamples(simulation);
+    simulation.prepareRuntimeMutation();
+    appendFarBoundary(simulation, {0.17, -0.17, -0.17});
+    levelset::BoxParticle small{{0.002, 0.002, 0.002}};
+    small.buildLSGrid(0.0005, 3);
+    const int geometry = simulation.addGeometry(small);
+    LSParticle tiny;
+    tiny.setMaterial(simulation.materials(), 0);
+    tiny.setGeometry(simulation.geometries(), geometry);
+    tiny.setInfiniteMass();
+    const Vec3 fluidOrigin = simulation.SPHParticles().host().front().position();
+    tiny.setPosition(fluidOrigin + Vec3{0.111, 0.1, 0.1});
+    simulation.addLSParticle(tiny);
+    bool rejected = false;
+    try
+    {
+        simulation.initialize();
+    }
+    catch (const std::invalid_argument&)
+    {
+        rejected = true;
+    }
+    require(rejected, "A new owner missing every SPH sampling grid point must reject initialization");
+    const auto failed = simulation.virtualParticles().host();
+    requireSamplePrefix(original, failed);
+    simulation.setLSParticlePosition(2, fluidOrigin + Vec3{0.1004, 0.1, 0.1});
+    simulation.initialize();
+    const auto accepted = boundarySamples(simulation);
+    requireSamplePrefix(failed, accepted);
+    require(accepted.size() > original.size(), "Correcting an unsampled owner did not append its boundary samples");
+    requireWorldSamples(simulation);
+    simulation.solve(0);
+    simulation.initialize();
+    require(boundarySamples(simulation).size() == accepted.size(), "Retrying initialization duplicated accepted new-owner samples");
+
+    simulation.prepareRuntimeMutation();
+    const auto mapping = simulation.removeLSParticles({0});
+    require(mapping.size() == 3 && mapping[0] == -1 && mapping[1] == 0 && mapping[2] == 1, "LS removal returned an unexpected old-to-new owner mapping");
+    simulation.initialize();
+    const auto surviving = boundarySamples(simulation);
+    std::size_t ordinal = 0;
+    for (const auto& sample : accepted)
+    {
+        if (sample.ownerLSParticleIndex() == 0)
+            continue;
+        require(ordinal < surviving.size(), "Removing one LS owner discarded another owner's boundary samples");
+        const auto& current = surviving[ordinal++];
+        require(current.ownerLSParticleIndex() == mapping[sample.ownerLSParticleIndex()] && current.localPosition() == sample.localPosition() && current.localNormal() == sample.localNormal() &&
+                    current.volume() == sample.volume(),
+                "LS removal changed surviving local samples or failed to remap their owners");
+    }
+    require(ordinal == surviving.size(), "Removed-owner boundary samples remained after owner compaction");
+    simulation.prepareRuntimeMutation();
+    appendFarBoundary(simulation, {-0.17, 0.17, -0.17});
+    simulation.initialize();
+    const auto appended = boundarySamples(simulation);
+    requireSamplePrefix(surviving, appended);
+    require(appended.size() > surviving.size(), "Appending an owner after LS removal failed to generate its new samples");
+    for (std::size_t index = surviving.size(); index < appended.size(); ++index)
+        require(appended[index].ownerLSParticleIndex() == 2, "Generation after LS removal reused a surviving owner's index");
+    requireWorldSamples(simulation);
 }
 
 void testCompleteEndpointAcceleration()
@@ -562,6 +764,9 @@ int main()
         testCoupledMomentumAndObservations(executionMode::CPU, 0.2);
         testCoupledSolveContinuation(executionMode::CPU);
         testAcceleratedCurrentTimeState(executionMode::CPU);
+        testIncrementalBoundarySamples(executionMode::CPU);
+        testLateFluidBoundarySamples(executionMode::CPU);
+        testBoundaryRetryAndOwnerRemoval(executionMode::CPU);
 #if defined(FUNDEM_HAS_CUDA) && FUNDEM_HAS_CUDA
         testDevicePrescribedAcceleration();
         testDeviceHeldTorqueAndKDKBudget();
@@ -575,6 +780,12 @@ int main()
         testAcceleratedCurrentTimeState(executionMode::Hybrid);
         testRotatingBoundaryBackendParity(executionMode::GPU);
         testRotatingBoundaryBackendParity(executionMode::Hybrid);
+        for (const auto mode : {executionMode::GPU, executionMode::Hybrid})
+        {
+            testIncrementalBoundarySamples(mode);
+            testLateFluidBoundarySamples(mode);
+            testBoundaryRetryAndOwnerRemoval(mode);
+        }
 #endif
     }
     catch (const std::exception& error)

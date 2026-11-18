@@ -925,11 +925,10 @@ for existing callers; applications should set the intended mode explicitly.
 
 ### 9.4 Strength initiation and BK softening
 
-Bonds retain one elastic evaluator and the strength criterion below. The
-explicit fracture mode selects unbreakable, strength-only brittle or progressive
-behavior; it does not replace the original force/energy formulas. For
-progressive damage, configure the mode, section, energies and strengths before
-inserting the bond:
+Bonds retain one elastic evaluator. The fracture mode selects an unbreakable
+Bond, brittle failure at either strength limit, or progressive damage initiated
+by a quadratic criterion. For progressive damage, configure the mode, section,
+energies and strengths before inserting the bond:
 
 ```cpp
 if (!connection.setFractureMode(fractureMode::damage) ||
@@ -998,14 +997,23 @@ sigma_a = -dot(F,n)/A
 sigma_b = R*norm(M-dot(M,n)*n)/I
 tau = norm(F-dot(F,n)*n)/A + R*abs(dot(M,n))/J
 sigma_criterion = sigma_a + sigma_b
-Q = (max(sigma_criterion,0)/tensileStrength)^2
-    + (tau/(cohesion-friction*sigma_criterion))^2
+shearCapacity = cohesion - friction*sigma_criterion
 ```
 
-The shear term is evaluated only when `tau>0`. A nonpositive shear capacity
-with nonzero shear triggers initiation explicitly. The signed
-`sigma_criterion` controls both tensile onset and the friction-dependent
-shear capacity; it must not be confused with the opening stress used below.
+The helper first returns a strength-condition value of 1 when
+`shearCapacity<=0`, including zero shear. For positive capacity, the selected
+mode defines the criterion:
+
+- `progressiveDamage=false` selects independent brittle limits. The criterion
+  becomes 1 when `sigma_criterion>tensileStrength` or `tau>shearCapacity`;
+  otherwise it is zero. These comparisons use strict greater-than.
+- `progressiveDamage=true`, the helper default, uses
+  `Q=(max(sigma_criterion,0)/tensileStrength)^2+(tau/shearCapacity)^2`.
+  The shear term is evaluated for `tau>0`, and sampled `Q>=1` starts damage.
+
+The signed `sigma_criterion` includes bending and controls the
+friction-dependent shear capacity. The damage opening stress is defined
+separately below.
 By the selected bond-point convention, the recorded B3/B4 term itself supplies
 the moment in this strength calculation. It is not replaced by a transported
 endpoint moment or a maximum over two endpoint sections. The combined peak
@@ -1080,11 +1088,11 @@ weights return zero, and no absolute small-energy cutoff is applied.
 frozen after initiation. The maximum length and damage cannot decrease;
 `dmax>=df` gives complete failure. There is no within-step onset interpolation.
 
-Unbreakable mode skips this update. Brittle mode checks the strength criterion
-directly, irrespective of critical energies. Damage mode also uses immediate
-strength-only failure when both critical energies are zero. Otherwise, zero
-onset `Gc` or zero onset `d` causes immediate failure; a computed `df<=d0`
-also leaves no positive softening interval and fails immediately. These
+Unbreakable mode skips this update. Brittle mode uses the independent limits
+above, irrespective of critical energies. Damage mode retains its quadratic
+criterion when both critical energies are zero and fails immediately at that
+strength crossing. With positive critical energy, zero onset `Gc` or zero
+onset `d` causes immediate failure; `df<=d0` also gives immediate failure. These
 branches set the onset flag and `D=1`; they do not increase the supplied
 toughness. The current condition is `df<=d0`, not an independent `A*Gc<=U0`
 test.
@@ -1526,7 +1534,9 @@ Openings remain after a finite source stops emitting. Moving wall samples are te
 
 ### 14.4 Level-set walls
 
-SPH boundaries use fixed or movable `LSParticle` owners. `SPHDEM` samples internal virtual particles on the same uniform lattice and spacing as the fluid, then interpolates the level-set grid to retain solid-side samples within the kernel boundary band. Users do not add virtual particles directly.
+SPH boundaries use fixed or movable `LSParticle` owners. When fluid is available, `SPHDEM` samples each new LS owner on a uniform lattice at the configured SPH spacing, anchored by the current first fluid particle. It interpolates the level-set grid to retain solid-side samples within the two-smoothing-length boundary band. Owners added before any fluid are sampled when fluid first becomes available. Users do not add virtual particles directly.
+
+Later events or runtime edits in the same solver preserve each existing owner's local sample positions, normals and order. New owners append their own samples. The coupling stage updates world positions and normals from the owner's current position and orientation. Removing an owner retains surviving samples and remaps their owner indices; a legal explicit spacing or smoothing-length change requires fresh sampling. CPU, GPU and Hybrid share this host sampling policy and refresh their own search and coupling state afterward.
 
 An enclosing box reverses the signed-distance convention:
 

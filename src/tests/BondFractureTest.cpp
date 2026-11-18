@@ -186,6 +186,41 @@ void testStrengthEnvelopeAndBudget() {
     require(budget.value().damageFactor()==1.,"A later sample beyond the minimum softening interval must fail");
 }
 
+void testFractureModeStrengthCriteria() {
+    const Vec3 axis=-Vec3::unitX(),zero=Vec3::zero();
+    const auto criterion=[&](const Vec3& force,Real tensileStrength,Real friction,bool progressiveDamage) {
+        Real axial=0.,bending=0.,shear=0.;
+        return execution::calculateBondStrengthCriterion(axial,bending,shear,force,zero,axis,1.,tensileStrength,1.,friction,progressiveDamage);
+    };
+    require(criterion({.8,.8,0.},1.,0.,false)==0.,
+        "Independent brittle limits must retain a mixed load below each separate strength");
+    require(close(criterion({.8,.8,0.},1.,0.,true),1.28),
+        "Progressive initiation must retain the quadratic interaction of sublimit normal and shear stresses");
+    require(criterion({1.,1.,0.},1.,0.,false)==0.,
+        "Brittle fracture requires a strict strength exceedance when both stresses equal their limits");
+    require(criterion({1.01,0.,0.},1.,0.,false)==1.&&criterion({0.,1.01,0.},1.,0.,false)==1.,
+        "Exceeding either independent brittle strength must trigger failure");
+    require(criterion({-1.,1.25,0.},1.,.5,false)==0.&&criterion({-1.,1.51,0.},1.,.5,false)==1.,
+        "Compression must raise the brittle shear limit by the configured friction coefficient");
+    for(bool progressiveDamage : {false,true}) for(Real tension : {2.,3.})
+        require(criterion({tension,0.,0.},10.,.5,progressiveDamage)==1.,
+            "Zero or negative shear capacity must trigger both modes even without shear loading");
+
+    for(bool progressiveDamage : {false,true}) {
+        Real damage=0.,stress0=0.,onset=0.,maximum=0.,failure=0.,energy=0.;int started=0;
+        const bool failed=execution::updateBondDamage(damage,started,stress0,onset,maximum,failure,energy,
+            {.8,.8,0.},zero,axis,.00032,.0008,0.,0.,1.,.004,.012,1.75,1.,1.,0.,progressiveDamage);
+        require(!failed&&damage==0.&&started==(progressiveDamage?1:0),
+            "The shared update must select independent brittle limits or progressive mixed onset from its explicit mode");
+        if(progressiveDamage)
+            require(onset>0.&&failure>onset&&energy>0.,
+                "Progressive mixed onset must retain its positive separation and fracture-energy history");
+        else
+            require(stress0==0.&&onset==0.&&maximum==0.&&failure==0.&&energy==0.,
+                "An intact brittle sample must leave all progressive history fields unchanged");
+    }
+}
+
 void testBKScaleInvariance() {
     const Real GIc=.004,GIIc=.012,eta=1.75;
     const Real expected=GIc+(GIIc-GIc)*std::pow(.75,eta);
@@ -744,7 +779,7 @@ int main(int argc,char** argv) {
             return 0;
         }
         require(argc==1,"Unknown test option; use --work-probe only for diagnostic quadrature measurements.");
-        testConfiguration(); testPureModes(); testStrengthAndWork(); testStrengthEnvelopeAndBudget();
+        testConfiguration(); testPureModes(); testStrengthAndWork(); testStrengthEnvelopeAndBudget(); testFractureModeStrengthCriteria();
         testBKScaleInvariance(); testLowEnergyStrengthCrossing(); testPureModeElasticLoads(); testSquaredElasticExpressions(); testSquaredModalResolution(); testBrittleFracture();
         testUnloadingAndCompressionRetention(); testRigidRotation(); testExactNativeTorque(); testEnergyEquivalentHistory(); testStiffnessPreconditions(); testFourEnergySeparation(); testRawStiffnessStorage(); testCompressionCannotCancelBending(); testFrozenBKMixity();
         testEuclideanMixedCoordinate();testZeroEnergyStrengthCrossing();testNativeFractureWorkBudget();testFixedDirectionTwoSpringWork();

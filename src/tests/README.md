@@ -99,11 +99,17 @@ and bending. The old `sqrt(2*U/k)` lengths and onset radial traction are not
 the current law. The retained `bond::isValid()` guard still requires positive
 normal/shear stiffness for positive-energy damage mode.
 
-Unbreakable mode skips fracture; brittle mode checks strength irrespective
-of stored energies. Damage mode with both critical energies zero also fails
-at strength onset. Otherwise zero onset toughness or equivalent length, or
-`df<=d0`, gives immediate failure. Pure axial compression is preserved for
-partial damage; full removal also releases any retained compression energy.
+Unbreakable mode skips fracture. Brittle mode uses independent strict limits
+`sigma_criterion>tensileStrength` or
+`tau>cohesion-friction*sigma_criterion`, irrespective of stored energies.
+Progressive mode retains the quadratic sum of tensile and shear ratios, with
+onset at a sum of at least 1. Nonpositive shear capacity returns a
+strength-condition value of 1 in either branch, including zero shear.
+Damage mode with both critical energies zero retains that quadratic
+criterion and fails immediately at its crossing. With positive critical
+energy, zero onset toughness or equivalent length, or `df<=d0`, gives immediate
+failure. Pure axial compression is preserved for partial damage; full removal
+also releases any retained compression energy.
 The current definitions do not by themselves establish mechanical fracture
 work equal to `A*Gc`.
 

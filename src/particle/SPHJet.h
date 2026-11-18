@@ -6,6 +6,8 @@
 
 #include "math/Vector3.h"
 
+#include <cmath>
+
 namespace fundem
 {
 
@@ -90,6 +92,20 @@ public:
             return false;
         }
         duration_ = value;
+        return true;
+    }
+
+    /** Adopts a validated saved unit axis without a second normalization. */
+    bool restoreDefinition(const Vec3& outletCenter, const Vec3& unitDirection, Real radius, Real speed, Real duration) noexcept
+    {
+        if (!math::isFinite(outletCenter) || !math::isFinite(unitDirection) || std::abs(math::dot(unitDirection, unitDirection) - 1.0) > 1e-10 || !math::isFinite(radius) ||
+            radius <= math::defaultTolerance || !math::isFinite(speed) || speed <= math::defaultTolerance || !math::isFinite(duration) || duration <= math::defaultTolerance)
+            return false;
+        outletCenter_ = outletCenter;
+        direction_ = unitDirection;
+        radius_ = radius;
+        speed_ = speed;
+        duration_ = duration;
         return true;
     }
 

@@ -21,7 +21,7 @@ public:
 
     /** Releases owner mappings and all accumulator state. */
     void reset() noexcept;
-    /** Generates virtual particles and stable owner-to-sample ranges. */
+    /** Rebuilds owner mappings and current kinematics from accepted local boundary samples. */
     void initialize(virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity);
     /** Samples complete left-endpoint LS kinematics, before force assembly clears the loads. */
     void accumulateKinematics(const virtualParticleContainer& virtualParticles, const LSParticleContainer& LSParticles, const Vec3& gravity, math::Real timeStep = 0.0);

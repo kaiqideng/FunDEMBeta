@@ -106,6 +106,11 @@ public:
      * A phase/archive handoff with no physical change must not call this method.
      */
     void prepareRuntimeMutation();
+    /** Marks a fresh, zero-time host state for history-neutral initialization.
+     * The following ordinary initialize() rebuilds retained-system loads and backend caches
+     * without advancing contact springs or Bond damage. It does not restore an old clock.
+     */
+    void prepareInitialStateRestore();
     /**
      * Advances @p numberOfSteps DEM steps, initializing or resuming as needed.
      * Repeated calls continue from the current time and permit append-only model

@@ -40,6 +40,9 @@ public:
     void setSphereVelocity(int particleIndex, const Vec3& value);
     /** Replaces one sphere angular velocity before or between solve calls. */
     void setSphereAngularVelocity(int particleIndex, const Vec3& value);
+    /** Installs saved kinematics/mass before initialization, retaining this sphere's radius and material owner. */
+    void restoreInitialSphere(int particleIndex, const rigidBodyState& value);
+    void restoreInitialContacts(std::vector<contact> values, execution::contactType type) override;
     Real resetSphereVelocities(const std::vector<int>& indices, bool resetLinear = true, bool resetAngular = true);
     std::vector<int> removeSpheres(const std::vector<int>& indices);
     std::vector<int> removeLSParticles(const std::vector<int>& indices) override;

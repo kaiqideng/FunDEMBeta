@@ -82,6 +82,16 @@ inputs produce zero inverse mass. `rigidBody::setMassAndInertia()` additionally
 requires an invertible inertia tensor; otherwise it resets mass, inertia,
 and inverse inertia to the infinite-mass state.
 
+`rigidBodyState` and `rigidBody::restoreState()` provide a separate validated
+transport path for already accepted world kinematics and exact cached inverse
+mass/inertia tensors. Invalid state is rejected without changing the body;
+valid state preserves the supplied unit orientation and clears net force and
+torque. Infinite mass requires both inertia tensors to be zero, and finite
+mass requires a consistent finite inverse tensor. This path does not bind a
+material/geometry or recompute mass properties. Use the solver's fresh-only
+`restoreInitialSphere()` / `restoreInitialLSParticle()` wrappers for inserted
+particles; source net loads are not part of the body-state payload.
+
 The four shared integration operations are:
 
 1. Linear velocity from force, inverse mass, gravity, and time step.
@@ -122,7 +132,11 @@ SPH material properties are uniform solver configuration. A user-created `SPHPar
 
 `SPHJet.h` defines a validated source value type with outlet center, direction, radius, speed, and duration. It does not derive from a particle or own emitted particles. The product `speed * duration` determines the finite nominal stroke and layer count, not a long preloaded pipe. `SPHDEM::addSPHJet()` initially fills a short upstream buffer, then appends particles at scheduled layer births. The solver owns stable source membership and the active buffer indices, applies inlet velocity/reference density there, and permanently releases particles that cross the outlet. `SPHJetParticleIndices(firstIndex)` reports all particles already created by that source, including released particles; membership can be noncontiguous when sources are interleaved.
 
-Virtual particles are sampled on the uniform SPH lattice anchored by the first fluid particle. The LS grid is interpolated at each candidate point, and solid-side samples within a two-smoothing-length boundary band are retained with volume equal to one SPH lattice cell. This common lattice prevents boundary samples from overlapping fluid particles by half a spacing. Local position and normal follow the LS owner; world position, velocity, acceleration, force, and normal are refreshed by the coupling stages. `interaction/virtualParticleCoupling` owns the host owner mappings and accumulators used by those stages. Users never append virtual particles directly.
+Each LS owner is sampled once when fluid particles are available. New owners use a uniform lattice anchored by the current first fluid particle and spaced by the configured SPH spacing. The LS grid is interpolated at each candidate point; solid-side samples within a two-smoothing-length boundary band receive one lattice-cell volume. Sampling is deferred while the fluid container is empty.
+
+Within the same solver, later initialization retains existing owner-local positions, normals and sample order and appends samples only for new LS owners. Fluid motion or an LS pose change therefore leaves the accepted local discretization intact. Coupling refreshes world positions and normals from the current owner pose, together with velocity, acceleration and loads. Inlet openings may mask a sample's active volume while retaining its local values and slot. Removing LS owners keeps surviving samples in order and remaps their owner indices through the returned compaction map. A legal explicit spacing or smoothing-length change invalidates the sampling and causes a fresh generation on the next initialization.
+
+`interaction/virtualParticleCoupling` owns the host owner mappings and accumulators used by those stages. Users never append virtual particles directly.
 
 ## Spatial-Grid Ownership
 

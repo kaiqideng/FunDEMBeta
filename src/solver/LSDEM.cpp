@@ -150,6 +150,35 @@ LSParticle& LSDEM::mutableLSParticle(int particleIndex)
     return LSParticles_.host()[particleIndex];
 }
 
+void LSDEM::restoreInitialLSParticle(int particleIndex, const rigidBodyState& value)
+{
+    if (stepCount() != 0 || time() != 0.0)
+        throw std::logic_error("Initial LS state cannot replace an advanced solver.");
+    LSParticle& particle = mutableLSParticle(particleIndex);
+    if (!particle.restoreState(value))
+        throw std::invalid_argument("The saved LS particle kinematics or mass properties are invalid.");
+    invalidateContinuation();
+}
+
+void LSDEM::restoreInitialContacts(std::vector<contact> values, execution::contactType type)
+{
+    if (initialized() || stepCount() != 0 || time() != 0.0)
+        throw std::logic_error("Initial contact history cannot replace an initialized or advanced solver.");
+    if (type != execution::contactType::levelSetLevelSet)
+        throw std::invalid_argument("This solver does not own the requested contact family.");
+    for (const auto& value : values)
+    {
+        const int master = value.masterParticleIndex(), slave = value.slaveParticleIndex(), node = value.particleSurfaceNodeIndex();
+        if (master < 0 || slave < 0 || master == slave || master >= static_cast<int>(LSParticles_.hostSize()) ||
+            slave >= static_cast<int>(LSParticles_.hostSize()) || node < 0 || node >= static_cast<int>(LSParticles_.host()[master].surfaceNodes().size()) ||
+            !math::isFinite(value.point()) || !math::isFinite(value.normal()) || !math::isFinite(value.slidingSpringDeformation()) ||
+            !math::isFinite(value.rollingSpringDeformation()) || !math::isFinite(value.torsionalSpringDeformation()))
+            throw std::invalid_argument("The saved LS contact endpoints or spring history are invalid.");
+    }
+    LSParticleInteractions_.contacts().host() = std::move(values);
+    invalidateContinuation();
+}
+
 void LSDEM::setLSParticlePosition(int particleIndex, const Vec3& value)
 {
     LSParticle& particle = mutableLSParticle(particleIndex);

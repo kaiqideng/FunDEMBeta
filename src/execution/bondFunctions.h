@@ -120,7 +120,8 @@ FUNDEM_MATH_HD inline Real calculateBondStrengthCriterion(Real& axialStress,
                                                         Real area,
                                                         Real tensileStrength,
                                                         Real cohesion,
-                                                        Real friction) noexcept
+                                                        Real friction,
+                                                        bool progressiveDamage = true) noexcept
 {
     const Real radius = math::detail::sqrt(area / math::pi);
     const Real inertia = area * radius * radius / 4.0;
@@ -132,14 +133,22 @@ FUNDEM_MATH_HD inline Real calculateBondStrengthCriterion(Real& axialStress,
     bendingStress = math::norm(torque - twist * normal) * radius / inertia;
     const Real normalStress = axialStress + bendingStress;
     shearStress = shearForceStress + (twist < 0.0 ? -twist : twist) * radius / polar;
-    const Real tensileRatio = normalStress > 0.0 ? normalStress / tensileStrength : 0.0;
-    Real value = tensileRatio * tensileRatio;
-    if (shearStress > 0.0)
+    const Real shearCapacity = cohesion - friction * normalStress;
+    if (shearCapacity <= 0.0) return 1.0;
+    Real value = 0.;
+    if (!progressiveDamage)
     {
-        const Real shearCapacity = cohesion - friction * normalStress;
-        if (shearCapacity <= 0.0) return 1.0;
-        const Real shearRatio = shearStress / shearCapacity;
-        value += shearRatio * shearRatio;
+        if (normalStress > tensileStrength || shearStress > shearCapacity) value = 1.0;
+    }
+    else
+    {
+        const Real tensileRatio = normalStress > 0.0 ? normalStress / tensileStrength : 0.0;
+        value = tensileRatio * tensileRatio;
+        if (shearStress > 0.0)
+        {
+            const Real shearRatio = shearStress / shearCapacity;
+            value += shearRatio * shearRatio;
+        }
     }
     return value;
 }
@@ -197,7 +206,7 @@ FUNDEM_MATH_HD inline bool updateBondDamage(Real& damageFactor,
 
     Real axialStress, bendingStress, shearStress;
     const Real criterion = calculateBondStrengthCriterion(axialStress, bendingStress, shearStress, trialForce, trialTorque, normal,
-                                                          crossSectionArea, tensileStrength, cohesion, friction);
+                                                          crossSectionArea, tensileStrength, cohesion, friction, progressiveDamage);
     if (!progressiveDamage || (modeICriticalEnergy <= 0.0 && modeIICriticalEnergy <= 0.0))
     {
         if (criterion < 1.0) return false;

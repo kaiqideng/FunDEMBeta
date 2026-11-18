@@ -271,10 +271,14 @@ void testVirtualOpeningAndContinuation(executionMode mode, bool moving)
     }
     else
         require(finalVolumes == initialVolumes, "A static inlet opening must remain open after emission ends.");
+    reference.prepareRuntimeMutation();
+    reference.initialize();
+    require(openingVolumes(reference) == finalVolumes, "An event refresh changed a retained virtual-opening mask at the same represented time.");
+    require(reference.virtualParticles().hostSize() == originalSamples.size(), "An event refresh changed the virtual-opening sample count.");
     for (std::size_t index = 0; index < originalSamples.size(); ++index)
     {
         const auto& sample = reference.virtualParticles().host()[index];
-        require(sample.ownerLSParticleIndex() == originalSamples[index].ownerLSParticleIndex() && sample.localPosition() == originalSamples[index].localPosition(),
+        require(sample.ownerLSParticleIndex() == originalSamples[index].ownerLSParticleIndex() && sample.localPosition() == originalSamples[index].localPosition() && sample.localNormal() == originalSamples[index].localNormal(),
                 "Opening updates must not reorder samples or alter owner-local geometry.");
     }
     const auto& currentGrid = reference.geometries().hostGridNodes();

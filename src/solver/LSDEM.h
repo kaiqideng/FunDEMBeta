@@ -69,6 +69,10 @@ public:
     void setLSParticleVelocity(int particleIndex, const Vec3& value);
     /** Replaces one LS-particle angular velocity before or between solve calls. */
     void setLSParticleAngularVelocity(int particleIndex, const Vec3& value);
+    /** Installs exact saved kinematics/mass on an existing fresh LS particle without changing geometry/material ownership. */
+    void restoreInitialLSParticle(int particleIndex, const rigidBodyState& value);
+    /** Replaces saved host contact history before the first initialization; geometry/search caches are rebuilt later. */
+    virtual void restoreInitialContacts(std::vector<contact> values, execution::contactType type);
     /** Completed-step reset: independently select linear/angular velocity; pose and interaction memory remain. */
     Real resetLSParticleVelocities(const std::vector<int>& indices, bool resetLinear = true, bool resetAngular = true);
     /** Removes complete particles between advances, returning old-to-new indices (-1 for removed). */
